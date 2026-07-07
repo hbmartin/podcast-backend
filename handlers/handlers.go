@@ -3,11 +3,14 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"goapi-template/auth"
 	"goapi-template/db"
+	"goapi-template/errs"
 	"goapi-template/middlewares"
 	"goapi-template/models"
+	"goapi-template/tasks"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -19,10 +22,43 @@ import (
 
 type Handlers struct {
 	Queries db.Querier
+	Queue   *tasks.QueueClient
 }
 
 func New(querier db.Querier) Handlers {
 	return Handlers{Queries: querier}
+}
+
+// NewWithQueue builds Handlers that can also enqueue background tasks.
+func NewWithQueue(querier db.Querier, queue *tasks.QueueClient) Handlers {
+	return Handlers{Queries: querier, Queue: queue}
+}
+
+// writeError translates any error into an HTTP response. Well-known
+// database errors keep their legacy semantics (404 for missing rows, 409 for
+// duplicates) even when wrapped in an *errs.Error; remaining structured
+// errors are delegated to errs.HTTPErrorResponse, which logs the operation
+// stack and masks internal details from the client.
+func writeError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, nil)
+		return
+	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		writeJSON(w, http.StatusConflict, &models.ErrorResult{Errors: []string{"Record duplication detected"}})
+		return
+	}
+
+	var e *errs.Error
+	if errors.As(err, &e) {
+		errs.HTTPErrorResponse(w, e)
+		return
+	}
+
+	status, body := errorToHttpResult(err, r.Context())
+	writeJSON(w, status, body)
 }
 
 func errorToHttpResult(err error, ctx context.Context) (int, *models.ErrorResult) {
@@ -36,11 +72,12 @@ func errorToHttpResult(err error, ctx context.Context) (int, *models.ErrorResult
 		return http.StatusBadRequest, &models.ErrorResult{Errors: out}
 	}
 
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return http.StatusNotFound, nil
 	}
 
-	if dbError, ok := err.(*pgconn.PgError); ok {
+	var dbError *pgconn.PgError
+	if errors.As(err, &dbError) {
 		if dbError.Code == "23505" {
 			return http.StatusConflict, &models.ErrorResult{Errors: []string{"Record duplication detected"}}
 		}

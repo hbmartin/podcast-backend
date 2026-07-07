@@ -17,6 +17,13 @@
   - [x] Automatic Migrations
   - [x] Postgres DB provider
   - ~~[x] SQLite DB provider~~
+- [x] Errors
+  - [x] Structured errors with operation stack traces (`errs` package)
+  - [x] Client-safe JSON error responses that mask database/internal details
+- [x] Background jobs
+  - [x] Redis-backed task queue with [asynq](https://github.com/hibiken/asynq) (`tasks` package)
+  - [x] Priority queues (critical/default/low) and configurable concurrency
+  - [x] Graceful shutdown of web server and worker pool
 - [x] CI/CD
   - [x] Dockerfile
   - [x] Docker compose
@@ -48,6 +55,21 @@ ENABLE_SWAGGER=true
 DB_CONNECTION_STRING=postgres://postgres:94235CXcx@localhost:5432/goapitemplate?sslmode=disable
 ```
 By default, the template uses Postres and thus you need it installed locally or available elsewhere.
+
+#### Background task queue (optional)
+The background task queue is disabled by default. To enable it, add the following to your .env (a reachable Redis instance is required):
+
+```env
+ENABLE_TASK_QUEUE=true
+# Defaults to REDIS_ADDRESS (the cache Redis) or localhost:6379
+QUEUE_REDIS_ADDRESS=localhost:6379
+# Defaults to REDIS_PASSWORD
+QUEUE_REDIS_PASSWORD=
+# Number of concurrent workers, defaults to 10
+QUEUE_CONCURRENCY=10
+# Process queues in strict priority order (critical > default > low)
+QUEUE_STRICT_PRIORITY=false
+```
 
 ### Run
 ```powershell

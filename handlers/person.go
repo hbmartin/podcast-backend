@@ -33,8 +33,7 @@ func (h Handlers) GetPerson(w http.ResponseWriter, r *http.Request) {
 	result, err := h.Queries.GetPersonById(r.Context(), int32(id))
 
 	if err != nil {
-		status, body := errorToHttpResult(err, r.Context())
-		writeJSON(w, status, body)
+		writeError(w, r, err)
 		return
 	}
 	body := models.Person{
@@ -83,8 +82,7 @@ func (h Handlers) PostPerson(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		status, body := errorToHttpResult(err, r.Context())
-		writeJSON(w, status, body)
+		writeError(w, r, err)
 		return
 	}
 
@@ -131,8 +129,7 @@ func (h Handlers) PutPerson(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		status, err := errorToHttpResult(err, r.Context())
-		writeJSON(w, status, err)
+		writeError(w, r, err)
 		return
 	}
 
@@ -166,8 +163,7 @@ func (h Handlers) DeletePerson(w http.ResponseWriter, r *http.Request) {
 	result, err := h.Queries.DeletePerson(r.Context(), int32(id))
 
 	if err != nil {
-		status, err := errorToHttpResult(err, r.Context())
-		writeJSON(w, status, err)
+		writeError(w, r, err)
 		return
 	}
 
