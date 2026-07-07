@@ -26,7 +26,6 @@ COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
 WORKDIR /app
 COPY --from=builder /app/goapi-template .
-COPY --from=builder /app/auth/authz.rego ./auth/authz.rego
 COPY --from=builder /app/db/migrations/ ./db/migrations/
 USER appuser:appuser
 EXPOSE 8000

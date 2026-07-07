@@ -1,13 +1,10 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -15,13 +12,10 @@ import (
 )
 
 type AuthConfiguration struct {
-	Issuer          string   `json:"issuer"`
-	JWKSUri         string   `json:"jwks_uri"`
-	TokenSigningAlg []string `json:"id_token_signing_alg_values_supported"`
-	Audience        string   `json:"audience"`
-	ScopeClaim      string   `json:"scope_claim"`
-	Scopes          []string `json:"scopes"`
-	ClaimFields     []string `json:"claims"`
+	// JWTSecret signs and verifies HS256 access tokens. Required, min 32 bytes.
+	JWTSecret       string
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
 }
 
 type WebServerConfiguration struct {
@@ -59,55 +53,33 @@ type Configuration struct {
 }
 
 func loadAuthConfig() (*AuthConfiguration, error) {
-	configUrl, ok := os.LookupEnv("AUTH_CONFIG_URL")
-	if !ok {
-		return nil, fmt.Errorf("AUTH_CONFIG_URL is a required parameter")
+	config := &AuthConfiguration{}
+
+	secret, ok := os.LookupEnv("AUTH_JWT_SECRET")
+	if !ok || len(secret) < 32 {
+		return nil, fmt.Errorf("AUTH_JWT_SECRET must be set to at least 32 bytes")
+	}
+	config.JWTSecret = secret
+
+	config.AccessTokenTTL = 24 * time.Hour
+	if ttl, ok := os.LookupEnv("AUTH_ACCESS_TOKEN_TTL"); ok {
+		parsed, err := time.ParseDuration(ttl)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("AUTH_ACCESS_TOKEN_TTL must be a positive duration")
+		}
+		config.AccessTokenTTL = parsed
 	}
 
-	config, err := readOpenIdConfigurationFromURL(configUrl)
-
-	if err != nil {
-		return nil, err
-	}
-
-	config.Audience = os.Getenv("AUTH_AUDIENCE")
-
-	scopeClaim, ok := os.LookupEnv("AUTH_SCOPE_CLAIM")
-	if !ok {
-		scopeClaim = "scp"
-	}
-	config.ScopeClaim = scopeClaim
-
-	if scopes, ok := os.LookupEnv("AUTH_SCOPES"); ok {
-		config.Scopes = strings.Split(scopes, ",")
-	}
-
-	if authClaims, ok := os.LookupEnv("AUTH_CLAIMS"); ok {
-		config.ClaimFields = strings.Split(authClaims, ",")
+	config.RefreshTokenTTL = 365 * 24 * time.Hour
+	if ttl, ok := os.LookupEnv("AUTH_REFRESH_TOKEN_TTL"); ok {
+		parsed, err := time.ParseDuration(ttl)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("AUTH_REFRESH_TOKEN_TTL must be a positive duration")
+		}
+		config.RefreshTokenTTL = parsed
 	}
 
 	return config, nil
-}
-
-func readOpenIdConfigurationFromURL(configUrl string) (*AuthConfiguration, error) {
-	if configUrl == "" {
-		return nil, fmt.Errorf("cannot read OpenId configuration without URL")
-	}
-
-	response, err := http.Get(configUrl)
-	if err != nil {
-		return nil, err
-	}
-
-	defer response.Body.Close()
-
-	target := &AuthConfiguration{}
-	err = json.NewDecoder(response.Body).Decode(target)
-	if err != nil {
-		return nil, err
-	}
-
-	return target, nil
 }
 
 func loadWebServerConfig() (*WebServerConfiguration, error) {

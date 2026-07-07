@@ -17,7 +17,6 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 
 	"goapi-template/auth"
-	"goapi-template/cache"
 	"goapi-template/config"
 	"goapi-template/db"
 	"goapi-template/docs"
@@ -28,13 +27,21 @@ import (
 
 var configValues *config.Configuration
 
-func withMiddlewares(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+// publicChain serves unauthenticated endpoints: trace, log, CORS.
+func publicChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+	return middlewares.TraceMiddleware(
+		middlewares.LogMiddleware(
+			configValues.WebServerConfig.Cors.Handler(
+				http.HandlerFunc(handler))))
+}
+
+// authChain additionally requires a valid Bearer access token.
+func authChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
 	return middlewares.TraceMiddleware(
 		middlewares.LogMiddleware(
 			configValues.WebServerConfig.Cors.Handler(
 				auth.TokenAuthMiddleware(
-					auth.OpaMiddleware(
-						http.HandlerFunc(handler))))))
+					http.HandlerFunc(handler)))))
 }
 
 func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
@@ -46,16 +53,21 @@ func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) htt
 func setupRouter(db db.Querier, queueClient *tasks.QueueClient) http.Handler {
 	slog.Info("Starting API... \n")
 
-	controllers := handlers.NewWithQueue(db, queueClient)
+	controllers := handlers.NewWithQueue(db, queueClient, configValues.AuthConfig)
 	router := http.NewServeMux()
 
 	router.HandleFunc("OPTIONS /", configValues.WebServerConfig.Cors.HandlerFunc)
 	router.Handle("GET /health", onlyLogMiddleware(controllers.GetHealth))
+	router.Handle("GET /health.html", onlyLogMiddleware(controllers.GetHealthHTML))
 
-	router.Handle("GET /person/{id}", withMiddlewares(controllers.GetPerson))
-	router.Handle("POST /person", withMiddlewares(controllers.PostPerson))
-	router.Handle("PUT /person/{id}", withMiddlewares(controllers.PutPerson))
-	router.Handle("DELETE /person/{id}", withMiddlewares(controllers.DeletePerson))
+	// api host role: account & auth (protobuf)
+	router.Handle("POST /user/login", publicChain(controllers.PostUserLogin))
+	router.Handle("POST /user/register", publicChain(controllers.PostUserRegister))
+	router.Handle("POST /user/forgot_password", publicChain(controllers.PostForgotPassword))
+	router.Handle("POST /user/token", publicChain(controllers.PostUserToken))
+	router.Handle("POST /user/change_email", authChain(controllers.PostChangeEmail))
+	router.Handle("POST /user/change_password", authChain(controllers.PostChangePassword))
+	router.Handle("POST /user/delete_account", authChain(controllers.PostDeleteAccount))
 
 	if configValues.WebServerConfig.EnableSwagger {
 		slog.Info("Swagger enabled")
@@ -86,17 +98,6 @@ func initDB(ctx context.Context, configValues *config.Configuration) (db.Querier
 	return queries, conn.Close
 }
 
-func initCache(querier db.Querier, configValues *config.CacheConfiguration) (db.Querier, func()) {
-	// replace regular querier with caching querier if config says so
-	if configValues.EnableTransparentCaching {
-		cache := cache.NewRawCacher(configValues)
-
-		return db.NewCachingQuerier(querier, cache), cache.Close
-	}
-
-	return querier, func() {}
-
-}
 
 func startWebServer(querier db.Querier, queueClient *tasks.QueueClient, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
 	slog.Info("Setting up API router...\n")
@@ -130,10 +131,6 @@ func startWebServer(querier db.Querier, queueClient *tasks.QueueClient, configVa
 	return srv.Shutdown
 }
 
-// @securitydefinitions.oauth2.implicit					OAuth2Implicit
-// @authorizationUrl										https://login.microsoftonline.com/9e6b9f31-c202-4cbd-a9b1-7e5cb3874384/oauth2/v2.0/authorize
-// @tokenUrl												https://login.microsoftonline.com/9e6b9f31-c202-4cbd-a9b1-7e5cb3874384/oauth2/v2.0/token
-// @scope.api://c571ab3c-0fde-43b2-b010-77e7bdd0d6f7/api	API
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -147,10 +144,6 @@ func main() {
 	slog.Info("Init DB...\n")
 	querier, dbDispose := initDB(ctx, configValues)
 	defer dbDispose()
-
-	slog.Info("Init Caching...")
-	querier, cacheDispose := initCache(querier, configValues.CacheConfig)
-	defer cacheDispose()
 
 	// Initialize and start the background worker server and the queue
 	// client used by API handlers to enqueue tasks.

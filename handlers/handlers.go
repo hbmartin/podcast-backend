@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"goapi-template/auth"
+	"goapi-template/config"
 	"goapi-template/db"
 	"goapi-template/errs"
 	"goapi-template/middlewares"
@@ -23,15 +24,17 @@ import (
 type Handlers struct {
 	Queries db.Querier
 	Queue   *tasks.QueueClient
+	Config  *config.AuthConfiguration
 }
 
 func New(querier db.Querier) Handlers {
 	return Handlers{Queries: querier}
 }
 
-// NewWithQueue builds Handlers that can also enqueue background tasks.
-func NewWithQueue(querier db.Querier, queue *tasks.QueueClient) Handlers {
-	return Handlers{Queries: querier, Queue: queue}
+// NewWithQueue builds Handlers that can also enqueue background tasks and
+// mint tokens.
+func NewWithQueue(querier db.Querier, queue *tasks.QueueClient, authConfig *config.AuthConfiguration) Handlers {
+	return Handlers{Queries: querier, Queue: queue, Config: authConfig}
 }
 
 // writeError translates any error into an HTTP response. Well-known
@@ -108,6 +111,7 @@ func getUserEmail(ctx context.Context) string {
 	return ""
 }
 
+//lint:ignore U1000 used by the JSON refresh/cache host handlers in upcoming milestones
 func bindJSON(r *http.Request, result any) error {
 	err := json.NewDecoder(r.Body).Decode(result)
 
@@ -145,14 +149,6 @@ func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.WriteHeader(statusCode)
 	result, _ := json.Marshal(data)
 	w.Write(result)
-}
-
-func writeStatus(w http.ResponseWriter, statusCode int) {
-	w.WriteHeader(statusCode)
-}
-
-func getParam(r *http.Request, key string) string {
-	return r.PathValue(key)
 }
 
 func translateErrors(err validator.ValidationErrors) []string {

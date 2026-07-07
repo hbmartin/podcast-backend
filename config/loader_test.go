@@ -1,8 +1,6 @@
 package config
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -55,39 +53,47 @@ func TestLoadWebConfigMissingConnectionString(t *testing.T) {
 }
 
 func TestLoadAuthConfig(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"issuer":"issuer",
-			"jwks_uri":"jwks_uri",
-			"id_token_signing_alg_values_supported":["alg"]
-		}`))
-	}))
-	defer server.Close()
-
-	t.Setenv("AUTH_SCOPES", "api,test")
-	t.Setenv("AUTH_CLAIMS", "sid")
-	t.Setenv("AUTH_CONFIG_URL", server.URL)
-	t.Setenv("AUTH_AUDIENCE", "aud")
+	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("AUTH_ACCESS_TOKEN_TTL", "1h")
+	t.Setenv("AUTH_REFRESH_TOKEN_TTL", "720h")
 
 	config, err := loadAuthConfig()
 
 	assert.Nil(t, err)
 	assert.NotNil(t, config)
-	assert.Equal(t, "issuer", config.Issuer)
-	assert.Equal(t, "jwks_uri", config.JWKSUri)
-	assert.Contains(t, config.TokenSigningAlg, "alg")
+	assert.Equal(t, "0123456789abcdef0123456789abcdef", config.JWTSecret)
+	assert.Equal(t, time.Hour, config.AccessTokenTTL)
+	assert.Equal(t, 720*time.Hour, config.RefreshTokenTTL)
 }
 
-func TestLoadAuthConfigMissingUrl(t *testing.T) {
+func TestLoadAuthConfigDefaults(t *testing.T) {
+	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef")
+
+	config, err := loadAuthConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, 24*time.Hour, config.AccessTokenTTL)
+	assert.Equal(t, 365*24*time.Hour, config.RefreshTokenTTL)
+}
+
+func TestLoadAuthConfigMissingSecret(t *testing.T) {
 	_, err := loadAuthConfig()
 
 	assert.NotNil(t, err)
-	assert.Equal(t, err.Error(), "AUTH_CONFIG_URL is a required parameter")
+	assert.Equal(t, err.Error(), "AUTH_JWT_SECRET must be set to at least 32 bytes")
 }
 
-func TestLoadAuthConfigBadUrl(t *testing.T) {
-	t.Setenv("AUTH_CONFIG_URL", "http://localhost")
+func TestLoadAuthConfigShortSecret(t *testing.T) {
+	t.Setenv("AUTH_JWT_SECRET", "tooshort")
+
+	_, err := loadAuthConfig()
+
+	assert.NotNil(t, err)
+}
+
+func TestLoadAuthConfigBadTTL(t *testing.T) {
+	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("AUTH_ACCESS_TOKEN_TTL", "nonsense")
 
 	_, err := loadAuthConfig()
 
@@ -142,20 +148,7 @@ func TestLoadAllConfig(t *testing.T) {
 	t.Setenv("TLS_CERT_KEY_FILE", "tls_cert_key_file")
 	t.Setenv("DB_CONNECTION_STRING", "connection_string")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"issuer":"issuer",
-			"jwks_uri":"jwks_uri",
-			"id_token_signing_alg_values_supported":["alg"]
-		}`))
-	}))
-	defer server.Close()
-
-	t.Setenv("AUTH_SCOPES", "api,test")
-	t.Setenv("AUTH_CLAIMS", "sid")
-	t.Setenv("AUTH_CONFIG_URL", server.URL)
-	t.Setenv("AUTH_AUDIENCE", "aud")
+	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("ENABLE_TRANSPARENT_CACHE", "false")
 
 	config := LoadConfig()

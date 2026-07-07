@@ -1,8 +1,9 @@
 package auth
 
+// User is the authenticated identity stored in the request context by
+// TokenAuthMiddleware. UUID is the public user identifier (users.uuid).
 type User struct {
-	ID     string
-	Name   string
-	Email  string
-	Claims map[string]string
+	UUID  string
+	Email string
+	Scope string
 }

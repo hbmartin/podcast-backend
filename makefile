@@ -64,6 +64,15 @@ cobertura: ## Run the tests of the project and export a cobertura coverage xml
 	$(GOHOME)gocov convert profile.cov > profile.json
 	$(GOHOME)gocov-xml < profile.json > coverage.xml
 
+## Codegen:
+proto: ## Regenerate Go protobuf code from protos/api.proto
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	PATH="$$PATH:$(GOHOME)" protoc -I protos --go_out=. --go_opt=module=goapi-template protos/api.proto
+
+sqlc: ## Regenerate database code from db/queries.sql
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+	$(GOHOME)sqlc generate
+
 ## Lint:
 lint: vet-go lint-go ## Run all available linters
 
