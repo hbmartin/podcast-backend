@@ -164,9 +164,15 @@ func OpStack(err error) []string {
 
 // KindIs reports whether any error in err's chain is an *Error of Kind k.
 func KindIs(err error, k Kind) bool {
-	var e *Error
-	if errors.As(err, &e) {
-		return e.Kind == k
+	for err != nil {
+		var e *Error
+		if !errors.As(err, &e) {
+			return false
+		}
+		if e.Kind == k {
+			return true
+		}
+		err = e.Err
 	}
 	return false
 }

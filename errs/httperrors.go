@@ -23,7 +23,7 @@ type ServiceError struct {
 
 // HTTPErrorResponse takes a writer and an error, logs the error with its
 // operation stack trace and sends a client-safe JSON error response.
-// Raw database and internal error details are masked so they never leak
+// Raw database, internal, and unclassified error details are masked so they never leak
 // to clients.
 func HTTPErrorResponse(w http.ResponseWriter, err error) {
 	if err == nil {
@@ -68,21 +68,21 @@ func HTTPErrorResponse(w http.ResponseWriter, err error) {
 	case Unauthorized:
 		w.WriteHeader(http.StatusForbidden)
 		return
-	case Internal, Database:
-		// Mask raw database/internal messages to avoid leaking sensitive data
-		res = ErrResponse{
-			Error: ServiceError{
-				Kind:    e.Kind.String(),
-				Message: "An internal error occurred. Please contact support.",
-			},
-		}
-	default:
+	case Validation, Invalid:
 		res = ErrResponse{
 			Error: ServiceError{
 				Kind:    e.Kind.String(),
 				Code:    string(e.Code),
 				Param:   string(e.Param),
 				Message: e.Error(),
+			},
+		}
+	default:
+		// Mask raw database/internal/unclassified messages to avoid leaking sensitive data.
+		res = ErrResponse{
+			Error: ServiceError{
+				Kind:    e.Kind.String(),
+				Message: "An internal error occurred. Please contact support.",
 			},
 		}
 	}
@@ -110,5 +110,7 @@ func sendJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Error("failed to encode error response", "error", err)
+	}
 }

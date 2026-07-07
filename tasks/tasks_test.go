@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/hibiken/asynq"
@@ -47,6 +48,7 @@ func TestHandlePodcastRefreshTaskBadPayload(t *testing.T) {
 
 	assert.NotNil(t, err)
 	assert.True(t, errs.KindIs(err, errs.Internal))
+	assert.True(t, errors.Is(err, asynq.SkipRetry))
 	assert.Equal(t, []string{"tasks/WorkerServer.HandlePodcastRefreshTask"}, errs.OpStack(err))
 }
 
@@ -71,4 +73,5 @@ func TestHandleOpmlImportTaskBadPayload(t *testing.T) {
 
 	assert.NotNil(t, err)
 	assert.True(t, errs.KindIs(err, errs.Internal))
+	assert.True(t, errors.Is(err, asynq.SkipRetry))
 }

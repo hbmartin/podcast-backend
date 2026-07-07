@@ -58,6 +58,19 @@ func TestHTTPErrorResponseMasksDatabaseError(t *testing.T) {
 	assert.NotContains(t, res.Error.Message, "postgres")
 }
 
+func TestHTTPErrorResponseMasksOtherError(t *testing.T) {
+	rr := httptest.NewRecorder()
+	err := E(Op("service/DoThing"), "secret token leaked")
+	HTTPErrorResponse(rr, err)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	res := decodeErrResponse(t, rr)
+	assert.Equal(t, "error", res.Error.Kind)
+	assert.NotContains(t, res.Error.Message, "secret token")
+	assert.Empty(t, res.Error.Code)
+	assert.Empty(t, res.Error.Param)
+}
+
 func TestHTTPErrorResponseUnauthenticated(t *testing.T) {
 	rr := httptest.NewRecorder()
 	err := E(Op("auth/VerifyToken"), Unauthenticated, Realm("api"), "invalid token")
