@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"goapi-template/cache"
+	"goapi-template/errs"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -33,6 +34,12 @@ func (c *CachingQuerier) GetPeople(ctx context.Context) ([]Person, error) {
 }
 
 func (c *CachingQuerier) GetPersonById(ctx context.Context, id int32) (Person, error) {
+	const op errs.Op = "db/CachingQuerier.GetPersonById"
+
+	if id <= 0 {
+		return Person{}, errs.E(op, errs.Validation, errs.Parameter("id"), errs.Code("invalid_id"), "id must be greater than zero")
+	}
+
 	cached, err := cache.GetObject[Person](c.Cache, ctx, fmt.Sprintf("person:%d", id))
 
 	if err != nil {
@@ -44,10 +51,13 @@ func (c *CachingQuerier) GetPersonById(ctx context.Context, id int32) (Person, e
 	}
 
 	result, err := c.Queries.GetPersonById(ctx, id)
+	if err != nil {
+		return Person{}, errs.E(op, errs.Database, err)
+	}
 
 	cache.SetObject(c.Cache, ctx, fmt.Sprintf("person:%d", id), &result)
 
-	return result, err
+	return result, nil
 }
 
 func (c *CachingQuerier) InsertPerson(ctx context.Context, arg InsertPersonParams) (Person, error) {

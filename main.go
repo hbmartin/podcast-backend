@@ -3,9 +3,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -18,6 +22,7 @@ import (
 	"goapi-template/docs"
 	"goapi-template/handlers"
 	"goapi-template/middlewares"
+	"goapi-template/tasks"
 )
 
 var configValues *config.Configuration
@@ -37,10 +42,10 @@ func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) htt
 			http.HandlerFunc(handler)))
 }
 
-func setupRouter(db db.Querier) http.Handler {
+func setupRouter(db db.Querier, queueClient *tasks.QueueClient) http.Handler {
 	slog.Info("Starting API... \n")
 
-	controllers := handlers.New(db)
+	controllers := handlers.NewWithQueue(db, queueClient)
 	router := http.NewServeMux()
 
 	router.HandleFunc("OPTIONS /", configValues.WebServerConfig.Cors.HandlerFunc)
@@ -92,11 +97,11 @@ func initCache(querier db.Querier, configValues *config.CacheConfiguration) (db.
 
 }
 
-func startWebServer(querier db.Querier, configValues *config.Configuration) func(ctx context.Context) error {
+func startWebServer(querier db.Querier, queueClient *tasks.QueueClient, configValues *config.Configuration) func(ctx context.Context) error {
 	slog.Info("Setting up API router...\n")
 	docs.SwaggerInfo.BasePath = "/"
 
-	router := setupRouter(querier)
+	router := setupRouter(querier, queueClient)
 
 	srv := &http.Server{
 		Addr: configValues.WebServerConfig.WebPort,
@@ -105,18 +110,20 @@ func startWebServer(querier db.Querier, configValues *config.Configuration) func
 
 	useTls := configValues.WebServerConfig.TLSCertFile != "" && configValues.WebServerConfig.TLSCertKeyFile != ""
 
-	slog.Info("Starting TLS server", "port", configValues.WebServerConfig.WebPort, "tls", useTls)
+	slog.Info("Starting web server", "port", configValues.WebServerConfig.WebPort, "tls", useTls)
 
-	var err error
-	if useTls {
-		err = srv.ListenAndServeTLS(configValues.WebServerConfig.TLSCertFile, configValues.WebServerConfig.TLSCertKeyFile)
-	} else {
-		err = srv.ListenAndServe()
-	}
+	go func() {
+		var err error
+		if useTls {
+			err = srv.ListenAndServeTLS(configValues.WebServerConfig.TLSCertFile, configValues.WebServerConfig.TLSCertKeyFile)
+		} else {
+			err = srv.ListenAndServe()
+		}
 
-	if err != nil {
-		slog.Error("Error starting server", "error", err)
-	}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("Error starting server", "error", err)
+		}
+	}()
 
 	return srv.Shutdown
 }
@@ -126,7 +133,8 @@ func startWebServer(querier db.Querier, configValues *config.Configuration) func
 // @tokenUrl												https://login.microsoftonline.com/9e6b9f31-c202-4cbd-a9b1-7e5cb3874384/oauth2/v2.0/token
 // @scope.api://c571ab3c-0fde-43b2-b010-77e7bdd0d6f7/api	API
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	slog.Info("loading .env file...\n")
 	configValues = config.LoadConfig()
@@ -142,6 +150,38 @@ func main() {
 	querier, cacheDispose := initCache(querier, configValues.CacheConfig)
 	defer cacheDispose()
 
-	webDispose := startWebServer(querier, configValues)
-	defer webDispose(ctx)
+	// Initialize and start the background worker server and the queue
+	// client used by API handlers to enqueue tasks.
+	var worker *tasks.WorkerServer
+	var queueClient *tasks.QueueClient
+	if configValues.QueueConfig.Enabled {
+		slog.Info("Starting background worker server...")
+		worker = tasks.NewWorkerServer(configValues, querier)
+		go func() {
+			if err := worker.Start(); err != nil {
+				slog.Error("Asynq server failed to start", "error", err)
+			}
+		}()
+
+		queueClient = tasks.NewQueueClient(
+			configValues.QueueConfig.RedisAddress,
+			configValues.QueueConfig.RedisPassword,
+		)
+		defer queueClient.Close()
+	}
+
+	webDispose := startWebServer(querier, queueClient, configValues)
+
+	// Block until an interrupt signal is received
+	<-ctx.Done()
+	slog.Info("Shutting down servers gracefully...")
+
+	// Gracefully close the web server, then the worker pool
+	if err := webDispose(context.Background()); err != nil {
+		slog.Error("Error shutting down web server", "error", err)
+	}
+	if worker != nil {
+		worker.Shutdown()
+	}
+	slog.Info("All services stopped.")
 }
