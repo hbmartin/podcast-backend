@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/hibiken/asynq"
@@ -24,6 +25,7 @@ func NewWorkerServer(cfg *config.Configuration, querier db.Querier) *WorkerServe
 		asynq.RedisClientOpt{
 			Addr:     cfg.QueueConfig.RedisAddress,
 			Password: cfg.QueueConfig.RedisPassword,
+			DB:       cfg.QueueConfig.RedisDb,
 		},
 		asynq.Config{
 			Concurrency: cfg.QueueConfig.Concurrency,
@@ -61,7 +63,7 @@ func (w *WorkerServer) HandlePodcastRefreshTask(ctx context.Context, t *asynq.Ta
 
 	var payload PodcastRefreshPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		return errs.E(op, errs.Internal, err)
+		return errs.E(op, errs.Internal, fmt.Errorf("%w: %v", asynq.SkipRetry, err))
 	}
 
 	slog.Info("Executing Podcast Refresh", "uuid", payload.PodcastUUID, "feed_url", payload.FeedURL)
@@ -78,7 +80,7 @@ func (w *WorkerServer) HandleOpmlImportTask(ctx context.Context, t *asynq.Task) 
 
 	var payload OpmlImportPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		return errs.E(op, errs.Internal, err)
+		return errs.E(op, errs.Internal, fmt.Errorf("%w: %v", asynq.SkipRetry, err))
 	}
 
 	slog.Info("Executing OPML Import batch", "user_uuid", payload.UserUUID, "count", len(payload.FeedURLs))

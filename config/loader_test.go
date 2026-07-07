@@ -180,6 +180,7 @@ func TestLoadQueueConfigDefaults(t *testing.T) {
 	assert.NotNil(t, config)
 	assert.True(t, config.Enabled)
 	assert.Equal(t, "localhost:6379", config.RedisAddress)
+	assert.Equal(t, 0, config.RedisDb)
 	assert.Equal(t, 10, config.Concurrency)
 	assert.False(t, config.StrictPriority)
 }
@@ -188,6 +189,7 @@ func TestLoadQueueConfig(t *testing.T) {
 	t.Setenv("ENABLE_TASK_QUEUE", "true")
 	t.Setenv("QUEUE_REDIS_ADDRESS", "queue-redis:6379")
 	t.Setenv("QUEUE_REDIS_PASSWORD", "queue-password")
+	t.Setenv("QUEUE_REDIS_DB", "2")
 	t.Setenv("QUEUE_CONCURRENCY", "25")
 	t.Setenv("QUEUE_STRICT_PRIORITY", "true")
 
@@ -197,6 +199,7 @@ func TestLoadQueueConfig(t *testing.T) {
 	assert.NotNil(t, config)
 	assert.Equal(t, "queue-redis:6379", config.RedisAddress)
 	assert.Equal(t, "queue-password", config.RedisPassword)
+	assert.Equal(t, 2, config.RedisDb)
 	assert.Equal(t, 25, config.Concurrency)
 	assert.True(t, config.StrictPriority)
 }
@@ -212,11 +215,22 @@ func TestLoadQueueConfigFallsBackToCacheRedis(t *testing.T) {
 	assert.NotNil(t, config)
 	assert.Equal(t, "cache-redis:6379", config.RedisAddress)
 	assert.Equal(t, "cache-password", config.RedisPassword)
+	assert.Equal(t, 0, config.RedisDb)
 }
 
 func TestLoadQueueConfigInvalidConcurrency(t *testing.T) {
 	t.Setenv("ENABLE_TASK_QUEUE", "true")
 	t.Setenv("QUEUE_CONCURRENCY", "not-a-number")
+
+	config, err := loadQueueConfig()
+
+	assert.Nil(t, config)
+	assert.NotNil(t, err)
+}
+
+func TestLoadQueueConfigInvalidRedisDb(t *testing.T) {
+	t.Setenv("ENABLE_TASK_QUEUE", "true")
+	t.Setenv("QUEUE_REDIS_DB", "-1")
 
 	config, err := loadQueueConfig()
 

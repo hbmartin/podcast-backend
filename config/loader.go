@@ -46,6 +46,7 @@ type QueueConfiguration struct {
 	Enabled        bool
 	RedisAddress   string
 	RedisPassword  string
+	RedisDb        int
 	Concurrency    int
 	StrictPriority bool
 }
@@ -207,6 +208,14 @@ func loadQueueConfig() (*QueueConfiguration, error) {
 		config.RedisPassword = redisPassword
 	} else {
 		config.RedisPassword, _ = os.LookupEnv("REDIS_PASSWORD")
+	}
+
+	if redisDbStr, ok := os.LookupEnv("QUEUE_REDIS_DB"); ok {
+		redisDb, err := strconv.Atoi(redisDbStr)
+		if err != nil || redisDb < 0 {
+			return nil, fmt.Errorf("QUEUE_REDIS_DB must be a non-negative integer")
+		}
+		config.RedisDb = redisDb
 	}
 
 	if concurrencyStr, ok := os.LookupEnv("QUEUE_CONCURRENCY"); ok {

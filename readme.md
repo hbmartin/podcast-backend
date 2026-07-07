@@ -57,6 +57,7 @@ DB_CONNECTION_STRING=postgres://postgres:94235CXcx@localhost:5432/goapitemplate?
 By default, the template uses Postres and thus you need it installed locally or available elsewhere.
 
 #### Background task queue (optional)
+
 The background task queue is disabled by default. To enable it, add the following to your .env (a reachable Redis instance is required):
 
 ```env
@@ -65,6 +66,8 @@ ENABLE_TASK_QUEUE=true
 QUEUE_REDIS_ADDRESS=localhost:6379
 # Defaults to REDIS_PASSWORD
 QUEUE_REDIS_PASSWORD=
+# Defaults to 0; use a separate DB or Redis instance from cache in production
+QUEUE_REDIS_DB=1
 # Number of concurrent workers, defaults to 10
 QUEUE_CONCURRENCY=10
 # Process queues in strict priority order (critical > default > low)
