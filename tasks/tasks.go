@@ -43,11 +43,12 @@ type QueueClient struct {
 	client *asynq.Client
 }
 
-func NewQueueClient(redisAddr string, redisPwd string) *QueueClient {
+func NewQueueClient(redisAddr string, redisPwd string, redisDb int) *QueueClient {
 	return &QueueClient{
 		client: asynq.NewClient(asynq.RedisClientOpt{
 			Addr:     redisAddr,
 			Password: redisPwd,
+			DB:       redisDb,
 		}),
 	}
 }

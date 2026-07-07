@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -97,7 +98,7 @@ func initCache(querier db.Querier, configValues *config.CacheConfiguration) (db.
 
 }
 
-func startWebServer(querier db.Querier, queueClient *tasks.QueueClient, configValues *config.Configuration) func(ctx context.Context) error {
+func startWebServer(querier db.Querier, queueClient *tasks.QueueClient, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
 	slog.Info("Setting up API router...\n")
 	docs.SwaggerInfo.BasePath = "/"
 
@@ -122,6 +123,7 @@ func startWebServer(querier db.Querier, queueClient *tasks.QueueClient, configVa
 
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("Error starting server", "error", err)
+			cancel()
 		}
 	}()
 
@@ -160,24 +162,32 @@ func main() {
 		go func() {
 			if err := worker.Start(); err != nil {
 				slog.Error("Asynq server failed to start", "error", err)
+				stop()
 			}
 		}()
 
 		queueClient = tasks.NewQueueClient(
 			configValues.QueueConfig.RedisAddress,
 			configValues.QueueConfig.RedisPassword,
+			configValues.QueueConfig.RedisDb,
 		)
-		defer queueClient.Close()
+		defer func() {
+			if err := queueClient.Close(); err != nil {
+				slog.Error("Error closing queue client", "error", err)
+			}
+		}()
 	}
 
-	webDispose := startWebServer(querier, queueClient, configValues)
+	webDispose := startWebServer(querier, queueClient, configValues, stop)
 
 	// Block until an interrupt signal is received
 	<-ctx.Done()
 	slog.Info("Shutting down servers gracefully...")
 
 	// Gracefully close the web server, then the worker pool
-	if err := webDispose(context.Background()); err != nil {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := webDispose(shutdownCtx); err != nil {
 		slog.Error("Error shutting down web server", "error", err)
 	}
 	if worker != nil {

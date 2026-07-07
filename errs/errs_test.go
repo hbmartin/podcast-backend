@@ -75,3 +75,13 @@ func TestKindIs(t *testing.T) {
 	assert.False(t, KindIs(err, Database))
 	assert.False(t, KindIs(fmt.Errorf("plain"), Validation))
 }
+
+func TestKindIsWalksNestedErrsChain(t *testing.T) {
+	root := E(Op("db/GetPersonById"), Database, "connection refused")
+	mid := fmt.Errorf("service failed: %w", root)
+	top := E(Op("handlers/GetPerson"), Validation, mid)
+
+	assert.True(t, KindIs(top, Validation))
+	assert.True(t, KindIs(top, Database))
+	assert.False(t, KindIs(top, Internal))
+}

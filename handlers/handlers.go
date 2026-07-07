@@ -41,12 +41,14 @@ func NewWithQueue(querier db.Querier, queue *tasks.QueueClient) Handlers {
 // stack and masks internal details from the client.
 func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, pgx.ErrNoRows) {
+		slog.Debug("Resource not found", "traceId", r.Context().Value(middlewares.ContextKey("traceId")))
 		writeJSON(w, http.StatusNotFound, nil)
 		return
 	}
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		slog.Warn("Duplicate record rejected", "constraint", pgErr.ConstraintName, "traceId", r.Context().Value(middlewares.ContextKey("traceId")))
 		writeJSON(w, http.StatusConflict, &models.ErrorResult{Errors: []string{"Record duplication detected"}})
 		return
 	}
