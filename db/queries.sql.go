@@ -479,7 +479,7 @@ func (q *Queries) GetDuePodcasts(ctx context.Context, limit int32) ([]Podcast, e
 }
 
 const getEpisodeByUUID = `-- name: GetEpisodeByUUID :one
-SELECT id, uuid, podcast_id, guid, title, audio_url, file_type, file_size, duration_secs, published_at, episode_type, season, number, show_notes, image_url, created_at, updated_at FROM episodes WHERE uuid = $1
+SELECT id, uuid, podcast_id, guid, title, audio_url, file_type, file_size, duration_secs, published_at, episode_type, season, number, show_notes, image_url, created_at, updated_at, transcripts, chapters_url FROM episodes WHERE uuid = $1
 `
 
 func (q *Queries) GetEpisodeByUUID(ctx context.Context, uuid string) (Episode, error) {
@@ -503,12 +503,14 @@ func (q *Queries) GetEpisodeByUUID(ctx context.Context, uuid string) (Episode, e
 		&i.ImageUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Transcripts,
+		&i.ChaptersUrl,
 	)
 	return i, err
 }
 
 const getEpisodesByPodcastID = `-- name: GetEpisodesByPodcastID :many
-SELECT id, uuid, podcast_id, guid, title, audio_url, file_type, file_size, duration_secs, published_at, episode_type, season, number, show_notes, image_url, created_at, updated_at FROM episodes
+SELECT id, uuid, podcast_id, guid, title, audio_url, file_type, file_size, duration_secs, published_at, episode_type, season, number, show_notes, image_url, created_at, updated_at, transcripts, chapters_url FROM episodes
 WHERE podcast_id = $1
 ORDER BY published_at DESC NULLS LAST
 LIMIT $2
@@ -546,6 +548,8 @@ func (q *Queries) GetEpisodesByPodcastID(ctx context.Context, arg GetEpisodesByP
 			&i.ImageUrl,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Transcripts,
+			&i.ChaptersUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -558,7 +562,7 @@ func (q *Queries) GetEpisodesByPodcastID(ctx context.Context, arg GetEpisodesByP
 }
 
 const getEpisodesPublishedAfter = `-- name: GetEpisodesPublishedAfter :many
-SELECT id, uuid, podcast_id, guid, title, audio_url, file_type, file_size, duration_secs, published_at, episode_type, season, number, show_notes, image_url, created_at, updated_at FROM episodes
+SELECT id, uuid, podcast_id, guid, title, audio_url, file_type, file_size, duration_secs, published_at, episode_type, season, number, show_notes, image_url, created_at, updated_at, transcripts, chapters_url FROM episodes
 WHERE podcast_id = $1 AND published_at > $2
 ORDER BY published_at DESC
 LIMIT $3
@@ -597,6 +601,8 @@ func (q *Queries) GetEpisodesPublishedAfter(ctx context.Context, arg GetEpisodes
 			&i.ImageUrl,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Transcripts,
+			&i.ChaptersUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -1933,7 +1939,7 @@ func (q *Queries) RevokeRefreshToken(ctx context.Context, tokenHash string) (int
 }
 
 const searchEpisodesGlobal = `-- name: SearchEpisodesGlobal :many
-SELECT e.id, e.uuid, e.podcast_id, e.guid, e.title, e.audio_url, e.file_type, e.file_size, e.duration_secs, e.published_at, e.episode_type, e.season, e.number, e.show_notes, e.image_url, e.created_at, e.updated_at, p.uuid AS parent_podcast_uuid, p.title AS parent_podcast_title
+SELECT e.id, e.uuid, e.podcast_id, e.guid, e.title, e.audio_url, e.file_type, e.file_size, e.duration_secs, e.published_at, e.episode_type, e.season, e.number, e.show_notes, e.image_url, e.created_at, e.updated_at, e.transcripts, e.chapters_url, p.uuid AS parent_podcast_uuid, p.title AS parent_podcast_title
 FROM episodes e
 JOIN podcasts p ON p.id = e.podcast_id
 WHERE e.title ILIKE '%' || $1 || '%'
@@ -1964,6 +1970,8 @@ type SearchEpisodesGlobalRow struct {
 	ImageUrl           string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	Transcripts        []byte
+	ChaptersUrl        string
 	ParentPodcastUuid  string
 	ParentPodcastTitle string
 }
@@ -1995,6 +2003,8 @@ func (q *Queries) SearchEpisodesGlobal(ctx context.Context, arg SearchEpisodesGl
 			&i.ImageUrl,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Transcripts,
+			&i.ChaptersUrl,
 			&i.ParentPodcastUuid,
 			&i.ParentPodcastTitle,
 		); err != nil {
@@ -2009,7 +2019,7 @@ func (q *Queries) SearchEpisodesGlobal(ctx context.Context, arg SearchEpisodesGl
 }
 
 const searchEpisodesInPodcast = `-- name: SearchEpisodesInPodcast :many
-SELECT e.id, e.uuid, e.podcast_id, e.guid, e.title, e.audio_url, e.file_type, e.file_size, e.duration_secs, e.published_at, e.episode_type, e.season, e.number, e.show_notes, e.image_url, e.created_at, e.updated_at FROM episodes e
+SELECT e.id, e.uuid, e.podcast_id, e.guid, e.title, e.audio_url, e.file_type, e.file_size, e.duration_secs, e.published_at, e.episode_type, e.season, e.number, e.show_notes, e.image_url, e.created_at, e.updated_at, e.transcripts, e.chapters_url FROM episodes e
 JOIN podcasts p ON p.id = e.podcast_id
 WHERE p.uuid = $1 AND e.title ILIKE '%' || $2 || '%'
 ORDER BY e.published_at DESC NULLS LAST
@@ -2049,6 +2059,8 @@ func (q *Queries) SearchEpisodesInPodcast(ctx context.Context, arg SearchEpisode
 			&i.ImageUrl,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Transcripts,
+			&i.ChaptersUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -2615,8 +2627,8 @@ const upsertEpisode = `-- name: UpsertEpisode :exec
 INSERT INTO episodes (
     uuid, podcast_id, guid, title, audio_url, file_type, file_size,
     duration_secs, published_at, episode_type, season, number, show_notes,
-    image_url
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    image_url, transcripts, chapters_url
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (podcast_id, guid) DO UPDATE SET
     title = EXCLUDED.title,
     audio_url = EXCLUDED.audio_url,
@@ -2629,6 +2641,8 @@ ON CONFLICT (podcast_id, guid) DO UPDATE SET
     number = EXCLUDED.number,
     show_notes = EXCLUDED.show_notes,
     image_url = EXCLUDED.image_url,
+    transcripts = EXCLUDED.transcripts,
+    chapters_url = EXCLUDED.chapters_url,
     updated_at = now()
 `
 
@@ -2647,6 +2661,8 @@ type UpsertEpisodeParams struct {
 	Number       int32
 	ShowNotes    string
 	ImageUrl     string
+	Transcripts  []byte
+	ChaptersUrl  string
 }
 
 func (q *Queries) UpsertEpisode(ctx context.Context, arg UpsertEpisodeParams) error {
@@ -2665,6 +2681,8 @@ func (q *Queries) UpsertEpisode(ctx context.Context, arg UpsertEpisodeParams) er
 		arg.Number,
 		arg.ShowNotes,
 		arg.ImageUrl,
+		arg.Transcripts,
+		arg.ChaptersUrl,
 	)
 	return err
 }

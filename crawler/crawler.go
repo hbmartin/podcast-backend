@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -235,7 +236,59 @@ func episodeFromItem(podcast db.Podcast, item *gofeed.Item) (db.UpsertEpisodePar
 		params.ImageUrl = item.Image.URL
 	}
 
+	params.Transcripts = itemTranscripts(item)
+	params.ChaptersUrl = itemChaptersURL(item)
+
 	return params, true
+}
+
+// Transcript is one podcast:transcript entry, stored as the JSON shape the
+// iOS client decodes from the show-notes payload.
+type Transcript struct {
+	URL      string `json:"url"`
+	Type     string `json:"type"`
+	Language string `json:"language,omitempty"`
+}
+
+// transcriptTypes are the MIME types the client's TranscriptFormat can
+// render; other formats are dropped at ingest.
+var transcriptTypes = map[string]bool{
+	"text/vtt":             true,
+	"application/json":     true,
+	"application/srt":      true,
+	"application/x-subrip": true,
+	"text/html":            true,
+}
+
+// itemTranscripts extracts Podcasting 2.0 <podcast:transcript> tags. The
+// result is always valid JSON (at least "[]") because the column is NOT NULL
+// and the client requires the key to exist.
+func itemTranscripts(item *gofeed.Item) []byte {
+	var out []Transcript
+	for _, tag := range item.Extensions["podcast"]["transcript"] {
+		url, mimeType := tag.Attrs["url"], tag.Attrs["type"]
+		if url == "" || !transcriptTypes[mimeType] {
+			continue
+		}
+		out = append(out, Transcript{URL: url, Type: mimeType, Language: tag.Attrs["language"]})
+	}
+
+	raw, err := json.Marshal(out)
+	if err != nil || out == nil {
+		return []byte("[]")
+	}
+	return raw
+}
+
+// itemChaptersURL extracts the Podcasting 2.0 <podcast:chapters> URL
+// (a Podcast Index chapters JSON document the client fetches directly).
+func itemChaptersURL(item *gofeed.Item) string {
+	for _, tag := range item.Extensions["podcast"]["chapters"] {
+		if url := tag.Attrs["url"]; url != "" {
+			return url
+		}
+	}
+	return ""
 }
 
 func enclosure(item *gofeed.Item) (url string, fileType string, size int64) {

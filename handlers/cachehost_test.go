@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
 
 	"github.com/stretchr/testify/assert"
@@ -184,15 +186,49 @@ func TestGetShowNotes(t *testing.T) {
 	m := newCacheMock()
 	episodes := m.episodes[testPodcastUUID]
 	episodes[0].ShowNotes = "<p>notes two</p>"
+	episodes[0].ImageUrl = "https://cdn/ep2.jpg"
+	episodes[0].Transcripts = []byte(`[{"url":"https://cdn/ep2.vtt","type":"text/vtt","language":"en"}]`)
+	episodes[0].ChaptersUrl = "https://cdn/ep2-chapters.json"
 	m.episodes[testPodcastUUID] = episodes
 	router := cacheRouter(m)
 
-	code, resp, _, err := makeRequest[podcastFullEnvelope](router, "GET", "/mobile/show_notes/full/"+testPodcastUUID, nil)
+	type showNotesEnvelope struct {
+		Podcast struct {
+			Episodes []struct {
+				UUID        string               `json:"uuid"`
+				ShowNotes   string               `json:"show_notes"`
+				Image       string               `json:"image"`
+				Transcripts []crawler.Transcript `json:"transcripts"`
+				ChaptersURL string               `json:"chapters_url"`
+			} `json:"episodes"`
+		} `json:"podcast"`
+	}
+	code, resp, _, err := makeRequest[showNotesEnvelope](router, "GET", "/mobile/show_notes/full/"+testPodcastUUID, nil)
 
 	assert.NoError(t, err)
 	assert.Equal(t, 200, code)
 	assert.Len(t, resp.Podcast.Episodes, 2)
 	assert.Equal(t, "<p>notes two</p>", resp.Podcast.Episodes[0].ShowNotes)
+	assert.Equal(t, "https://cdn/ep2.jpg", resp.Podcast.Episodes[0].Image)
+	assert.Equal(t, []crawler.Transcript{{URL: "https://cdn/ep2.vtt", Type: "text/vtt", Language: "en"}}, resp.Podcast.Episodes[0].Transcripts)
+	assert.Equal(t, "https://cdn/ep2-chapters.json", resp.Podcast.Episodes[0].ChaptersURL)
+
+	// the client's Episode.Metadata decode REQUIRES the transcripts key even
+	// when empty — assert it is materialized as [], never omitted or null
+	req, _ := http.NewRequest("GET", "/mobile/show_notes/full/"+testPodcastUUID, nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	var raw struct {
+		Podcast struct {
+			Episodes []map[string]json.RawMessage `json:"episodes"`
+		} `json:"podcast"`
+	}
+	assert.NoError(t, json.Unmarshal(rr.Body.Bytes(), &raw))
+	for _, episode := range raw.Podcast.Episodes {
+		transcripts, ok := episode["transcripts"]
+		assert.True(t, ok, "transcripts key must always be present")
+		assert.NotEqual(t, "null", string(transcripts))
+	}
 }
 
 func TestGetEpisodeURL(t *testing.T) {

@@ -294,3 +294,25 @@ func TestCrawlNotifiesNewEpisodes(t *testing.T) {
 	assert.NoError(t, c.Crawl(context.Background(), podcast))
 	assert.Equal(t, 1, calls)
 }
+
+func TestCrawlParsesTranscriptsAndChapters(t *testing.T) {
+	store := newCatalogFake()
+	c := &Crawler{DB: store, Fetcher: &fixtureFetcher{file: "testdata/feed.xml"}}
+
+	podcast, err := c.EnsurePodcast(context.Background(), "https://example.com/feed.xml")
+	assert.NoError(t, err)
+
+	// Episode Two carries podcast:transcript + podcast:chapters tags; only
+	// client-renderable transcript formats survive ingest
+	ep2 := store.episodes[EpisodeUUID(podcast.Uuid, "ep-guid-2")]
+	assert.JSONEq(t,
+		`[{"url":"https://cdn.example.com/ep2.vtt","type":"text/vtt","language":"en"},
+		  {"url":"https://cdn.example.com/ep2.srt","type":"application/srt"}]`,
+		string(ep2.Transcripts))
+	assert.Equal(t, "https://cdn.example.com/ep2-chapters.json", ep2.ChaptersUrl)
+
+	// Episode One has neither: valid empty JSON, not NULL
+	ep1 := store.episodes[EpisodeUUID(podcast.Uuid, "ep-guid-1")]
+	assert.Equal(t, "[]", string(ep1.Transcripts))
+	assert.Empty(t, ep1.ChaptersUrl)
+}

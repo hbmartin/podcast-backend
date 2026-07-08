@@ -56,6 +56,8 @@ type Episode struct {
 	ImageUrl     string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	Transcripts  []byte
+	ChaptersUrl  string
 }
 
 type Folder struct {

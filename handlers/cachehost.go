@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
 
 	"github.com/jackc/pgx/v5"
@@ -158,13 +160,31 @@ func (h Handlers) GetShowNotesFull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Episode.Metadata as the client decodes it (convertFromSnakeCase):
+	// `transcripts` is the one non-optional field, so it must always be
+	// present -- even empty -- or the whole per-episode decode fails.
 	type showNotesEpisode struct {
-		UUID      string `json:"uuid"`
-		ShowNotes string `json:"show_notes"`
+		UUID        string               `json:"uuid"`
+		ShowNotes   string               `json:"show_notes"`
+		Image       string               `json:"image,omitempty"`
+		Transcripts []crawler.Transcript `json:"transcripts"`
+		ChaptersURL string               `json:"chapters_url,omitempty"`
 	}
 	notes := make([]showNotesEpisode, 0, len(episodes))
 	for _, episode := range episodes {
-		notes = append(notes, showNotesEpisode{UUID: episode.Uuid, ShowNotes: episode.ShowNotes})
+		transcripts := []crawler.Transcript{}
+		if len(episode.Transcripts) > 0 {
+			if err := json.Unmarshal(episode.Transcripts, &transcripts); err != nil {
+				transcripts = []crawler.Transcript{}
+			}
+		}
+		notes = append(notes, showNotesEpisode{
+			UUID:        episode.Uuid,
+			ShowNotes:   episode.ShowNotes,
+			Image:       episode.ImageUrl,
+			Transcripts: transcripts,
+			ChaptersURL: episode.ChaptersUrl,
+		})
 	}
 
 	serveCached(w, r, podcast.ContentModifiedMs, map[string]any{
