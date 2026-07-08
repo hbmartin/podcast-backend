@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"goapi-template/auth"
 	"goapi-template/config"
+	"goapi-template/crawler"
 	"goapi-template/db"
 	"goapi-template/errs"
+	"goapi-template/itunes"
 	"goapi-template/middlewares"
 	"goapi-template/models"
 	"goapi-template/tasks"
@@ -25,6 +27,8 @@ type Handlers struct {
 	Queries db.Store
 	Queue   *tasks.QueueClient
 	Config  *config.AuthConfiguration
+	Crawler *crawler.Crawler
+	Search  itunes.Searcher
 }
 
 func New(store db.Store) Handlers {

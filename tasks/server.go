@@ -3,12 +3,15 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/hibiken/asynq"
+	"github.com/jackc/pgx/v5"
 
 	"goapi-template/config"
+	"goapi-template/crawler"
 	"goapi-template/db"
 	"goapi-template/errs"
 )
@@ -16,11 +19,12 @@ import (
 // WorkerServer is the daemon that consumes tasks from the Redis queue and
 // executes them.
 type WorkerServer struct {
-	srv *asynq.Server
-	db  db.Querier
+	srv     *asynq.Server
+	db      db.Store
+	crawler *crawler.Crawler
 }
 
-func NewWorkerServer(cfg *config.Configuration, querier db.Querier) *WorkerServer {
+func NewWorkerServer(cfg *config.Configuration, store db.Store, feedCrawler *crawler.Crawler) *WorkerServer {
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{
 			Addr:     cfg.QueueConfig.RedisAddress,
@@ -38,7 +42,7 @@ func NewWorkerServer(cfg *config.Configuration, querier db.Querier) *WorkerServe
 			Logger:         &slogAdapter{logger: slog.Default()},
 		},
 	)
-	return &WorkerServer{srv: srv, db: querier}
+	return &WorkerServer{srv: srv, db: store, crawler: feedCrawler}
 }
 
 // Start registers the task handlers and runs the worker until Shutdown is
@@ -48,6 +52,7 @@ func (w *WorkerServer) Start() error {
 
 	mux.HandleFunc(TypePodcastRefresh, w.HandlePodcastRefreshTask)
 	mux.HandleFunc(TypeOpmlImport, w.HandleOpmlImportTask)
+	mux.HandleFunc(TypeRefreshDuePodcasts, w.HandleRefreshDuePodcastsTask)
 
 	return w.srv.Run(mux)
 }
@@ -68,10 +73,28 @@ func (w *WorkerServer) HandlePodcastRefreshTask(ctx context.Context, t *asynq.Ta
 
 	slog.Info("Executing Podcast Refresh", "uuid", payload.PodcastUUID, "feed_url", payload.FeedURL)
 
-	// Example DB updates:
-	// _, err := w.db.UpdatePodcastRefreshTime(ctx, payload.PodcastUUID)
+	podcast, err := w.podcastFromPayload(ctx, payload)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			slog.Warn("Podcast refresh skipped: unknown podcast", "uuid", payload.PodcastUUID)
+			return nil
+		}
+		return errs.E(op, err)
+	}
 
+	if err := w.crawler.Crawl(ctx, podcast); err != nil {
+		// crawl failures are recorded on the podcast row; retrying the task
+		// immediately would just hammer a broken feed
+		slog.Warn("Podcast crawl failed", "uuid", podcast.Uuid, "error", err)
+	}
 	return nil
+}
+
+func (w *WorkerServer) podcastFromPayload(ctx context.Context, payload PodcastRefreshPayload) (db.Podcast, error) {
+	if payload.PodcastUUID != "" {
+		return w.db.GetPodcastByUUID(ctx, payload.PodcastUUID)
+	}
+	return w.db.GetPodcastByFeedURL(ctx, crawler.CanonicalFeedURL(payload.FeedURL))
 }
 
 // HandleOpmlImportTask imports a batch of podcast feeds for a user.
@@ -83,9 +106,41 @@ func (w *WorkerServer) HandleOpmlImportTask(ctx context.Context, t *asynq.Task) 
 		return errs.E(op, errs.Internal, fmt.Errorf("%w: %v", asynq.SkipRetry, err))
 	}
 
-	slog.Info("Executing OPML Import batch", "user_uuid", payload.UserUUID, "count", len(payload.FeedURLs))
+	slog.Info("Executing OPML Import batch", "count", len(payload.FeedURLs))
+
+	for _, feedURL := range payload.FeedURLs {
+		if _, err := w.crawler.EnsurePodcast(ctx, feedURL); err != nil {
+			// the failure is recorded on the podcast row; poll responses
+			// report it to the client
+			slog.Warn("OPML feed import failed", "feed_url", feedURL, "error", err)
+		}
+	}
 	return nil
 }
+
+// HandleRefreshDuePodcastsTask re-crawls every catalog podcast whose
+// next_refresh_at has passed. Enqueued periodically from main.
+func (w *WorkerServer) HandleRefreshDuePodcastsTask(ctx context.Context, t *asynq.Task) error {
+	const op errs.Op = "tasks/WorkerServer.HandleRefreshDuePodcastsTask"
+
+	due, err := w.db.GetDuePodcasts(ctx, refreshBatchSize)
+	if err != nil {
+		return errs.E(op, errs.Database, err)
+	}
+
+	slog.Info("Refreshing due podcasts", "count", len(due))
+	for _, podcast := range due {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := w.crawler.Crawl(ctx, podcast); err != nil {
+			slog.Warn("Scheduled crawl failed", "uuid", podcast.Uuid, "error", err)
+		}
+	}
+	return nil
+}
+
+const refreshBatchSize = 200
 
 // slogAdapter bridges asynq's Logger interface to the application's slog logger.
 type slogAdapter struct {

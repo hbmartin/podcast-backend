@@ -319,3 +319,105 @@ VALUES ($1, $2, $3)
 ON CONFLICT (user_id) DO UPDATE SET
     settings = EXCLUDED.settings,
     modified_at = EXCLUDED.modified_at;
+
+-- name: CreatePodcastPending :one
+INSERT INTO podcasts (uuid, feed_url)
+VALUES ($1, $2)
+ON CONFLICT (uuid) DO UPDATE SET uuid = EXCLUDED.uuid
+RETURNING *;
+
+-- name: GetPodcastByUUID :one
+SELECT * FROM podcasts WHERE uuid = $1;
+
+-- name: GetPodcastByFeedURL :one
+SELECT * FROM podcasts WHERE feed_url = $1;
+
+-- name: GetPodcastsByUUIDs :many
+SELECT * FROM podcasts WHERE uuid = ANY($1::uuid[]);
+
+-- name: GetDuePodcasts :many
+SELECT * FROM podcasts
+WHERE next_refresh_at <= now()
+ORDER BY next_refresh_at
+LIMIT $1;
+
+-- name: PodcastHasSubscribers :one
+SELECT EXISTS (
+    SELECT 1 FROM user_podcasts
+    WHERE podcast_uuid = $1 AND subscribed AND NOT is_deleted
+) AS has_subscribers;
+
+-- name: UpdatePodcastCrawlSuccess :exec
+UPDATE podcasts SET
+    title = $2,
+    author = $3,
+    description = $4,
+    image_url = $5,
+    website_url = $6,
+    category = $7,
+    language = $8,
+    media_type = $9,
+    show_type = $10,
+    is_explicit = $11,
+    feed_etag = $12,
+    feed_last_modified = $13,
+    latest_episode_uuid = $14,
+    latest_episode_published = $15,
+    content_modified_ms = $16,
+    refresh_status = 'ok',
+    refresh_error = '',
+    last_refresh_at = now(),
+    next_refresh_at = $17,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: UpdatePodcastCrawlNotModified :exec
+UPDATE podcasts SET
+    last_refresh_at = now(),
+    next_refresh_at = $2,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: UpdatePodcastCrawlFailure :exec
+UPDATE podcasts SET
+    refresh_status = CASE WHEN refresh_status = 'ok' THEN 'ok' ELSE 'failed' END,
+    refresh_error = $2,
+    last_refresh_at = now(),
+    next_refresh_at = $3,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: UpsertEpisode :exec
+INSERT INTO episodes (
+    uuid, podcast_id, guid, title, audio_url, file_type, file_size,
+    duration_secs, published_at, episode_type, season, number, show_notes,
+    image_url
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+ON CONFLICT (podcast_id, guid) DO UPDATE SET
+    title = EXCLUDED.title,
+    audio_url = EXCLUDED.audio_url,
+    file_type = EXCLUDED.file_type,
+    file_size = EXCLUDED.file_size,
+    duration_secs = EXCLUDED.duration_secs,
+    published_at = EXCLUDED.published_at,
+    episode_type = EXCLUDED.episode_type,
+    season = EXCLUDED.season,
+    number = EXCLUDED.number,
+    show_notes = EXCLUDED.show_notes,
+    image_url = EXCLUDED.image_url,
+    updated_at = now();
+
+-- name: GetEpisodesByPodcastID :many
+SELECT * FROM episodes
+WHERE podcast_id = $1
+ORDER BY published_at DESC NULLS LAST
+LIMIT $2;
+
+-- name: GetEpisodeByUUID :one
+SELECT * FROM episodes WHERE uuid = $1;
+
+-- name: GetEpisodesPublishedAfter :many
+SELECT * FROM episodes
+WHERE podcast_id = $1 AND published_at > $2
+ORDER BY published_at DESC
+LIMIT $3;

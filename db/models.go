@@ -77,19 +77,6 @@ type History struct {
 	ModifiedAt  int64
 }
 
-type OpmlImport struct {
-	ID        int64
-	UserID    int64
-	CreatedAt time.Time
-}
-
-type OpmlImportItem struct {
-	ImportID    int64
-	FeedUrl     string
-	Status      string
-	PodcastUuid *string
-}
-
 type Playlist struct {
 	UserID          int64
 	Uuid            string

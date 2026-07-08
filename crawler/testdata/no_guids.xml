@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Guidless Show</title>
+    <description>No guids here.</description>
+    <item>
+      <title>Only Episode</title>
+      <pubDate>Mon, 01 Jan 2024 10:00:00 +0000</pubDate>
+      <enclosure url="https://cdn.example.com/only.mp3" length="100" type="audio/mpeg"/>
+    </item>
+  </channel>
+</rss>

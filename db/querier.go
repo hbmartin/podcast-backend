@@ -68,4 +68,19 @@ type Querier interface {
 
 	GetUserSettings(ctx context.Context, userID int64) (UserSetting, error)
 	UpsertUserSettings(ctx context.Context, arg UpsertUserSettingsParams) error
+
+	CreatePodcastPending(ctx context.Context, arg CreatePodcastPendingParams) (Podcast, error)
+	GetPodcastByUUID(ctx context.Context, uuid string) (Podcast, error)
+	GetPodcastByFeedURL(ctx context.Context, feedUrl string) (Podcast, error)
+	GetPodcastsByUUIDs(ctx context.Context, uuids []string) ([]Podcast, error)
+	GetDuePodcasts(ctx context.Context, limit int32) ([]Podcast, error)
+	PodcastHasSubscribers(ctx context.Context, podcastUuid string) (bool, error)
+	UpdatePodcastCrawlSuccess(ctx context.Context, arg UpdatePodcastCrawlSuccessParams) error
+	UpdatePodcastCrawlNotModified(ctx context.Context, arg UpdatePodcastCrawlNotModifiedParams) error
+	UpdatePodcastCrawlFailure(ctx context.Context, arg UpdatePodcastCrawlFailureParams) error
+
+	UpsertEpisode(ctx context.Context, arg UpsertEpisodeParams) error
+	GetEpisodesByPodcastID(ctx context.Context, arg GetEpisodesByPodcastIDParams) ([]Episode, error)
+	GetEpisodeByUUID(ctx context.Context, uuid string) (Episode, error)
+	GetEpisodesPublishedAfter(ctx context.Context, arg GetEpisodesPublishedAfterParams) ([]Episode, error)
 }

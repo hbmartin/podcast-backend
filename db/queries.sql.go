@@ -10,6 +10,50 @@ import (
 	"time"
 )
 
+const createPodcastPending = `-- name: CreatePodcastPending :one
+INSERT INTO podcasts (uuid, feed_url)
+VALUES ($1, $2)
+ON CONFLICT (uuid) DO UPDATE SET uuid = EXCLUDED.uuid
+RETURNING id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at
+`
+
+type CreatePodcastPendingParams struct {
+	Uuid    string
+	FeedUrl string
+}
+
+func (q *Queries) CreatePodcastPending(ctx context.Context, arg CreatePodcastPendingParams) (Podcast, error) {
+	row := q.db.QueryRow(ctx, createPodcastPending, arg.Uuid, arg.FeedUrl)
+	var i Podcast
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.FeedUrl,
+		&i.Title,
+		&i.Author,
+		&i.Description,
+		&i.ImageUrl,
+		&i.WebsiteUrl,
+		&i.Category,
+		&i.Language,
+		&i.MediaType,
+		&i.ShowType,
+		&i.IsExplicit,
+		&i.RefreshStatus,
+		&i.RefreshError,
+		&i.FeedEtag,
+		&i.FeedLastModified,
+		&i.LastRefreshAt,
+		&i.NextRefreshAt,
+		&i.LatestEpisodeUuid,
+		&i.LatestEpisodePublished,
+		&i.ContentModifiedMs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createRefreshToken = `-- name: CreateRefreshToken :one
 INSERT INTO refresh_tokens (user_id, token_hash, scope, expires_at)
 VALUES ($1, $2, $3, $4)
@@ -258,6 +302,188 @@ func (q *Queries) GetBookmarksModifiedSince(ctx context.Context, arg GetBookmark
 			&i.IsDeleted,
 			&i.IsDeletedModified,
 			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDuePodcasts = `-- name: GetDuePodcasts :many
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts
+WHERE next_refresh_at <= now()
+ORDER BY next_refresh_at
+LIMIT $1
+`
+
+func (q *Queries) GetDuePodcasts(ctx context.Context, limit int32) ([]Podcast, error) {
+	rows, err := q.db.Query(ctx, getDuePodcasts, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Podcast
+	for rows.Next() {
+		var i Podcast
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.FeedUrl,
+			&i.Title,
+			&i.Author,
+			&i.Description,
+			&i.ImageUrl,
+			&i.WebsiteUrl,
+			&i.Category,
+			&i.Language,
+			&i.MediaType,
+			&i.ShowType,
+			&i.IsExplicit,
+			&i.RefreshStatus,
+			&i.RefreshError,
+			&i.FeedEtag,
+			&i.FeedLastModified,
+			&i.LastRefreshAt,
+			&i.NextRefreshAt,
+			&i.LatestEpisodeUuid,
+			&i.LatestEpisodePublished,
+			&i.ContentModifiedMs,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getEpisodeByUUID = `-- name: GetEpisodeByUUID :one
+SELECT id, uuid, podcast_id, guid, title, audio_url, file_type, file_size, duration_secs, published_at, episode_type, season, number, show_notes, image_url, created_at, updated_at FROM episodes WHERE uuid = $1
+`
+
+func (q *Queries) GetEpisodeByUUID(ctx context.Context, uuid string) (Episode, error) {
+	row := q.db.QueryRow(ctx, getEpisodeByUUID, uuid)
+	var i Episode
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.PodcastID,
+		&i.Guid,
+		&i.Title,
+		&i.AudioUrl,
+		&i.FileType,
+		&i.FileSize,
+		&i.DurationSecs,
+		&i.PublishedAt,
+		&i.EpisodeType,
+		&i.Season,
+		&i.Number,
+		&i.ShowNotes,
+		&i.ImageUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getEpisodesByPodcastID = `-- name: GetEpisodesByPodcastID :many
+SELECT id, uuid, podcast_id, guid, title, audio_url, file_type, file_size, duration_secs, published_at, episode_type, season, number, show_notes, image_url, created_at, updated_at FROM episodes
+WHERE podcast_id = $1
+ORDER BY published_at DESC NULLS LAST
+LIMIT $2
+`
+
+type GetEpisodesByPodcastIDParams struct {
+	PodcastID int64
+	Limit     int32
+}
+
+func (q *Queries) GetEpisodesByPodcastID(ctx context.Context, arg GetEpisodesByPodcastIDParams) ([]Episode, error) {
+	rows, err := q.db.Query(ctx, getEpisodesByPodcastID, arg.PodcastID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Episode
+	for rows.Next() {
+		var i Episode
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.PodcastID,
+			&i.Guid,
+			&i.Title,
+			&i.AudioUrl,
+			&i.FileType,
+			&i.FileSize,
+			&i.DurationSecs,
+			&i.PublishedAt,
+			&i.EpisodeType,
+			&i.Season,
+			&i.Number,
+			&i.ShowNotes,
+			&i.ImageUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getEpisodesPublishedAfter = `-- name: GetEpisodesPublishedAfter :many
+SELECT id, uuid, podcast_id, guid, title, audio_url, file_type, file_size, duration_secs, published_at, episode_type, season, number, show_notes, image_url, created_at, updated_at FROM episodes
+WHERE podcast_id = $1 AND published_at > $2
+ORDER BY published_at DESC
+LIMIT $3
+`
+
+type GetEpisodesPublishedAfterParams struct {
+	PodcastID   int64
+	PublishedAt *time.Time
+	Limit       int32
+}
+
+func (q *Queries) GetEpisodesPublishedAfter(ctx context.Context, arg GetEpisodesPublishedAfterParams) ([]Episode, error) {
+	rows, err := q.db.Query(ctx, getEpisodesPublishedAfter, arg.PodcastID, arg.PublishedAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Episode
+	for rows.Next() {
+		var i Episode
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.PodcastID,
+			&i.Guid,
+			&i.Title,
+			&i.AudioUrl,
+			&i.FileType,
+			&i.FileSize,
+			&i.DurationSecs,
+			&i.PublishedAt,
+			&i.EpisodeType,
+			&i.Season,
+			&i.Number,
+			&i.ShowNotes,
+			&i.ImageUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -559,6 +785,127 @@ func (q *Queries) GetPlaylistsModifiedSince(ctx context.Context, arg GetPlaylist
 			&i.EpisodeOrder,
 			&i.Episodes,
 			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPodcastByFeedURL = `-- name: GetPodcastByFeedURL :one
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts WHERE feed_url = $1
+`
+
+func (q *Queries) GetPodcastByFeedURL(ctx context.Context, feedUrl string) (Podcast, error) {
+	row := q.db.QueryRow(ctx, getPodcastByFeedURL, feedUrl)
+	var i Podcast
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.FeedUrl,
+		&i.Title,
+		&i.Author,
+		&i.Description,
+		&i.ImageUrl,
+		&i.WebsiteUrl,
+		&i.Category,
+		&i.Language,
+		&i.MediaType,
+		&i.ShowType,
+		&i.IsExplicit,
+		&i.RefreshStatus,
+		&i.RefreshError,
+		&i.FeedEtag,
+		&i.FeedLastModified,
+		&i.LastRefreshAt,
+		&i.NextRefreshAt,
+		&i.LatestEpisodeUuid,
+		&i.LatestEpisodePublished,
+		&i.ContentModifiedMs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getPodcastByUUID = `-- name: GetPodcastByUUID :one
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts WHERE uuid = $1
+`
+
+func (q *Queries) GetPodcastByUUID(ctx context.Context, uuid string) (Podcast, error) {
+	row := q.db.QueryRow(ctx, getPodcastByUUID, uuid)
+	var i Podcast
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.FeedUrl,
+		&i.Title,
+		&i.Author,
+		&i.Description,
+		&i.ImageUrl,
+		&i.WebsiteUrl,
+		&i.Category,
+		&i.Language,
+		&i.MediaType,
+		&i.ShowType,
+		&i.IsExplicit,
+		&i.RefreshStatus,
+		&i.RefreshError,
+		&i.FeedEtag,
+		&i.FeedLastModified,
+		&i.LastRefreshAt,
+		&i.NextRefreshAt,
+		&i.LatestEpisodeUuid,
+		&i.LatestEpisodePublished,
+		&i.ContentModifiedMs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getPodcastsByUUIDs = `-- name: GetPodcastsByUUIDs :many
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts WHERE uuid = ANY($1::uuid[])
+`
+
+func (q *Queries) GetPodcastsByUUIDs(ctx context.Context, dollar_1 []string) ([]Podcast, error) {
+	rows, err := q.db.Query(ctx, getPodcastsByUUIDs, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Podcast
+	for rows.Next() {
+		var i Podcast
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.FeedUrl,
+			&i.Title,
+			&i.Author,
+			&i.Description,
+			&i.ImageUrl,
+			&i.WebsiteUrl,
+			&i.Category,
+			&i.Language,
+			&i.MediaType,
+			&i.ShowType,
+			&i.IsExplicit,
+			&i.RefreshStatus,
+			&i.RefreshError,
+			&i.FeedEtag,
+			&i.FeedLastModified,
+			&i.LastRefreshAt,
+			&i.NextRefreshAt,
+			&i.LatestEpisodeUuid,
+			&i.LatestEpisodePublished,
+			&i.ContentModifiedMs,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1097,6 +1444,20 @@ func (q *Queries) PingDb(ctx context.Context) (int32, error) {
 	return result, err
 }
 
+const podcastHasSubscribers = `-- name: PodcastHasSubscribers :one
+SELECT EXISTS (
+    SELECT 1 FROM user_podcasts
+    WHERE podcast_uuid = $1 AND subscribed AND NOT is_deleted
+) AS has_subscribers
+`
+
+func (q *Queries) PodcastHasSubscribers(ctx context.Context, podcastUuid string) (bool, error) {
+	row := q.db.QueryRow(ctx, podcastHasSubscribers, podcastUuid)
+	var has_subscribers bool
+	err := row.Scan(&has_subscribers)
+	return has_subscribers, err
+}
+
 const revokeAllRefreshTokens = `-- name: RevokeAllRefreshTokens :execrows
 UPDATE refresh_tokens SET revoked_at = now()
 WHERE user_id = $1 AND revoked_at IS NULL
@@ -1210,6 +1571,113 @@ type TrimHistoryParams struct {
 
 func (q *Queries) TrimHistory(ctx context.Context, arg TrimHistoryParams) error {
 	_, err := q.db.Exec(ctx, trimHistory, arg.UserID, arg.Limit)
+	return err
+}
+
+const updatePodcastCrawlFailure = `-- name: UpdatePodcastCrawlFailure :exec
+UPDATE podcasts SET
+    refresh_status = CASE WHEN refresh_status = 'ok' THEN 'ok' ELSE 'failed' END,
+    refresh_error = $2,
+    last_refresh_at = now(),
+    next_refresh_at = $3,
+    updated_at = now()
+WHERE id = $1
+`
+
+type UpdatePodcastCrawlFailureParams struct {
+	ID            int64
+	RefreshError  string
+	NextRefreshAt time.Time
+}
+
+func (q *Queries) UpdatePodcastCrawlFailure(ctx context.Context, arg UpdatePodcastCrawlFailureParams) error {
+	_, err := q.db.Exec(ctx, updatePodcastCrawlFailure, arg.ID, arg.RefreshError, arg.NextRefreshAt)
+	return err
+}
+
+const updatePodcastCrawlNotModified = `-- name: UpdatePodcastCrawlNotModified :exec
+UPDATE podcasts SET
+    last_refresh_at = now(),
+    next_refresh_at = $2,
+    updated_at = now()
+WHERE id = $1
+`
+
+type UpdatePodcastCrawlNotModifiedParams struct {
+	ID            int64
+	NextRefreshAt time.Time
+}
+
+func (q *Queries) UpdatePodcastCrawlNotModified(ctx context.Context, arg UpdatePodcastCrawlNotModifiedParams) error {
+	_, err := q.db.Exec(ctx, updatePodcastCrawlNotModified, arg.ID, arg.NextRefreshAt)
+	return err
+}
+
+const updatePodcastCrawlSuccess = `-- name: UpdatePodcastCrawlSuccess :exec
+UPDATE podcasts SET
+    title = $2,
+    author = $3,
+    description = $4,
+    image_url = $5,
+    website_url = $6,
+    category = $7,
+    language = $8,
+    media_type = $9,
+    show_type = $10,
+    is_explicit = $11,
+    feed_etag = $12,
+    feed_last_modified = $13,
+    latest_episode_uuid = $14,
+    latest_episode_published = $15,
+    content_modified_ms = $16,
+    refresh_status = 'ok',
+    refresh_error = '',
+    last_refresh_at = now(),
+    next_refresh_at = $17,
+    updated_at = now()
+WHERE id = $1
+`
+
+type UpdatePodcastCrawlSuccessParams struct {
+	ID                     int64
+	Title                  string
+	Author                 string
+	Description            string
+	ImageUrl               string
+	WebsiteUrl             string
+	Category               string
+	Language               string
+	MediaType              string
+	ShowType               string
+	IsExplicit             bool
+	FeedEtag               string
+	FeedLastModified       string
+	LatestEpisodeUuid      *string
+	LatestEpisodePublished *time.Time
+	ContentModifiedMs      int64
+	NextRefreshAt          time.Time
+}
+
+func (q *Queries) UpdatePodcastCrawlSuccess(ctx context.Context, arg UpdatePodcastCrawlSuccessParams) error {
+	_, err := q.db.Exec(ctx, updatePodcastCrawlSuccess,
+		arg.ID,
+		arg.Title,
+		arg.Author,
+		arg.Description,
+		arg.ImageUrl,
+		arg.WebsiteUrl,
+		arg.Category,
+		arg.Language,
+		arg.MediaType,
+		arg.ShowType,
+		arg.IsExplicit,
+		arg.FeedEtag,
+		arg.FeedLastModified,
+		arg.LatestEpisodeUuid,
+		arg.LatestEpisodePublished,
+		arg.ContentModifiedMs,
+		arg.NextRefreshAt,
+	)
 	return err
 }
 
@@ -1337,6 +1805,64 @@ func (q *Queries) UpsertDevice(ctx context.Context, arg UpsertDeviceParams) erro
 		arg.TimeIntroSkipping,
 		arg.TimeSkipping,
 		arg.TimeListened,
+	)
+	return err
+}
+
+const upsertEpisode = `-- name: UpsertEpisode :exec
+INSERT INTO episodes (
+    uuid, podcast_id, guid, title, audio_url, file_type, file_size,
+    duration_secs, published_at, episode_type, season, number, show_notes,
+    image_url
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+ON CONFLICT (podcast_id, guid) DO UPDATE SET
+    title = EXCLUDED.title,
+    audio_url = EXCLUDED.audio_url,
+    file_type = EXCLUDED.file_type,
+    file_size = EXCLUDED.file_size,
+    duration_secs = EXCLUDED.duration_secs,
+    published_at = EXCLUDED.published_at,
+    episode_type = EXCLUDED.episode_type,
+    season = EXCLUDED.season,
+    number = EXCLUDED.number,
+    show_notes = EXCLUDED.show_notes,
+    image_url = EXCLUDED.image_url,
+    updated_at = now()
+`
+
+type UpsertEpisodeParams struct {
+	Uuid         string
+	PodcastID    int64
+	Guid         string
+	Title        string
+	AudioUrl     string
+	FileType     string
+	FileSize     int64
+	DurationSecs int32
+	PublishedAt  *time.Time
+	EpisodeType  string
+	Season       int32
+	Number       int32
+	ShowNotes    string
+	ImageUrl     string
+}
+
+func (q *Queries) UpsertEpisode(ctx context.Context, arg UpsertEpisodeParams) error {
+	_, err := q.db.Exec(ctx, upsertEpisode,
+		arg.Uuid,
+		arg.PodcastID,
+		arg.Guid,
+		arg.Title,
+		arg.AudioUrl,
+		arg.FileType,
+		arg.FileSize,
+		arg.DurationSecs,
+		arg.PublishedAt,
+		arg.EpisodeType,
+		arg.Season,
+		arg.Number,
+		arg.ShowNotes,
+		arg.ImageUrl,
 	)
 	return err
 }

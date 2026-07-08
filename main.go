@@ -18,9 +18,11 @@ import (
 
 	"goapi-template/auth"
 	"goapi-template/config"
+	"goapi-template/crawler"
 	"goapi-template/db"
 	"goapi-template/docs"
 	"goapi-template/handlers"
+	"goapi-template/itunes"
 	"goapi-template/middlewares"
 	"goapi-template/tasks"
 )
@@ -50,10 +52,16 @@ func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) htt
 			http.HandlerFunc(handler)))
 }
 
-func setupRouter(db db.Store, queueClient *tasks.QueueClient) http.Handler {
+func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher) http.Handler {
 	slog.Info("Starting API... \n")
 
-	controllers := handlers.NewWithQueue(db, queueClient, configValues.AuthConfig)
+	controllers := handlers.Handlers{
+		Queries: db,
+		Queue:   queueClient,
+		Config:  configValues.AuthConfig,
+		Crawler: feedCrawler,
+		Search:  searcher,
+	}
 	router := http.NewServeMux()
 
 	router.HandleFunc("OPTIONS /", configValues.WebServerConfig.Cors.HandlerFunc)
@@ -82,6 +90,14 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient) http.Handler {
 	router.Handle("POST /user/named_settings/update", authChain(controllers.PostNamedSettingsUpdate))
 	router.Handle("POST /sync/update_episode", authChain(controllers.PostUpdateEpisode))
 	router.Handle("POST /sync/update_episode_star", authChain(controllers.PostUpdateEpisodeStar))
+
+	// refresh host role (JSON)
+	router.Handle("POST /user/update", publicChain(controllers.PostRefreshUserUpdate))
+	router.Handle("POST /podcasts/refresh", publicChain(controllers.PostPodcastsRefresh))
+	router.Handle("POST /podcasts/show", publicChain(controllers.PostPodcastsShow))
+	router.Handle("POST /podcasts/search", publicChain(controllers.PostPodcastsSearch))
+	router.Handle("POST /import/opml", authChain(controllers.PostImportOpml))
+	router.Handle("POST /import/export_feed_urls", authChain(controllers.PostExportFeedUrls))
 
 	if configValues.WebServerConfig.EnableSwagger {
 		slog.Info("Swagger enabled")
@@ -112,11 +128,11 @@ func initDB(ctx context.Context, configValues *config.Configuration) (db.Store, 
 	return store, conn.Close
 }
 
-func startWebServer(querier db.Store, queueClient *tasks.QueueClient, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
+func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
 	slog.Info("Setting up API router...\n")
 	docs.SwaggerInfo.BasePath = "/"
 
-	router := setupRouter(querier, queueClient)
+	router := setupRouter(querier, queueClient, feedCrawler, searcher)
 
 	srv := &http.Server{
 		Addr: configValues.WebServerConfig.WebPort,
@@ -144,6 +160,24 @@ func startWebServer(querier db.Store, queueClient *tasks.QueueClient, configValu
 	return srv.Shutdown
 }
 
+// refreshScheduler periodically enqueues a sweep of catalog podcasts whose
+// next_refresh_at has passed.
+func refreshScheduler(ctx context.Context, queueClient *tasks.QueueClient) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := queueClient.EnqueueRefreshDuePodcasts(ctx); err != nil {
+				slog.Warn("Unable to enqueue podcast refresh sweep", "error", err)
+			}
+		}
+	}
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -158,13 +192,16 @@ func main() {
 	querier, dbDispose := initDB(ctx, configValues)
 	defer dbDispose()
 
+	feedCrawler := &crawler.Crawler{DB: querier, Fetcher: crawler.NewHTTPFetcher()}
+	searcher := itunes.NewClient(os.Getenv("ITUNES_BASE_URL"))
+
 	// Initialize and start the background worker server and the queue
 	// client used by API handlers to enqueue tasks.
 	var worker *tasks.WorkerServer
 	var queueClient *tasks.QueueClient
 	if configValues.QueueConfig.Enabled {
 		slog.Info("Starting background worker server...")
-		worker = tasks.NewWorkerServer(configValues, querier)
+		worker = tasks.NewWorkerServer(configValues, querier, feedCrawler)
 		go func() {
 			if err := worker.Start(); err != nil {
 				slog.Error("Asynq server failed to start", "error", err)
@@ -184,7 +221,11 @@ func main() {
 		}()
 	}
 
-	webDispose := startWebServer(querier, queueClient, configValues, stop)
+	if queueClient != nil {
+		go refreshScheduler(ctx, queueClient)
+	}
+
+	webDispose := startWebServer(querier, queueClient, feedCrawler, searcher, configValues, stop)
 
 	// Block until an interrupt signal is received
 	<-ctx.Done()
