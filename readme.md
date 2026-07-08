@@ -20,7 +20,7 @@ everywhere else.
 | Queue/history/settings | `up_next/sync`, `history/sync` (newest-100 cap), `user/named_settings/update` (per-key modifiedAt merge) |
 | Real-time playback | `sync/update_episode`, `sync/update_episode_star` |
 | Refresh host | `user/update`, `podcasts/refresh`, `podcasts/show`, `podcasts/search` (feed URLs crawl synchronously; text search proxies the iTunes Search API), `import/opml`, `import/export_feed_urls`, `/health.html` |
-| Cache host | `mobile/podcast/full/{uuid}` (ETag/304), `mobile/show_notes/full/{uuid}`, `mobile/episode/url/{p}/{e}`, `mobile/podcast/findbyepisode/{p}/{e}`, `mobile/podcast/episode/search`, `episode/search`, `search/combined`, `podcast/rating/{uuid}` |
+| Cache host | `mobile/podcast/full/{uuid}` (ETag/304), `mobile/show_notes/full/{uuid}` (show notes, episode art, Podcasting 2.0 transcripts + chapters URL), `mobile/episode/url/{p}/{e}`, `mobile/podcast/findbyepisode/{p}/{e}`, `mobile/podcast/episode/search`, `episode/search`, `search/combined`, `podcast/rating/{uuid}` |
 | Search host | `autocomplete/search` |
 | Artwork | `discover/images/{size}/{uuid}.jpg` (redirect to feed art), `discover/images/metadata/{uuid}.json` (lazily computed cover colors) |
 | Ratings & stats | `user/podcast_rating/add`/`show`/`list`, `user/stats/summary` |
@@ -29,7 +29,7 @@ everywhere else.
 | Push notifications | APNs new-episode alerts: token registration rides on `user/update` (`push_token`/`push_on`/`push_messages_on`), delivery fires from feed crawls (set `APNS_*`) |
 
 Not implemented (yet): user file uploads, TV device auth, Sonos,
-transcripts, recommendations, supporter bundles.
+recommendations, supporter bundles, generated (AI) transcripts.
 
 ## Architecture
 
@@ -84,6 +84,13 @@ Configuration:
 | `SHARING_CREDENTIAL` | optional; when set, `share/list` requests must carry the client's legacy SHA-1 signature |
 | `APNS_KEY_FILE`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | set all four to enable APNs push (`.p8` auth key path, key id, team id, app bundle id) |
 | `APNS_ENDPOINT` | APNs host override, e.g. `https://api.sandbox.push.apple.com` for development builds |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | set to enable OpenTelemetry tracing (OTLP/HTTP export; standard `OTEL_*` vars respected, service name defaults to `podcast-backend`) |
+
+Operations: `GET /health` reports each dependency (Postgres, and the queue's
+Redis when enabled); `GET /metrics` serves Prometheus metrics (HTTP latency
+by route, crawl and push-delivery outcomes); `podcast-backend -health` is a
+self-contained container health probe and is wired as the image's
+`HEALTHCHECK`.
 
 ### Pointing the iOS client at this server
 

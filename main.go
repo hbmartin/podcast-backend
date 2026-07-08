@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/hbmartin/podcast-backend/artwork"
 	"github.com/hbmartin/podcast-backend/auth"
@@ -29,9 +30,14 @@ import (
 	"github.com/hbmartin/podcast-backend/middlewares"
 	"github.com/hbmartin/podcast-backend/push"
 	"github.com/hbmartin/podcast-backend/tasks"
+	"github.com/hbmartin/podcast-backend/telemetry"
 )
 
 var configValues *config.Configuration
+
+// tracingEnabled reports whether telemetry.Init activated OTel; the router
+// is wrapped with otelhttp only then, keeping the no-tracing path free.
+var tracingEnabled bool
 
 // publicChain serves unauthenticated endpoints: trace, log, CORS.
 func publicChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
@@ -194,6 +200,12 @@ func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawle
 	slog.Info("Setting up API router...\n")
 
 	router := setupRouter(querier, queueClient, feedCrawler, searcher, queuePing)
+	if tracingEnabled {
+		router = otelhttp.NewHandler(router, "podcast-backend",
+			otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+				return r.Method + " " + r.URL.Path
+			}))
+	}
 
 	srv := &http.Server{
 		Addr:              configValues.WebServerConfig.WebPort,
@@ -282,6 +294,22 @@ func main() {
 
 	slog.Info("loading .env file...\n")
 	configValues = config.LoadConfig()
+
+	otelShutdown, otelEnabled, err := telemetry.Init(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if otelEnabled {
+		slog.Info("OpenTelemetry tracing enabled")
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(shutdownCtx); err != nil {
+			slog.Error("Error shutting down tracer provider", "error", err)
+		}
+	}()
+	tracingEnabled = otelEnabled
 
 	slog.Info("Init auth...\n")
 	auth.Init(configValues.AuthConfig)
