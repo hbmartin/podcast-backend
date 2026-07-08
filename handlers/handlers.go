@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hbmartin/podcast-backend/artwork"
 	"github.com/hbmartin/podcast-backend/auth"
 	"github.com/hbmartin/podcast-backend/config"
 	"github.com/hbmartin/podcast-backend/crawler"
@@ -29,6 +30,7 @@ type Handlers struct {
 	Config  *config.AuthConfiguration
 	Crawler *crawler.Crawler
 	Search  itunes.Searcher
+	Images  artwork.ImageFetcher
 }
 
 func New(store db.Store) Handlers {

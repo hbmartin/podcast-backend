@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/hbmartin/podcast-backend/artwork"
 	"github.com/hbmartin/podcast-backend/auth"
 	"github.com/hbmartin/podcast-backend/config"
 	"github.com/hbmartin/podcast-backend/crawler"
@@ -58,6 +59,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 		Config:  configValues.AuthConfig,
 		Crawler: feedCrawler,
 		Search:  searcher,
+		Images:  artwork.NewHTTPImageFetcher(),
 	}
 	router := http.NewServeMux()
 
@@ -107,6 +109,34 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 
 	// search host role
 	router.Handle("GET /autocomplete/search", publicChain(controllers.GetAutocompleteSearch))
+
+	// api host role: ratings & stats (protobuf, authenticated)
+	router.Handle("POST /user/podcast_rating/add", authChain(controllers.PostPodcastRatingAdd))
+	router.Handle("POST /user/podcast_rating/show", authChain(controllers.PostPodcastRatingShow))
+	router.Handle("GET /user/podcast_rating/list", authChain(controllers.GetPodcastRatingList))
+	router.Handle("POST /user/stats/summary", authChain(controllers.PostStatsSummary))
+
+	// cache host role: aggregate rating (public JSON)
+	router.Handle("GET /podcast/rating/{uuid}", publicChain(controllers.GetPodcastRatingPublic))
+
+	// static host role: discover layout + catalog-backed sources (JSON)
+	router.Handle("GET /discover/ios/content_v2.json", publicChain(controllers.GetDiscoverContent))
+	router.Handle("GET /discover/ios/content_v3.json", publicChain(controllers.GetDiscoverContent))
+	router.Handle("GET /discover/json/trending", publicChain(controllers.GetDiscoverTrending))
+	router.Handle("GET /discover/json/popular", publicChain(controllers.GetDiscoverPopular))
+	router.Handle("GET /discover/json/recent", publicChain(controllers.GetDiscoverRecent))
+	router.Handle("GET /discover/json/categories", publicChain(controllers.GetDiscoverCategories))
+	router.Handle("GET /discover/json/category/{name}", publicChain(controllers.GetDiscoverCategory))
+
+	// sharing host role + share-link resolution (JSON)
+	router.Handle("POST /share/list", publicChain(controllers.PostShareList))
+	router.Handle("GET /l/{code}", publicChain(controllers.GetSharedList))
+	router.Handle("POST /podcast/{uuid}", publicChain(controllers.PostSharePodcast))
+	router.Handle("POST /episode/{uuid}", publicChain(controllers.PostShareEpisode))
+
+	// static host role: artwork + color metadata
+	router.Handle("GET /discover/images/metadata/{file}", publicChain(controllers.GetDiscoverImageMetadata))
+	router.Handle("GET /discover/images/{size}/{file}", publicChain(controllers.GetDiscoverImage))
 
 	return router
 }

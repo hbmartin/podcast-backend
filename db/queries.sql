@@ -446,3 +446,81 @@ JOIN podcasts p ON p.id = e.podcast_id
 WHERE p.uuid = $1 AND e.title ILIKE '%' || $2 || '%'
 ORDER BY e.published_at DESC NULLS LAST
 LIMIT $3;
+
+-- name: UpsertPodcastRating :exec
+INSERT INTO podcast_ratings (user_id, podcast_uuid, rating, modified_at)
+VALUES ($1, $2, $3, now())
+ON CONFLICT (user_id, podcast_uuid) DO UPDATE SET
+    rating = EXCLUDED.rating,
+    modified_at = now();
+
+-- name: GetPodcastRating :one
+SELECT * FROM podcast_ratings WHERE user_id = $1 AND podcast_uuid = $2;
+
+-- name: GetUserPodcastRatings :many
+SELECT * FROM podcast_ratings
+WHERE user_id = $1
+ORDER BY modified_at DESC;
+
+-- name: GetPodcastRatingAggregate :one
+SELECT COUNT(*)::bigint AS total, COALESCE(AVG(rating), 0)::float8 AS average
+FROM podcast_ratings
+WHERE podcast_uuid = $1;
+
+-- name: GetDevice :one
+SELECT * FROM devices WHERE user_id = $1 AND device_id = $2;
+
+-- name: GetUserStatsTotals :one
+SELECT COALESCE(SUM(time_silence_removal), 0)::bigint AS time_silence_removal,
+       COALESCE(SUM(time_skipping), 0)::bigint AS time_skipping,
+       COALESCE(SUM(time_intro_skipping), 0)::bigint AS time_intro_skipping,
+       COALESCE(SUM(time_variable_speed), 0)::bigint AS time_variable_speed,
+       COALESCE(SUM(time_listened), 0)::bigint AS time_listened,
+       COALESCE(MIN(NULLIF(times_started_at, 0)), 0)::bigint AS earliest_started_at,
+       COALESCE(MIN(created_at), now())::timestamptz AS earliest_created_at
+FROM devices
+WHERE user_id = $1;
+
+-- name: UpdatePodcastColors :exec
+UPDATE podcasts SET
+    background_color = $2,
+    tint_for_light_bg = $3,
+    tint_for_dark_bg = $4,
+    colors_source_image_url = $5
+WHERE id = $1;
+
+-- name: TopPodcastsBySubscribers :many
+SELECT p.*, COUNT(up.user_id)::bigint AS subscriber_count
+FROM podcasts p
+JOIN user_podcasts up ON up.podcast_uuid = p.uuid
+WHERE up.subscribed AND NOT up.is_deleted AND p.refresh_status = 'ok'
+GROUP BY p.id
+ORDER BY COUNT(up.user_id) DESC, p.latest_episode_published DESC NULLS LAST
+LIMIT $1;
+
+-- name: RecentPodcasts :many
+SELECT * FROM podcasts
+WHERE refresh_status = 'ok' AND latest_episode_published IS NOT NULL
+ORDER BY latest_episode_published DESC
+LIMIT $1;
+
+-- name: DistinctCategories :many
+SELECT category, COUNT(*)::bigint AS podcast_count
+FROM podcasts
+WHERE refresh_status = 'ok' AND category <> ''
+GROUP BY category
+ORDER BY COUNT(*) DESC, category;
+
+-- name: PodcastsByCategory :many
+SELECT * FROM podcasts
+WHERE refresh_status = 'ok' AND category = $1
+ORDER BY title
+LIMIT $2;
+
+-- name: CreateSharedList :one
+INSERT INTO shared_lists (code, title, description, podcast_uuids)
+VALUES ($1, $2, $3, $4)
+RETURNING *;
+
+-- name: GetSharedListByCode :one
+SELECT * FROM shared_lists WHERE code = $1;

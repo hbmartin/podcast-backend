@@ -14,7 +14,7 @@ const createPodcastPending = `-- name: CreatePodcastPending :one
 INSERT INTO podcasts (uuid, feed_url)
 VALUES ($1, $2)
 ON CONFLICT (uuid) DO UPDATE SET uuid = EXCLUDED.uuid
-RETURNING id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at
+RETURNING id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url
 `
 
 type CreatePodcastPendingParams struct {
@@ -50,6 +50,10 @@ func (q *Queries) CreatePodcastPending(ctx context.Context, arg CreatePodcastPen
 		&i.ContentModifiedMs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BackgroundColor,
+		&i.TintForLightBg,
+		&i.TintForDarkBg,
+		&i.ColorsSourceImageUrl,
 	)
 	return i, err
 }
@@ -83,6 +87,38 @@ func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshToken
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const createSharedList = `-- name: CreateSharedList :one
+INSERT INTO shared_lists (code, title, description, podcast_uuids)
+VALUES ($1, $2, $3, $4)
+RETURNING id, code, title, description, podcast_uuids, created_at
+`
+
+type CreateSharedListParams struct {
+	Code         string
+	Title        string
+	Description  string
+	PodcastUuids []string
+}
+
+func (q *Queries) CreateSharedList(ctx context.Context, arg CreateSharedListParams) (SharedList, error) {
+	row := q.db.QueryRow(ctx, createSharedList,
+		arg.Code,
+		arg.Title,
+		arg.Description,
+		arg.PodcastUuids,
+	)
+	var i SharedList
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.Title,
+		&i.Description,
+		&i.PodcastUuids,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -161,6 +197,39 @@ type DeleteHistoryItemParams struct {
 func (q *Queries) DeleteHistoryItem(ctx context.Context, arg DeleteHistoryItemParams) error {
 	_, err := q.db.Exec(ctx, deleteHistoryItem, arg.UserID, arg.EpisodeUuid)
 	return err
+}
+
+const distinctCategories = `-- name: DistinctCategories :many
+SELECT category, COUNT(*)::bigint AS podcast_count
+FROM podcasts
+WHERE refresh_status = 'ok' AND category <> ''
+GROUP BY category
+ORDER BY COUNT(*) DESC, category
+`
+
+type DistinctCategoriesRow struct {
+	Category     string
+	PodcastCount int64
+}
+
+func (q *Queries) DistinctCategories(ctx context.Context) ([]DistinctCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, distinctCategories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DistinctCategoriesRow
+	for rows.Next() {
+		var i DistinctCategoriesRow
+		if err := rows.Scan(&i.Category, &i.PodcastCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getBookmark = `-- name: GetBookmark :one
@@ -313,8 +382,36 @@ func (q *Queries) GetBookmarksModifiedSince(ctx context.Context, arg GetBookmark
 	return items, nil
 }
 
+const getDevice = `-- name: GetDevice :one
+SELECT user_id, device_id, device_type, times_started_at, time_silence_removal, time_variable_speed, time_intro_skipping, time_skipping, time_listened, updated_at, created_at FROM devices WHERE user_id = $1 AND device_id = $2
+`
+
+type GetDeviceParams struct {
+	UserID   int64
+	DeviceID string
+}
+
+func (q *Queries) GetDevice(ctx context.Context, arg GetDeviceParams) (Device, error) {
+	row := q.db.QueryRow(ctx, getDevice, arg.UserID, arg.DeviceID)
+	var i Device
+	err := row.Scan(
+		&i.UserID,
+		&i.DeviceID,
+		&i.DeviceType,
+		&i.TimesStartedAt,
+		&i.TimeSilenceRemoval,
+		&i.TimeVariableSpeed,
+		&i.TimeIntroSkipping,
+		&i.TimeSkipping,
+		&i.TimeListened,
+		&i.UpdatedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getDuePodcasts = `-- name: GetDuePodcasts :many
-SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url FROM podcasts
 WHERE next_refresh_at <= now()
 ORDER BY next_refresh_at
 LIMIT $1
@@ -354,6 +451,10 @@ func (q *Queries) GetDuePodcasts(ctx context.Context, limit int32) ([]Podcast, e
 			&i.ContentModifiedMs,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.BackgroundColor,
+			&i.TintForLightBg,
+			&i.TintForDarkBg,
+			&i.ColorsSourceImageUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -797,7 +898,7 @@ func (q *Queries) GetPlaylistsModifiedSince(ctx context.Context, arg GetPlaylist
 }
 
 const getPodcastByFeedURL = `-- name: GetPodcastByFeedURL :one
-SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts WHERE feed_url = $1
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url FROM podcasts WHERE feed_url = $1
 `
 
 func (q *Queries) GetPodcastByFeedURL(ctx context.Context, feedUrl string) (Podcast, error) {
@@ -828,12 +929,16 @@ func (q *Queries) GetPodcastByFeedURL(ctx context.Context, feedUrl string) (Podc
 		&i.ContentModifiedMs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BackgroundColor,
+		&i.TintForLightBg,
+		&i.TintForDarkBg,
+		&i.ColorsSourceImageUrl,
 	)
 	return i, err
 }
 
 const getPodcastByID = `-- name: GetPodcastByID :one
-SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts WHERE id = $1
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url FROM podcasts WHERE id = $1
 `
 
 func (q *Queries) GetPodcastByID(ctx context.Context, id int64) (Podcast, error) {
@@ -864,12 +969,16 @@ func (q *Queries) GetPodcastByID(ctx context.Context, id int64) (Podcast, error)
 		&i.ContentModifiedMs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BackgroundColor,
+		&i.TintForLightBg,
+		&i.TintForDarkBg,
+		&i.ColorsSourceImageUrl,
 	)
 	return i, err
 }
 
 const getPodcastByUUID = `-- name: GetPodcastByUUID :one
-SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts WHERE uuid = $1
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url FROM podcasts WHERE uuid = $1
 `
 
 func (q *Queries) GetPodcastByUUID(ctx context.Context, uuid string) (Podcast, error) {
@@ -900,12 +1009,55 @@ func (q *Queries) GetPodcastByUUID(ctx context.Context, uuid string) (Podcast, e
 		&i.ContentModifiedMs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BackgroundColor,
+		&i.TintForLightBg,
+		&i.TintForDarkBg,
+		&i.ColorsSourceImageUrl,
 	)
 	return i, err
 }
 
+const getPodcastRating = `-- name: GetPodcastRating :one
+SELECT user_id, podcast_uuid, rating, modified_at FROM podcast_ratings WHERE user_id = $1 AND podcast_uuid = $2
+`
+
+type GetPodcastRatingParams struct {
+	UserID      int64
+	PodcastUuid string
+}
+
+func (q *Queries) GetPodcastRating(ctx context.Context, arg GetPodcastRatingParams) (PodcastRating, error) {
+	row := q.db.QueryRow(ctx, getPodcastRating, arg.UserID, arg.PodcastUuid)
+	var i PodcastRating
+	err := row.Scan(
+		&i.UserID,
+		&i.PodcastUuid,
+		&i.Rating,
+		&i.ModifiedAt,
+	)
+	return i, err
+}
+
+const getPodcastRatingAggregate = `-- name: GetPodcastRatingAggregate :one
+SELECT COUNT(*)::bigint AS total, COALESCE(AVG(rating), 0)::float8 AS average
+FROM podcast_ratings
+WHERE podcast_uuid = $1
+`
+
+type GetPodcastRatingAggregateRow struct {
+	Total   int64
+	Average float64
+}
+
+func (q *Queries) GetPodcastRatingAggregate(ctx context.Context, podcastUuid string) (GetPodcastRatingAggregateRow, error) {
+	row := q.db.QueryRow(ctx, getPodcastRatingAggregate, podcastUuid)
+	var i GetPodcastRatingAggregateRow
+	err := row.Scan(&i.Total, &i.Average)
+	return i, err
+}
+
 const getPodcastsByUUIDs = `-- name: GetPodcastsByUUIDs :many
-SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts WHERE uuid = ANY($1::uuid[])
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url FROM podcasts WHERE uuid = ANY($1::uuid[])
 `
 
 func (q *Queries) GetPodcastsByUUIDs(ctx context.Context, dollar_1 []string) ([]Podcast, error) {
@@ -942,6 +1094,10 @@ func (q *Queries) GetPodcastsByUUIDs(ctx context.Context, dollar_1 []string) ([]
 			&i.ContentModifiedMs,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.BackgroundColor,
+			&i.TintForLightBg,
+			&i.TintForDarkBg,
+			&i.ColorsSourceImageUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -969,6 +1125,24 @@ func (q *Queries) GetRefreshTokenByHash(ctx context.Context, tokenHash string) (
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const getSharedListByCode = `-- name: GetSharedListByCode :one
+SELECT id, code, title, description, podcast_uuids, created_at FROM shared_lists WHERE code = $1
+`
+
+func (q *Queries) GetSharedListByCode(ctx context.Context, code string) (SharedList, error) {
+	row := q.db.QueryRow(ctx, getSharedListByCode, code)
+	var i SharedList
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.Title,
+		&i.Description,
+		&i.PodcastUuids,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -1385,6 +1559,37 @@ func (q *Queries) GetUserPodcast(ctx context.Context, arg GetUserPodcastParams) 
 	return i, err
 }
 
+const getUserPodcastRatings = `-- name: GetUserPodcastRatings :many
+SELECT user_id, podcast_uuid, rating, modified_at FROM podcast_ratings
+WHERE user_id = $1
+ORDER BY modified_at DESC
+`
+
+func (q *Queries) GetUserPodcastRatings(ctx context.Context, userID int64) ([]PodcastRating, error) {
+	rows, err := q.db.Query(ctx, getUserPodcastRatings, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PodcastRating
+	for rows.Next() {
+		var i PodcastRating
+		if err := rows.Scan(
+			&i.UserID,
+			&i.PodcastUuid,
+			&i.Rating,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserPodcastsModifiedSince = `-- name: GetUserPodcastsModifiedSince :many
 SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at FROM user_podcasts
 WHERE user_id = $1 AND modified_at > $2 AND modified_at <= $3
@@ -1440,6 +1645,43 @@ func (q *Queries) GetUserSettings(ctx context.Context, userID int64) (UserSettin
 	return i, err
 }
 
+const getUserStatsTotals = `-- name: GetUserStatsTotals :one
+SELECT COALESCE(SUM(time_silence_removal), 0)::bigint AS time_silence_removal,
+       COALESCE(SUM(time_skipping), 0)::bigint AS time_skipping,
+       COALESCE(SUM(time_intro_skipping), 0)::bigint AS time_intro_skipping,
+       COALESCE(SUM(time_variable_speed), 0)::bigint AS time_variable_speed,
+       COALESCE(SUM(time_listened), 0)::bigint AS time_listened,
+       COALESCE(MIN(NULLIF(times_started_at, 0)), 0)::bigint AS earliest_started_at,
+       COALESCE(MIN(created_at), now())::timestamptz AS earliest_created_at
+FROM devices
+WHERE user_id = $1
+`
+
+type GetUserStatsTotalsRow struct {
+	TimeSilenceRemoval int64
+	TimeSkipping       int64
+	TimeIntroSkipping  int64
+	TimeVariableSpeed  int64
+	TimeListened       int64
+	EarliestStartedAt  int64
+	EarliestCreatedAt  time.Time
+}
+
+func (q *Queries) GetUserStatsTotals(ctx context.Context, userID int64) (GetUserStatsTotalsRow, error) {
+	row := q.db.QueryRow(ctx, getUserStatsTotals, userID)
+	var i GetUserStatsTotalsRow
+	err := row.Scan(
+		&i.TimeSilenceRemoval,
+		&i.TimeSkipping,
+		&i.TimeIntroSkipping,
+		&i.TimeVariableSpeed,
+		&i.TimeListened,
+		&i.EarliestStartedAt,
+		&i.EarliestCreatedAt,
+	)
+	return i, err
+}
+
 const insertUpNextItem = `-- name: InsertUpNextItem :exec
 INSERT INTO up_next_items (
     user_id, episode_uuid, podcast_uuid, title, url, published, position
@@ -1492,6 +1734,123 @@ func (q *Queries) PodcastHasSubscribers(ctx context.Context, podcastUuid string)
 	var has_subscribers bool
 	err := row.Scan(&has_subscribers)
 	return has_subscribers, err
+}
+
+const podcastsByCategory = `-- name: PodcastsByCategory :many
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url FROM podcasts
+WHERE refresh_status = 'ok' AND category = $1
+ORDER BY title
+LIMIT $2
+`
+
+type PodcastsByCategoryParams struct {
+	Category string
+	Limit    int32
+}
+
+func (q *Queries) PodcastsByCategory(ctx context.Context, arg PodcastsByCategoryParams) ([]Podcast, error) {
+	rows, err := q.db.Query(ctx, podcastsByCategory, arg.Category, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Podcast
+	for rows.Next() {
+		var i Podcast
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.FeedUrl,
+			&i.Title,
+			&i.Author,
+			&i.Description,
+			&i.ImageUrl,
+			&i.WebsiteUrl,
+			&i.Category,
+			&i.Language,
+			&i.MediaType,
+			&i.ShowType,
+			&i.IsExplicit,
+			&i.RefreshStatus,
+			&i.RefreshError,
+			&i.FeedEtag,
+			&i.FeedLastModified,
+			&i.LastRefreshAt,
+			&i.NextRefreshAt,
+			&i.LatestEpisodeUuid,
+			&i.LatestEpisodePublished,
+			&i.ContentModifiedMs,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.BackgroundColor,
+			&i.TintForLightBg,
+			&i.TintForDarkBg,
+			&i.ColorsSourceImageUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recentPodcasts = `-- name: RecentPodcasts :many
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url FROM podcasts
+WHERE refresh_status = 'ok' AND latest_episode_published IS NOT NULL
+ORDER BY latest_episode_published DESC
+LIMIT $1
+`
+
+func (q *Queries) RecentPodcasts(ctx context.Context, limit int32) ([]Podcast, error) {
+	rows, err := q.db.Query(ctx, recentPodcasts, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Podcast
+	for rows.Next() {
+		var i Podcast
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.FeedUrl,
+			&i.Title,
+			&i.Author,
+			&i.Description,
+			&i.ImageUrl,
+			&i.WebsiteUrl,
+			&i.Category,
+			&i.Language,
+			&i.MediaType,
+			&i.ShowType,
+			&i.IsExplicit,
+			&i.RefreshStatus,
+			&i.RefreshError,
+			&i.FeedEtag,
+			&i.FeedLastModified,
+			&i.LastRefreshAt,
+			&i.NextRefreshAt,
+			&i.LatestEpisodeUuid,
+			&i.LatestEpisodePublished,
+			&i.ContentModifiedMs,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.BackgroundColor,
+			&i.TintForLightBg,
+			&i.TintForDarkBg,
+			&i.ColorsSourceImageUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const revokeAllRefreshTokens = `-- name: RevokeAllRefreshTokens :execrows
@@ -1649,7 +2008,7 @@ func (q *Queries) SearchEpisodesInPodcast(ctx context.Context, arg SearchEpisode
 }
 
 const searchPodcasts = `-- name: SearchPodcasts :many
-SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url FROM podcasts
 WHERE refresh_status = 'ok'
   AND (title ILIKE '%' || $1 || '%' OR author ILIKE '%' || $1 || '%')
 ORDER BY similarity(title, $1) DESC
@@ -1695,6 +2054,10 @@ func (q *Queries) SearchPodcasts(ctx context.Context, arg SearchPodcastsParams) 
 			&i.ContentModifiedMs,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.BackgroundColor,
+			&i.TintForLightBg,
+			&i.TintForDarkBg,
+			&i.ColorsSourceImageUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -1776,6 +2139,98 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const topPodcastsBySubscribers = `-- name: TopPodcastsBySubscribers :many
+SELECT p.id, p.uuid, p.feed_url, p.title, p.author, p.description, p.image_url, p.website_url, p.category, p.language, p.media_type, p.show_type, p.is_explicit, p.refresh_status, p.refresh_error, p.feed_etag, p.feed_last_modified, p.last_refresh_at, p.next_refresh_at, p.latest_episode_uuid, p.latest_episode_published, p.content_modified_ms, p.created_at, p.updated_at, p.background_color, p.tint_for_light_bg, p.tint_for_dark_bg, p.colors_source_image_url, COUNT(up.user_id)::bigint AS subscriber_count
+FROM podcasts p
+JOIN user_podcasts up ON up.podcast_uuid = p.uuid
+WHERE up.subscribed AND NOT up.is_deleted AND p.refresh_status = 'ok'
+GROUP BY p.id
+ORDER BY COUNT(up.user_id) DESC, p.latest_episode_published DESC NULLS LAST
+LIMIT $1
+`
+
+type TopPodcastsBySubscribersRow struct {
+	ID                     int64
+	Uuid                   string
+	FeedUrl                string
+	Title                  string
+	Author                 string
+	Description            string
+	ImageUrl               string
+	WebsiteUrl             string
+	Category               string
+	Language               string
+	MediaType              string
+	ShowType               string
+	IsExplicit             bool
+	RefreshStatus          string
+	RefreshError           string
+	FeedEtag               string
+	FeedLastModified       string
+	LastRefreshAt          *time.Time
+	NextRefreshAt          time.Time
+	LatestEpisodeUuid      *string
+	LatestEpisodePublished *time.Time
+	ContentModifiedMs      int64
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	BackgroundColor        string
+	TintForLightBg         string
+	TintForDarkBg          string
+	ColorsSourceImageUrl   string
+	SubscriberCount        int64
+}
+
+func (q *Queries) TopPodcastsBySubscribers(ctx context.Context, limit int32) ([]TopPodcastsBySubscribersRow, error) {
+	rows, err := q.db.Query(ctx, topPodcastsBySubscribers, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TopPodcastsBySubscribersRow
+	for rows.Next() {
+		var i TopPodcastsBySubscribersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.FeedUrl,
+			&i.Title,
+			&i.Author,
+			&i.Description,
+			&i.ImageUrl,
+			&i.WebsiteUrl,
+			&i.Category,
+			&i.Language,
+			&i.MediaType,
+			&i.ShowType,
+			&i.IsExplicit,
+			&i.RefreshStatus,
+			&i.RefreshError,
+			&i.FeedEtag,
+			&i.FeedLastModified,
+			&i.LastRefreshAt,
+			&i.NextRefreshAt,
+			&i.LatestEpisodeUuid,
+			&i.LatestEpisodePublished,
+			&i.ContentModifiedMs,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.BackgroundColor,
+			&i.TintForLightBg,
+			&i.TintForDarkBg,
+			&i.ColorsSourceImageUrl,
+			&i.SubscriberCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const trimHistory = `-- name: TrimHistory :exec
 DELETE FROM history
 WHERE history.user_id = $1 AND history.episode_uuid NOT IN (
@@ -1793,6 +2248,34 @@ type TrimHistoryParams struct {
 
 func (q *Queries) TrimHistory(ctx context.Context, arg TrimHistoryParams) error {
 	_, err := q.db.Exec(ctx, trimHistory, arg.UserID, arg.Limit)
+	return err
+}
+
+const updatePodcastColors = `-- name: UpdatePodcastColors :exec
+UPDATE podcasts SET
+    background_color = $2,
+    tint_for_light_bg = $3,
+    tint_for_dark_bg = $4,
+    colors_source_image_url = $5
+WHERE id = $1
+`
+
+type UpdatePodcastColorsParams struct {
+	ID                   int64
+	BackgroundColor      string
+	TintForLightBg       string
+	TintForDarkBg        string
+	ColorsSourceImageUrl string
+}
+
+func (q *Queries) UpdatePodcastColors(ctx context.Context, arg UpdatePodcastColorsParams) error {
+	_, err := q.db.Exec(ctx, updatePodcastColors,
+		arg.ID,
+		arg.BackgroundColor,
+		arg.TintForLightBg,
+		arg.TintForDarkBg,
+		arg.ColorsSourceImageUrl,
+	)
 	return err
 }
 
@@ -2268,6 +2751,25 @@ func (q *Queries) UpsertPlaylist(ctx context.Context, arg UpsertPlaylistParams) 
 		arg.Episodes,
 		arg.ModifiedAt,
 	)
+	return err
+}
+
+const upsertPodcastRating = `-- name: UpsertPodcastRating :exec
+INSERT INTO podcast_ratings (user_id, podcast_uuid, rating, modified_at)
+VALUES ($1, $2, $3, now())
+ON CONFLICT (user_id, podcast_uuid) DO UPDATE SET
+    rating = EXCLUDED.rating,
+    modified_at = now()
+`
+
+type UpsertPodcastRatingParams struct {
+	UserID      int64
+	PodcastUuid string
+	Rating      int16
+}
+
+func (q *Queries) UpsertPodcastRating(ctx context.Context, arg UpsertPodcastRatingParams) error {
+	_, err := q.db.Exec(ctx, upsertPodcastRating, arg.UserID, arg.PodcastUuid, arg.Rating)
 	return err
 }
 

@@ -12,12 +12,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,9 +46,23 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
-	// serve the crawler fixture feed for catalog ingestion
+	// serve the crawler fixture feed for catalog ingestion, rewriting its
+	// artwork URL to a tiny PNG this server also hosts so color extraction
+	// exercises the real fetch path
 	feedServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, filepath.Join("..", "crawler", "testdata", "feed.xml"))
+		if r.URL.Path == "/art.png" {
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(artworkPNG())
+			return
+		}
+		raw, err := os.ReadFile(filepath.Join("..", "crawler", "testdata", "feed.xml"))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		feed := strings.ReplaceAll(string(raw), "https://example.com/art.jpg", feedServer.URL+"/art.png")
+		w.Header().Set("Content-Type", "application/rss+xml")
+		w.Write([]byte(feed))
 	}))
 	defer feedServer.Close()
 
@@ -85,6 +103,21 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	server.Process.Kill()
 	os.Exit(code)
+}
+
+// artworkPNG renders a solid dark-red 10x10 cover image.
+func artworkPNG() []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 20, B: 20, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
 }
 
 func waitForHealth(url string) bool {
@@ -401,4 +434,220 @@ func TestAuthFailures(t *testing.T) {
 
 func nowProto() *timestamppb.Timestamp {
 	return timestamppb.New(time.Now())
+}
+
+// ingestFixturePodcast ensures the fixture feed is in the catalog and
+// returns its uuid (deterministic, so repeat calls converge).
+func ingestFixturePodcast(t *testing.T) string {
+	t.Helper()
+
+	var search struct {
+		Status string `json:"status"`
+		Result struct {
+			Podcast struct {
+				UUID string `json:"uuid"`
+			} `json:"podcast"`
+		} `json:"result"`
+	}
+	status := postJSON(t, "/podcasts/search", "", map[string]string{"q": feedServer.URL + "/feed.xml"}, &search)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "ok", search.Status)
+	require.NotEmpty(t, search.Result.Podcast.UUID)
+	return search.Result.Podcast.UUID
+}
+
+func TestArtworkAndColors(t *testing.T) {
+	podcastUuid := ingestFixturePodcast(t)
+
+	// artwork redirects to the feed's cover image
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Get(baseURL + "/discover/images/280/" + podcastUuid + ".jpg")
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusFound, resp.StatusCode)
+	assert.Equal(t, feedServer.URL+"/art.png", resp.Header.Get("Location"))
+
+	// color metadata computed from the artwork
+	resp, err = http.Get(baseURL + "/discover/images/metadata/" + podcastUuid + ".json")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var envelope struct {
+		Colors struct {
+			Background     string `json:"background"`
+			TintForLightBg string `json:"tintForLightBg"`
+			TintForDarkBg  string `json:"tintForDarkBg"`
+		} `json:"colors"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
+	assert.Equal(t, "#C81414", envelope.Colors.Background)
+	assert.Regexp(t, `^#[0-9A-F]{6}$`, envelope.Colors.TintForLightBg)
+	assert.Regexp(t, `^#[0-9A-F]{6}$`, envelope.Colors.TintForDarkBg)
+}
+
+func TestRatingsAndStats(t *testing.T) {
+	email := fmt.Sprintf("ratings-%d@e2e.test", time.Now().UnixNano())
+	token, _ := registerUser(t, email)
+	podcastUuid := ingestFixturePodcast(t)
+
+	// rate the podcast
+	status := postProto(t, "/user/podcast_rating/add", token,
+		&pb.PodcastRatingAddRequest{PodcastUuid: podcastUuid, PodcastRating: 5}, nil)
+	require.Equal(t, http.StatusOK, status)
+
+	// own rating round-trips
+	shown := &pb.PodcastRating{}
+	status = postProto(t, "/user/podcast_rating/show", token,
+		&pb.PodcastRatingShowRequest{PodcastUuid: podcastUuid}, shown)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, uint32(5), shown.PodcastRating)
+
+	// aggregate rating is public JSON on the cache host role
+	resp, err := http.Get(baseURL + "/podcast/rating/" + podcastUuid)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var aggregate struct {
+		Total   int64   `json:"total"`
+		Average float64 `json:"average"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&aggregate))
+	assert.Equal(t, int64(1), aggregate.Total)
+	assert.Equal(t, float64(5), aggregate.Average)
+
+	// device stats ride along in sync; summary reflects them
+	syncResp := &pb.SyncUpdateResponse{}
+	status = postProto(t, "/user/sync/update", token, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: time.Now().UnixMilli(),
+		Records: []*pb.Record{
+			{Record: &pb.Record_Device{Device: &pb.SyncUserDevice{
+				DeviceId:       wrapperspb.String("e2e-device"),
+				DeviceType:     wrapperspb.Int32(1),
+				TimeListened:   wrapperspb.Int64(3600),
+				TimeSkipping:   wrapperspb.Int64(42),
+				TimesStartedAt: wrapperspb.Int64(1700000000),
+			}}},
+		},
+	}, syncResp)
+	require.Equal(t, http.StatusOK, status)
+
+	stats := &pb.StatsResponse{}
+	status = postProto(t, "/user/stats/summary", token,
+		&pb.StatsRequest{DeviceId: "", DeviceType: 1}, stats)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, int64(3600), stats.TimeListened)
+	assert.Equal(t, int64(42), stats.TimeSkipping)
+	assert.Equal(t, int64(1700000000), stats.TimesStartedAt.Seconds)
+}
+
+func TestDiscoverLayoutAndSources(t *testing.T) {
+	email := fmt.Sprintf("discover-%d@e2e.test", time.Now().UnixNano())
+	token, _ := registerUser(t, email)
+	podcastUuid := ingestFixturePodcast(t)
+
+	// subscribe so the fixture podcast has a subscriber for popularity
+	status := postProto(t, "/user/sync/update", token, &pb.SyncUpdateRequest{
+		Records: []*pb.Record{{Record: &pb.Record_Podcast{Podcast: &pb.SyncUserPodcast{
+			Uuid: podcastUuid, Subscribed: wrapperspb.Bool(true),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// layout parses and points at this server
+	resp, err := http.Get(baseURL + "/discover/ios/content_v2.json")
+	require.NoError(t, err)
+	var layout struct {
+		Layout []struct {
+			Source string `json:"source"`
+			Type   string `json:"type"`
+		} `json:"layout"`
+		DefaultRegionCode string `json:"default_region_code"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&layout))
+	resp.Body.Close()
+	require.NotEmpty(t, layout.Layout)
+	assert.Equal(t, "us", layout.DefaultRegionCode)
+
+	// first podcast_list source contains the fixture podcast
+	var sourceURL string
+	for _, item := range layout.Layout {
+		if item.Type == "podcast_list" {
+			sourceURL = item.Source
+			break
+		}
+	}
+	require.NotEmpty(t, sourceURL)
+
+	resp, err = http.Get(sourceURL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var list struct {
+		Podcasts []struct {
+			UUID string `json:"uuid"`
+		} `json:"podcasts"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&list))
+	found := false
+	for _, podcast := range list.Podcasts {
+		if podcast.UUID == podcastUuid {
+			found = true
+		}
+	}
+	assert.True(t, found, "subscribed fixture podcast appears in discover source")
+}
+
+func TestShareListAndLinks(t *testing.T) {
+	podcastUuid := ingestFixturePodcast(t)
+
+	// create a shared list
+	var created struct {
+		Status string `json:"status"`
+		Result struct {
+			ShareURL string `json:"share_url"`
+		} `json:"result"`
+	}
+	status := postJSON(t, "/share/list", "", map[string]any{
+		"title":       "E2E Favorites",
+		"description": "from the e2e suite",
+		"podcasts":    []map[string]string{{"uuid": podcastUuid}},
+		"datetime":    "20240601120000",
+		"h":           "unverified",
+	}, &created)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "ok", created.Status)
+	require.NotEmpty(t, created.Result.ShareURL)
+
+	// resolve it
+	resp, err := http.Get(created.Result.ShareURL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var list struct {
+		Title    string `json:"title"`
+		Podcasts []struct {
+			UUID string `json:"uuid"`
+		} `json:"podcasts"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&list))
+	assert.Equal(t, "E2E Favorites", list.Title)
+	require.Len(t, list.Podcasts, 1)
+	assert.Equal(t, podcastUuid, list.Podcasts[0].UUID)
+
+	// shared podcast link resolves
+	var shared struct {
+		Status string `json:"status"`
+		Result struct {
+			Podcast struct {
+				Title string `json:"title"`
+			} `json:"podcast"`
+		} `json:"result"`
+	}
+	status = postJSON(t, "/podcast/"+podcastUuid, "", map[string]any{}, &shared)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "ok", shared.Status)
+	assert.Equal(t, "Test Show", shared.Result.Podcast.Title)
 }

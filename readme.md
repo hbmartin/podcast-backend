@@ -20,12 +20,15 @@ everywhere else.
 | Queue/history/settings | `up_next/sync`, `history/sync` (newest-100 cap), `user/named_settings/update` (per-key modifiedAt merge) |
 | Real-time playback | `sync/update_episode`, `sync/update_episode_star` |
 | Refresh host | `user/update`, `podcasts/refresh`, `podcasts/show`, `podcasts/search` (feed URLs crawl synchronously; text search proxies the iTunes Search API), `import/opml`, `import/export_feed_urls`, `/health.html` |
-| Cache host | `mobile/podcast/full/{uuid}` (ETag/304), `mobile/show_notes/full/{uuid}`, `mobile/episode/url/{p}/{e}`, `mobile/podcast/findbyepisode/{p}/{e}`, `mobile/podcast/episode/search`, `episode/search`, `search/combined` |
+| Cache host | `mobile/podcast/full/{uuid}` (ETag/304), `mobile/show_notes/full/{uuid}`, `mobile/episode/url/{p}/{e}`, `mobile/podcast/findbyepisode/{p}/{e}`, `mobile/podcast/episode/search`, `episode/search`, `search/combined`, `podcast/rating/{uuid}` |
 | Search host | `autocomplete/search` |
+| Artwork | `discover/images/{size}/{uuid}.jpg` (redirect to feed art), `discover/images/metadata/{uuid}.json` (lazily computed cover colors) |
+| Ratings & stats | `user/podcast_rating/add`/`show`/`list`, `user/stats/summary` |
+| Discover | `discover/ios/content_v2.json`/`content_v3.json` with catalog-backed sources (trending/popular/recent/categories) |
+| Sharing | `share/list` (+ `GET /l/{code}` resolution), shared `podcast/{uuid}` and `episode/{uuid}` link lookups |
 
-Not implemented (yet): user file uploads, sharing/curated lists, discover
-layout, ratings, stats summary, TV device auth, Sonos, push notifications,
-transcripts, recommendations.
+Not implemented (yet): user file uploads, TV device auth, Sonos, push
+notifications, transcripts, recommendations, supporter bundles.
 
 ## Architecture
 
@@ -75,6 +78,7 @@ Configuration:
 | `AUTH_ACCESS_TOKEN_TTL` / `AUTH_REFRESH_TOKEN_TTL` | defaults `24h` / `8760h` |
 | `ITUNES_BASE_URL` | iTunes Search API base, default `https://itunes.apple.com` |
 | `ALLOWED_ORIGIN`, `TLS_CERT_FILE`, `TLS_CERT_KEY_FILE` | CORS / TLS |
+| `SHARING_CREDENTIAL` | optional; when set, `share/list` requests must carry the client's legacy SHA-1 signature |
 
 ### Pointing the iOS client at this server
 
