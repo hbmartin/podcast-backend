@@ -16,6 +16,9 @@ type AuthConfiguration struct {
 	JWTSecret       string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
+	// SharingCredential, when set, requires share/list requests to carry the
+	// legacy sha1(datetime+credential) signature the client computes.
+	SharingCredential string
 }
 
 type WebServerConfiguration struct {
@@ -77,6 +80,8 @@ func loadAuthConfig() (*AuthConfiguration, error) {
 		}
 		config.RefreshTokenTTL = parsed
 	}
+
+	config.SharingCredential = os.Getenv("SHARING_CREDENTIAL")
 
 	return config, nil
 }

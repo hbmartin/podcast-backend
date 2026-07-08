@@ -119,6 +119,21 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	// cache host role: aggregate rating (public JSON)
 	router.Handle("GET /podcast/rating/{uuid}", publicChain(controllers.GetPodcastRatingPublic))
 
+	// static host role: discover layout + catalog-backed sources (JSON)
+	router.Handle("GET /discover/ios/content_v2.json", publicChain(controllers.GetDiscoverContent))
+	router.Handle("GET /discover/ios/content_v3.json", publicChain(controllers.GetDiscoverContent))
+	router.Handle("GET /discover/json/trending", publicChain(controllers.GetDiscoverTrending))
+	router.Handle("GET /discover/json/popular", publicChain(controllers.GetDiscoverPopular))
+	router.Handle("GET /discover/json/recent", publicChain(controllers.GetDiscoverRecent))
+	router.Handle("GET /discover/json/categories", publicChain(controllers.GetDiscoverCategories))
+	router.Handle("GET /discover/json/category/{name}", publicChain(controllers.GetDiscoverCategory))
+
+	// sharing host role + share-link resolution (JSON)
+	router.Handle("POST /share/list", publicChain(controllers.PostShareList))
+	router.Handle("GET /l/{code}", publicChain(controllers.GetSharedList))
+	router.Handle("POST /podcast/{uuid}", publicChain(controllers.PostSharePodcast))
+	router.Handle("POST /episode/{uuid}", publicChain(controllers.PostShareEpisode))
+
 	// static host role: artwork + color metadata
 	router.Handle("GET /discover/images/metadata/{file}", publicChain(controllers.GetDiscoverImageMetadata))
 	router.Handle("GET /discover/images/{size}/{file}", publicChain(controllers.GetDiscoverImage))

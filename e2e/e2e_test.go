@@ -542,3 +542,112 @@ func TestRatingsAndStats(t *testing.T) {
 	assert.Equal(t, int64(42), stats.TimeSkipping)
 	assert.Equal(t, int64(1700000000), stats.TimesStartedAt.Seconds)
 }
+
+func TestDiscoverLayoutAndSources(t *testing.T) {
+	email := fmt.Sprintf("discover-%d@e2e.test", time.Now().UnixNano())
+	token, _ := registerUser(t, email)
+	podcastUuid := ingestFixturePodcast(t)
+
+	// subscribe so the fixture podcast has a subscriber for popularity
+	status := postProto(t, "/user/sync/update", token, &pb.SyncUpdateRequest{
+		Records: []*pb.Record{{Record: &pb.Record_Podcast{Podcast: &pb.SyncUserPodcast{
+			Uuid: podcastUuid, Subscribed: wrapperspb.Bool(true),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// layout parses and points at this server
+	resp, err := http.Get(baseURL + "/discover/ios/content_v2.json")
+	require.NoError(t, err)
+	var layout struct {
+		Layout []struct {
+			Source string `json:"source"`
+			Type   string `json:"type"`
+		} `json:"layout"`
+		DefaultRegionCode string `json:"default_region_code"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&layout))
+	resp.Body.Close()
+	require.NotEmpty(t, layout.Layout)
+	assert.Equal(t, "us", layout.DefaultRegionCode)
+
+	// first podcast_list source contains the fixture podcast
+	var sourceURL string
+	for _, item := range layout.Layout {
+		if item.Type == "podcast_list" {
+			sourceURL = item.Source
+			break
+		}
+	}
+	require.NotEmpty(t, sourceURL)
+
+	resp, err = http.Get(sourceURL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var list struct {
+		Podcasts []struct {
+			UUID string `json:"uuid"`
+		} `json:"podcasts"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&list))
+	found := false
+	for _, podcast := range list.Podcasts {
+		if podcast.UUID == podcastUuid {
+			found = true
+		}
+	}
+	assert.True(t, found, "subscribed fixture podcast appears in discover source")
+}
+
+func TestShareListAndLinks(t *testing.T) {
+	podcastUuid := ingestFixturePodcast(t)
+
+	// create a shared list
+	var created struct {
+		Status string `json:"status"`
+		Result struct {
+			ShareURL string `json:"share_url"`
+		} `json:"result"`
+	}
+	status := postJSON(t, "/share/list", "", map[string]any{
+		"title":       "E2E Favorites",
+		"description": "from the e2e suite",
+		"podcasts":    []map[string]string{{"uuid": podcastUuid}},
+		"datetime":    "20240601120000",
+		"h":           "unverified",
+	}, &created)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "ok", created.Status)
+	require.NotEmpty(t, created.Result.ShareURL)
+
+	// resolve it
+	resp, err := http.Get(created.Result.ShareURL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var list struct {
+		Title    string `json:"title"`
+		Podcasts []struct {
+			UUID string `json:"uuid"`
+		} `json:"podcasts"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&list))
+	assert.Equal(t, "E2E Favorites", list.Title)
+	require.Len(t, list.Podcasts, 1)
+	assert.Equal(t, podcastUuid, list.Podcasts[0].UUID)
+
+	// shared podcast link resolves
+	var shared struct {
+		Status string `json:"status"`
+		Result struct {
+			Podcast struct {
+				Title string `json:"title"`
+			} `json:"podcast"`
+		} `json:"result"`
+	}
+	status = postJSON(t, "/podcast/"+podcastUuid, "", map[string]any{}, &shared)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "ok", shared.Status)
+	assert.Equal(t, "Test Show", shared.Result.Podcast.Title)
+}
