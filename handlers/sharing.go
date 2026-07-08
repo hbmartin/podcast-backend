@@ -73,7 +73,7 @@ func (h Handlers) PostShareList(w http.ResponseWriter, r *http.Request) {
 		"status":  "ok",
 		"message": "",
 		"result": map[string]string{
-			"share_url": requestBaseURL(r) + "/l/" + list.Code,
+			"share_url": h.baseURL(r) + "/l/" + list.Code,
 		},
 	})
 }

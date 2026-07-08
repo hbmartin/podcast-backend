@@ -54,12 +54,13 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	slog.Info("Starting API... \n")
 
 	controllers := handlers.Handlers{
-		Queries: db,
-		Queue:   queueClient,
-		Config:  configValues.AuthConfig,
-		Crawler: feedCrawler,
-		Search:  searcher,
-		Images:  artwork.NewHTTPImageFetcher(),
+		Queries:       db,
+		Queue:         queueClient,
+		Config:        configValues.AuthConfig,
+		Crawler:       feedCrawler,
+		Search:        searcher,
+		Images:        artwork.NewHTTPImageFetcher(),
+		PublicBaseURL: configValues.WebServerConfig.PublicBaseURL,
 	}
 	router := http.NewServeMux()
 
@@ -162,9 +163,14 @@ func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawle
 	router := setupRouter(querier, queueClient, feedCrawler, searcher)
 
 	srv := &http.Server{
-		Addr: configValues.WebServerConfig.WebPort,
+		Addr:              configValues.WebServerConfig.WebPort,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
 	}
-	srv.Handler = router
 
 	useTls := configValues.WebServerConfig.TLSCertFile != "" && configValues.WebServerConfig.TLSCertKeyFile != ""
 

@@ -28,14 +28,10 @@ type WebServerConfiguration struct {
 	TLSCertFile      string
 	TLSCertKeyFile   string
 	ConnectionString string
-}
-
-type CacheConfiguration struct {
-	EnableTransparentCaching bool
-	RedisAddress             string
-	RedisPassword            string
-	RedisDb                  int
-	Expiration               time.Duration
+	// PublicBaseURL, when set, is used verbatim as the base of generated
+	// absolute links (share URLs, discover sources) instead of trusting
+	// X-Forwarded-* request headers.
+	PublicBaseURL string
 }
 
 type QueueConfiguration struct {
@@ -49,7 +45,6 @@ type QueueConfiguration struct {
 
 type Configuration struct {
 	WebServerConfig *WebServerConfiguration
-	CacheConfig     *CacheConfiguration
 	AuthConfig      *AuthConfiguration
 	QueueConfig     *QueueConfiguration
 }
@@ -115,42 +110,7 @@ func loadWebServerConfig() (*WebServerConfiguration, error) {
 		return nil, fmt.Errorf("must set DB_CONNECTION_STRING=<connection string>")
 	}
 
-	return config, nil
-}
-
-func loadCacheConfig() (*CacheConfiguration, error) {
-	config := &CacheConfiguration{}
-
-	if enableTransparentCaching, ok := os.LookupEnv("ENABLE_TRANSPARENT_CACHE"); ok {
-		config.EnableTransparentCaching = enableTransparentCaching == "true"
-	}
-
-	if !config.EnableTransparentCaching {
-		// no reason to keep loading the cache config if we're not using it
-		return config, nil
-	}
-
-	if redisAddress, ok := os.LookupEnv("REDIS_ADDRESS"); ok {
-		config.RedisAddress = redisAddress
-	} else {
-		config.RedisAddress = "localhost:6379"
-	}
-
-	if redisDbStr, ok := os.LookupEnv("REDIS_DB"); ok {
-		redisDb, _ := strconv.Atoi(redisDbStr)
-		config.RedisDb = redisDb
-	} else {
-		config.RedisDb = 0
-	}
-
-	if expiration, ok := os.LookupEnv("REDIS_DEFAULT_EXPIRATION"); ok {
-		expirationParsed, _ := time.ParseDuration(expiration)
-		config.Expiration = expirationParsed
-	} else {
-		config.Expiration = time.Hour
-	}
-
-	config.RedisPassword, _ = os.LookupEnv("REDIS_PASSWORD")
+	config.PublicBaseURL = os.Getenv("PUBLIC_BASE_URL")
 
 	return config, nil
 }
@@ -218,11 +178,6 @@ func LoadConfig() *Configuration {
 		log.Fatal(err)
 	}
 
-	cacheConfig, err := loadCacheConfig()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	queueConfig, err := loadQueueConfig()
 	if err != nil {
 		log.Fatal(err)
@@ -231,7 +186,6 @@ func LoadConfig() *Configuration {
 	return &Configuration{
 		WebServerConfig: webServerConfig,
 		AuthConfig:      authConfig,
-		CacheConfig:     cacheConfig,
 		QueueConfig:     queueConfig,
 	}
 }

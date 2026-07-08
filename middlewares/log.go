@@ -1,16 +1,16 @@
 package middlewares
 
 import (
-	"bytes"
 	"log/slog"
 	"net/http"
 	"time"
 )
 
+// LogResponseWriter captures the status code for request logging; a handler
+// that never calls WriteHeader implicitly returns 200.
 type LogResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
-	buf        bytes.Buffer
 }
 
 func (w *LogResponseWriter) WriteHeader(code int) {
@@ -18,13 +18,8 @@ func (w *LogResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func (w *LogResponseWriter) Write(body []byte) (int, error) {
-	w.buf.Write(body)
-	return w.ResponseWriter.Write(body)
-}
-
 func newLogResponseWriter(w http.ResponseWriter) *LogResponseWriter {
-	return &LogResponseWriter{ResponseWriter: w}
+	return &LogResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 }
 
 func LogMiddleware(next http.Handler) http.Handler {

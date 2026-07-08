@@ -54,7 +54,7 @@ func podcastToDiscoverJSON(p db.Podcast) discoverPodcastJSON {
 // content_v3.json: the discover tab layout, with source URLs pointing back
 // at this server.
 func (h Handlers) GetDiscoverContent(w http.ResponseWriter, r *http.Request) {
-	base := requestBaseURL(r)
+	base := h.baseURL(r)
 	regions := []string{"us"}
 
 	layout := []discoverItemJSON{
@@ -145,7 +145,7 @@ func (h Handlers) GetDiscoverCategories(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	base := requestBaseURL(r)
+	base := h.baseURL(r)
 	type categoryJSON struct {
 		ID     int    `json:"id"`
 		Name   string `json:"name"`

@@ -31,6 +31,9 @@ type Handlers struct {
 	Crawler *crawler.Crawler
 	Search  itunes.Searcher
 	Images  artwork.ImageFetcher
+	// PublicBaseURL, when set, overrides request-derived base URLs in
+	// generated links (see baseURL).
+	PublicBaseURL string
 }
 
 func New(store db.Store) Handlers {
@@ -117,9 +120,11 @@ func getUserEmail(ctx context.Context) string {
 	return ""
 }
 
-//lint:ignore U1000 used by the JSON refresh/cache host handlers in upcoming milestones
+// maxJSONBody caps JSON request bodies (matches the protobuf cap in proto.go).
+const maxJSONBody = 4 << 20
+
 func bindJSON(r *http.Request, result any) error {
-	err := json.NewDecoder(r.Body).Decode(result)
+	err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxJSONBody)).Decode(result)
 
 	if err != nil {
 		return err
