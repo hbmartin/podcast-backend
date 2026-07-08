@@ -8,6 +8,146 @@ import (
 	"time"
 )
 
+type Bookmark struct {
+	UserID            int64
+	BookmarkUuid      string
+	PodcastUuid       string
+	EpisodeUuid       string
+	TimeSecs          int32
+	Title             string
+	TitleModified     int64
+	CreatedAt         time.Time
+	IsDeleted         bool
+	IsDeletedModified int64
+	ModifiedAt        int64
+}
+
+type Device struct {
+	UserID             int64
+	DeviceID           string
+	DeviceType         int32
+	TimesStartedAt     int64
+	TimeSilenceRemoval int64
+	TimeVariableSpeed  int64
+	TimeIntroSkipping  int64
+	TimeSkipping       int64
+	TimeListened       int64
+	UpdatedAt          time.Time
+}
+
+type Episode struct {
+	ID           int64
+	Uuid         string
+	PodcastID    int64
+	Guid         string
+	Title        string
+	AudioUrl     string
+	FileType     string
+	FileSize     int64
+	DurationSecs int32
+	PublishedAt  *time.Time
+	EpisodeType  string
+	Season       int32
+	Number       int32
+	ShowNotes    string
+	ImageUrl     string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type Folder struct {
+	UserID           int64
+	FolderUuid       string
+	Name             string
+	Color            int32
+	SortPosition     int32
+	PodcastsSortType int32
+	DateAdded        *time.Time
+	IsDeleted        bool
+	ModifiedAt       int64
+}
+
+type History struct {
+	UserID      int64
+	EpisodeUuid string
+	PodcastUuid string
+	Title       string
+	Url         string
+	Published   *time.Time
+	ModifiedAt  int64
+}
+
+type OpmlImport struct {
+	ID        int64
+	UserID    int64
+	CreatedAt time.Time
+}
+
+type OpmlImportItem struct {
+	ImportID    int64
+	FeedUrl     string
+	Status      string
+	PodcastUuid *string
+}
+
+type Playlist struct {
+	UserID          int64
+	Uuid            string
+	OriginalUuid    string
+	Title           string
+	IsDeleted       bool
+	AllPodcasts     *bool
+	PodcastUuids    *string
+	EpisodeUuids    *string
+	AudioVideo      *int32
+	NotDownloaded   *bool
+	Downloaded      *bool
+	Downloading     *bool
+	Finished        *bool
+	PartiallyPlayed *bool
+	Unplayed        *bool
+	Starred         *bool
+	Manual          *bool
+	SortPosition    *int32
+	SortType        *int32
+	IconID          *int32
+	FilterHours     *int32
+	FilterDuration  *bool
+	LongerThan      *int32
+	ShorterThan     *int32
+	ShowArchived    *bool
+	EpisodeOrder    []string
+	Episodes        []byte
+	ModifiedAt      int64
+}
+
+type Podcast struct {
+	ID                     int64
+	Uuid                   string
+	FeedUrl                string
+	Title                  string
+	Author                 string
+	Description            string
+	ImageUrl               string
+	WebsiteUrl             string
+	Category               string
+	Language               string
+	MediaType              string
+	ShowType               string
+	IsExplicit             bool
+	RefreshStatus          string
+	RefreshError           string
+	FeedEtag               string
+	FeedLastModified       string
+	LastRefreshAt          *time.Time
+	NextRefreshAt          time.Time
+	LatestEpisodeUuid      *string
+	LatestEpisodePublished *time.Time
+	ContentModifiedMs      int64
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
 type RefreshToken struct {
 	ID        int64
 	UserID    int64
@@ -16,6 +156,17 @@ type RefreshToken struct {
 	CreatedAt time.Time
 	ExpiresAt time.Time
 	RevokedAt *time.Time
+}
+
+type UpNextItem struct {
+	UserID      int64
+	EpisodeUuid string
+	PodcastUuid string
+	Title       string
+	Url         string
+	Published   *time.Time
+	Position    int32
+	AddedAt     time.Time
 }
 
 type User struct {
@@ -32,4 +183,44 @@ type User struct {
 	HistoryModified    int64
 	HistoryClearedAtMs int64
 	MarketingOptIn     bool
+}
+
+type UserEpisode struct {
+	UserID                     int64
+	EpisodeUuid                string
+	PodcastUuid                string
+	PlayingStatus              int32
+	PlayingStatusModified      int64
+	PlayedUpTo                 int64
+	PlayedUpToModified         int64
+	Starred                    bool
+	StarredModified            int64
+	IsDeleted                  bool
+	IsDeletedModified          int64
+	Duration                   int64
+	DurationModified           int64
+	DeselectedChapters         string
+	DeselectedChaptersModified int64
+	ModifiedAt                 int64
+}
+
+type UserPodcast struct {
+	UserID            int64
+	PodcastUuid       string
+	Subscribed        bool
+	IsDeleted         bool
+	AutoStartFrom     *int32
+	AutoSkipLast      *int32
+	EpisodesSortOrder *int32
+	FolderUuid        *string
+	SortPosition      *int32
+	DateAdded         *time.Time
+	Settings          []byte
+	ModifiedAt        int64
+}
+
+type UserSetting struct {
+	UserID     int64
+	Settings   []byte
+	ModifiedAt int64
 }

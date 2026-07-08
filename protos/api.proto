@@ -347,6 +347,14 @@ message BookmarksRequest {
   repeated string bookmarks = 1;
 }
 
+// Request body for user/bookmark/list (the client sends an empty message).
+message BookmarkRequest {
+  string podcast_uuid = 1;
+  string episode_uuid = 2;
+  google.protobuf.Int32Value time = 3;
+  google.protobuf.StringValue title = 4;
+}
+
 message BookmarksResponse {
   repeated BookmarkResponse bookmarks = 1;
 }

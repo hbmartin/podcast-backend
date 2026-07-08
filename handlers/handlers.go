@@ -22,19 +22,19 @@ import (
 )
 
 type Handlers struct {
-	Queries db.Querier
+	Queries db.Store
 	Queue   *tasks.QueueClient
 	Config  *config.AuthConfiguration
 }
 
-func New(querier db.Querier) Handlers {
-	return Handlers{Queries: querier}
+func New(store db.Store) Handlers {
+	return Handlers{Queries: store}
 }
 
 // NewWithQueue builds Handlers that can also enqueue background tasks and
 // mint tokens.
-func NewWithQueue(querier db.Querier, queue *tasks.QueueClient, authConfig *config.AuthConfiguration) Handlers {
-	return Handlers{Queries: querier, Queue: queue, Config: authConfig}
+func NewWithQueue(store db.Store, queue *tasks.QueueClient, authConfig *config.AuthConfiguration) Handlers {
+	return Handlers{Queries: store, Queue: queue, Config: authConfig}
 }
 
 // writeError translates any error into an HTTP response. Well-known

@@ -82,6 +82,494 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const deleteAllUpNextItems = `-- name: DeleteAllUpNextItems :exec
+DELETE FROM up_next_items WHERE user_id = $1
+`
+
+func (q *Queries) DeleteAllUpNextItems(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteAllUpNextItems, userID)
+	return err
+}
+
+const deleteHistoryBefore = `-- name: DeleteHistoryBefore :exec
+DELETE FROM history WHERE user_id = $1 AND modified_at <= $2
+`
+
+type DeleteHistoryBeforeParams struct {
+	UserID     int64
+	ModifiedAt int64
+}
+
+func (q *Queries) DeleteHistoryBefore(ctx context.Context, arg DeleteHistoryBeforeParams) error {
+	_, err := q.db.Exec(ctx, deleteHistoryBefore, arg.UserID, arg.ModifiedAt)
+	return err
+}
+
+const deleteHistoryItem = `-- name: DeleteHistoryItem :exec
+DELETE FROM history WHERE user_id = $1 AND episode_uuid = $2
+`
+
+type DeleteHistoryItemParams struct {
+	UserID      int64
+	EpisodeUuid string
+}
+
+func (q *Queries) DeleteHistoryItem(ctx context.Context, arg DeleteHistoryItemParams) error {
+	_, err := q.db.Exec(ctx, deleteHistoryItem, arg.UserID, arg.EpisodeUuid)
+	return err
+}
+
+const getBookmark = `-- name: GetBookmark :one
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks WHERE user_id = $1 AND bookmark_uuid = $2
+`
+
+type GetBookmarkParams struct {
+	UserID       int64
+	BookmarkUuid string
+}
+
+func (q *Queries) GetBookmark(ctx context.Context, arg GetBookmarkParams) (Bookmark, error) {
+	row := q.db.QueryRow(ctx, getBookmark, arg.UserID, arg.BookmarkUuid)
+	var i Bookmark
+	err := row.Scan(
+		&i.UserID,
+		&i.BookmarkUuid,
+		&i.PodcastUuid,
+		&i.EpisodeUuid,
+		&i.TimeSecs,
+		&i.Title,
+		&i.TitleModified,
+		&i.CreatedAt,
+		&i.IsDeleted,
+		&i.IsDeletedModified,
+		&i.ModifiedAt,
+	)
+	return i, err
+}
+
+const getBookmarks = `-- name: GetBookmarks :many
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks
+WHERE user_id = $1 AND NOT is_deleted
+`
+
+func (q *Queries) GetBookmarks(ctx context.Context, userID int64) ([]Bookmark, error) {
+	rows, err := q.db.Query(ctx, getBookmarks, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Bookmark
+	for rows.Next() {
+		var i Bookmark
+		if err := rows.Scan(
+			&i.UserID,
+			&i.BookmarkUuid,
+			&i.PodcastUuid,
+			&i.EpisodeUuid,
+			&i.TimeSecs,
+			&i.Title,
+			&i.TitleModified,
+			&i.CreatedAt,
+			&i.IsDeleted,
+			&i.IsDeletedModified,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getBookmarksForEpisodes = `-- name: GetBookmarksForEpisodes :many
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks
+WHERE user_id = $1 AND episode_uuid = ANY($2::uuid[]) AND NOT is_deleted
+`
+
+type GetBookmarksForEpisodesParams struct {
+	UserID  int64
+	Column2 []string
+}
+
+func (q *Queries) GetBookmarksForEpisodes(ctx context.Context, arg GetBookmarksForEpisodesParams) ([]Bookmark, error) {
+	rows, err := q.db.Query(ctx, getBookmarksForEpisodes, arg.UserID, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Bookmark
+	for rows.Next() {
+		var i Bookmark
+		if err := rows.Scan(
+			&i.UserID,
+			&i.BookmarkUuid,
+			&i.PodcastUuid,
+			&i.EpisodeUuid,
+			&i.TimeSecs,
+			&i.Title,
+			&i.TitleModified,
+			&i.CreatedAt,
+			&i.IsDeleted,
+			&i.IsDeletedModified,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getBookmarksModifiedSince = `-- name: GetBookmarksModifiedSince :many
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks
+WHERE user_id = $1 AND modified_at > $2 AND modified_at <= $3
+`
+
+type GetBookmarksModifiedSinceParams struct {
+	UserID       int64
+	ModifiedAt   int64
+	ModifiedAt_2 int64
+}
+
+func (q *Queries) GetBookmarksModifiedSince(ctx context.Context, arg GetBookmarksModifiedSinceParams) ([]Bookmark, error) {
+	rows, err := q.db.Query(ctx, getBookmarksModifiedSince, arg.UserID, arg.ModifiedAt, arg.ModifiedAt_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Bookmark
+	for rows.Next() {
+		var i Bookmark
+		if err := rows.Scan(
+			&i.UserID,
+			&i.BookmarkUuid,
+			&i.PodcastUuid,
+			&i.EpisodeUuid,
+			&i.TimeSecs,
+			&i.Title,
+			&i.TitleModified,
+			&i.CreatedAt,
+			&i.IsDeleted,
+			&i.IsDeletedModified,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getFolder = `-- name: GetFolder :one
+SELECT user_id, folder_uuid, name, color, sort_position, podcasts_sort_type, date_added, is_deleted, modified_at FROM folders WHERE user_id = $1 AND folder_uuid = $2
+`
+
+type GetFolderParams struct {
+	UserID     int64
+	FolderUuid string
+}
+
+func (q *Queries) GetFolder(ctx context.Context, arg GetFolderParams) (Folder, error) {
+	row := q.db.QueryRow(ctx, getFolder, arg.UserID, arg.FolderUuid)
+	var i Folder
+	err := row.Scan(
+		&i.UserID,
+		&i.FolderUuid,
+		&i.Name,
+		&i.Color,
+		&i.SortPosition,
+		&i.PodcastsSortType,
+		&i.DateAdded,
+		&i.IsDeleted,
+		&i.ModifiedAt,
+	)
+	return i, err
+}
+
+const getFolders = `-- name: GetFolders :many
+SELECT user_id, folder_uuid, name, color, sort_position, podcasts_sort_type, date_added, is_deleted, modified_at FROM folders
+WHERE user_id = $1 AND NOT is_deleted
+`
+
+func (q *Queries) GetFolders(ctx context.Context, userID int64) ([]Folder, error) {
+	rows, err := q.db.Query(ctx, getFolders, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Folder
+	for rows.Next() {
+		var i Folder
+		if err := rows.Scan(
+			&i.UserID,
+			&i.FolderUuid,
+			&i.Name,
+			&i.Color,
+			&i.SortPosition,
+			&i.PodcastsSortType,
+			&i.DateAdded,
+			&i.IsDeleted,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getFoldersModifiedSince = `-- name: GetFoldersModifiedSince :many
+SELECT user_id, folder_uuid, name, color, sort_position, podcasts_sort_type, date_added, is_deleted, modified_at FROM folders
+WHERE user_id = $1 AND modified_at > $2 AND modified_at <= $3
+`
+
+type GetFoldersModifiedSinceParams struct {
+	UserID       int64
+	ModifiedAt   int64
+	ModifiedAt_2 int64
+}
+
+func (q *Queries) GetFoldersModifiedSince(ctx context.Context, arg GetFoldersModifiedSinceParams) ([]Folder, error) {
+	rows, err := q.db.Query(ctx, getFoldersModifiedSince, arg.UserID, arg.ModifiedAt, arg.ModifiedAt_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Folder
+	for rows.Next() {
+		var i Folder
+		if err := rows.Scan(
+			&i.UserID,
+			&i.FolderUuid,
+			&i.Name,
+			&i.Color,
+			&i.SortPosition,
+			&i.PodcastsSortType,
+			&i.DateAdded,
+			&i.IsDeleted,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getHistory = `-- name: GetHistory :many
+SELECT user_id, episode_uuid, podcast_uuid, title, url, published, modified_at FROM history
+WHERE user_id = $1
+ORDER BY modified_at DESC
+LIMIT $2
+`
+
+type GetHistoryParams struct {
+	UserID int64
+	Limit  int32
+}
+
+func (q *Queries) GetHistory(ctx context.Context, arg GetHistoryParams) ([]History, error) {
+	rows, err := q.db.Query(ctx, getHistory, arg.UserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []History
+	for rows.Next() {
+		var i History
+		if err := rows.Scan(
+			&i.UserID,
+			&i.EpisodeUuid,
+			&i.PodcastUuid,
+			&i.Title,
+			&i.Url,
+			&i.Published,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPlaylist = `-- name: GetPlaylist :one
+SELECT user_id, uuid, original_uuid, title, is_deleted, all_podcasts, podcast_uuids, episode_uuids, audio_video, not_downloaded, downloaded, downloading, finished, partially_played, unplayed, starred, manual, sort_position, sort_type, icon_id, filter_hours, filter_duration, longer_than, shorter_than, show_archived, episode_order, episodes, modified_at FROM playlists WHERE user_id = $1 AND uuid = $2
+`
+
+type GetPlaylistParams struct {
+	UserID int64
+	Uuid   string
+}
+
+func (q *Queries) GetPlaylist(ctx context.Context, arg GetPlaylistParams) (Playlist, error) {
+	row := q.db.QueryRow(ctx, getPlaylist, arg.UserID, arg.Uuid)
+	var i Playlist
+	err := row.Scan(
+		&i.UserID,
+		&i.Uuid,
+		&i.OriginalUuid,
+		&i.Title,
+		&i.IsDeleted,
+		&i.AllPodcasts,
+		&i.PodcastUuids,
+		&i.EpisodeUuids,
+		&i.AudioVideo,
+		&i.NotDownloaded,
+		&i.Downloaded,
+		&i.Downloading,
+		&i.Finished,
+		&i.PartiallyPlayed,
+		&i.Unplayed,
+		&i.Starred,
+		&i.Manual,
+		&i.SortPosition,
+		&i.SortType,
+		&i.IconID,
+		&i.FilterHours,
+		&i.FilterDuration,
+		&i.LongerThan,
+		&i.ShorterThan,
+		&i.ShowArchived,
+		&i.EpisodeOrder,
+		&i.Episodes,
+		&i.ModifiedAt,
+	)
+	return i, err
+}
+
+const getPlaylists = `-- name: GetPlaylists :many
+SELECT user_id, uuid, original_uuid, title, is_deleted, all_podcasts, podcast_uuids, episode_uuids, audio_video, not_downloaded, downloaded, downloading, finished, partially_played, unplayed, starred, manual, sort_position, sort_type, icon_id, filter_hours, filter_duration, longer_than, shorter_than, show_archived, episode_order, episodes, modified_at FROM playlists
+WHERE user_id = $1 AND NOT is_deleted
+`
+
+func (q *Queries) GetPlaylists(ctx context.Context, userID int64) ([]Playlist, error) {
+	rows, err := q.db.Query(ctx, getPlaylists, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Playlist
+	for rows.Next() {
+		var i Playlist
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Uuid,
+			&i.OriginalUuid,
+			&i.Title,
+			&i.IsDeleted,
+			&i.AllPodcasts,
+			&i.PodcastUuids,
+			&i.EpisodeUuids,
+			&i.AudioVideo,
+			&i.NotDownloaded,
+			&i.Downloaded,
+			&i.Downloading,
+			&i.Finished,
+			&i.PartiallyPlayed,
+			&i.Unplayed,
+			&i.Starred,
+			&i.Manual,
+			&i.SortPosition,
+			&i.SortType,
+			&i.IconID,
+			&i.FilterHours,
+			&i.FilterDuration,
+			&i.LongerThan,
+			&i.ShorterThan,
+			&i.ShowArchived,
+			&i.EpisodeOrder,
+			&i.Episodes,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPlaylistsModifiedSince = `-- name: GetPlaylistsModifiedSince :many
+SELECT user_id, uuid, original_uuid, title, is_deleted, all_podcasts, podcast_uuids, episode_uuids, audio_video, not_downloaded, downloaded, downloading, finished, partially_played, unplayed, starred, manual, sort_position, sort_type, icon_id, filter_hours, filter_duration, longer_than, shorter_than, show_archived, episode_order, episodes, modified_at FROM playlists
+WHERE user_id = $1 AND modified_at > $2 AND modified_at <= $3
+`
+
+type GetPlaylistsModifiedSinceParams struct {
+	UserID       int64
+	ModifiedAt   int64
+	ModifiedAt_2 int64
+}
+
+func (q *Queries) GetPlaylistsModifiedSince(ctx context.Context, arg GetPlaylistsModifiedSinceParams) ([]Playlist, error) {
+	rows, err := q.db.Query(ctx, getPlaylistsModifiedSince, arg.UserID, arg.ModifiedAt, arg.ModifiedAt_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Playlist
+	for rows.Next() {
+		var i Playlist
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Uuid,
+			&i.OriginalUuid,
+			&i.Title,
+			&i.IsDeleted,
+			&i.AllPodcasts,
+			&i.PodcastUuids,
+			&i.EpisodeUuids,
+			&i.AudioVideo,
+			&i.NotDownloaded,
+			&i.Downloaded,
+			&i.Downloading,
+			&i.Finished,
+			&i.PartiallyPlayed,
+			&i.Unplayed,
+			&i.Starred,
+			&i.Manual,
+			&i.SortPosition,
+			&i.SortType,
+			&i.IconID,
+			&i.FilterHours,
+			&i.FilterDuration,
+			&i.LongerThan,
+			&i.ShorterThan,
+			&i.ShowArchived,
+			&i.EpisodeOrder,
+			&i.Episodes,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRefreshTokenByHash = `-- name: GetRefreshTokenByHash :one
 SELECT id, user_id, token_hash, scope, created_at, expires_at, revoked_at FROM refresh_tokens
 WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
@@ -100,6 +588,156 @@ func (q *Queries) GetRefreshTokenByHash(ctx context.Context, tokenHash string) (
 		&i.RevokedAt,
 	)
 	return i, err
+}
+
+const getStarredEpisodes = `-- name: GetStarredEpisodes :many
+SELECT user_id, episode_uuid, podcast_uuid, playing_status, playing_status_modified, played_up_to, played_up_to_modified, starred, starred_modified, is_deleted, is_deleted_modified, duration, duration_modified, deselected_chapters, deselected_chapters_modified, modified_at FROM user_episodes
+WHERE user_id = $1 AND starred
+`
+
+func (q *Queries) GetStarredEpisodes(ctx context.Context, userID int64) ([]UserEpisode, error) {
+	rows, err := q.db.Query(ctx, getStarredEpisodes, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserEpisode
+	for rows.Next() {
+		var i UserEpisode
+		if err := rows.Scan(
+			&i.UserID,
+			&i.EpisodeUuid,
+			&i.PodcastUuid,
+			&i.PlayingStatus,
+			&i.PlayingStatusModified,
+			&i.PlayedUpTo,
+			&i.PlayedUpToModified,
+			&i.Starred,
+			&i.StarredModified,
+			&i.IsDeleted,
+			&i.IsDeletedModified,
+			&i.Duration,
+			&i.DurationModified,
+			&i.DeselectedChapters,
+			&i.DeselectedChaptersModified,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getSubscribedPodcastsWithCatalog = `-- name: GetSubscribedPodcastsWithCatalog :many
+SELECT up.user_id, up.podcast_uuid, up.subscribed, up.is_deleted, up.auto_start_from, up.auto_skip_last, up.episodes_sort_order, up.folder_uuid, up.sort_position, up.date_added, up.settings, up.modified_at,
+       COALESCE(p.title, '') AS cat_title,
+       COALESCE(p.author, '') AS cat_author,
+       COALESCE(p.description, '') AS cat_description,
+       COALESCE(p.website_url, '') AS cat_website_url,
+       p.latest_episode_uuid AS cat_latest_episode_uuid,
+       p.latest_episode_published AS cat_latest_episode_published
+FROM user_podcasts up
+LEFT JOIN podcasts p ON p.uuid = up.podcast_uuid
+WHERE up.user_id = $1 AND up.subscribed AND NOT up.is_deleted
+`
+
+type GetSubscribedPodcastsWithCatalogRow struct {
+	UserID                    int64
+	PodcastUuid               string
+	Subscribed                bool
+	IsDeleted                 bool
+	AutoStartFrom             *int32
+	AutoSkipLast              *int32
+	EpisodesSortOrder         *int32
+	FolderUuid                *string
+	SortPosition              *int32
+	DateAdded                 *time.Time
+	Settings                  []byte
+	ModifiedAt                int64
+	CatTitle                  string
+	CatAuthor                 string
+	CatDescription            string
+	CatWebsiteUrl             string
+	CatLatestEpisodeUuid      *string
+	CatLatestEpisodePublished *time.Time
+}
+
+func (q *Queries) GetSubscribedPodcastsWithCatalog(ctx context.Context, userID int64) ([]GetSubscribedPodcastsWithCatalogRow, error) {
+	rows, err := q.db.Query(ctx, getSubscribedPodcastsWithCatalog, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetSubscribedPodcastsWithCatalogRow
+	for rows.Next() {
+		var i GetSubscribedPodcastsWithCatalogRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.PodcastUuid,
+			&i.Subscribed,
+			&i.IsDeleted,
+			&i.AutoStartFrom,
+			&i.AutoSkipLast,
+			&i.EpisodesSortOrder,
+			&i.FolderUuid,
+			&i.SortPosition,
+			&i.DateAdded,
+			&i.Settings,
+			&i.ModifiedAt,
+			&i.CatTitle,
+			&i.CatAuthor,
+			&i.CatDescription,
+			&i.CatWebsiteUrl,
+			&i.CatLatestEpisodeUuid,
+			&i.CatLatestEpisodePublished,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getUpNextItems = `-- name: GetUpNextItems :many
+SELECT user_id, episode_uuid, podcast_uuid, title, url, published, position, added_at FROM up_next_items
+WHERE user_id = $1
+ORDER BY position
+`
+
+func (q *Queries) GetUpNextItems(ctx context.Context, userID int64) ([]UpNextItem, error) {
+	rows, err := q.db.Query(ctx, getUpNextItems, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UpNextItem
+	for rows.Next() {
+		var i UpNextItem
+		if err := rows.Scan(
+			&i.UserID,
+			&i.EpisodeUuid,
+			&i.PodcastUuid,
+			&i.Title,
+			&i.Url,
+			&i.Published,
+			&i.Position,
+			&i.AddedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
@@ -180,6 +818,274 @@ func (q *Queries) GetUserByUUID(ctx context.Context, uuid string) (User, error) 
 	return i, err
 }
 
+const getUserEpisode = `-- name: GetUserEpisode :one
+SELECT user_id, episode_uuid, podcast_uuid, playing_status, playing_status_modified, played_up_to, played_up_to_modified, starred, starred_modified, is_deleted, is_deleted_modified, duration, duration_modified, deselected_chapters, deselected_chapters_modified, modified_at FROM user_episodes WHERE user_id = $1 AND episode_uuid = $2
+`
+
+type GetUserEpisodeParams struct {
+	UserID      int64
+	EpisodeUuid string
+}
+
+func (q *Queries) GetUserEpisode(ctx context.Context, arg GetUserEpisodeParams) (UserEpisode, error) {
+	row := q.db.QueryRow(ctx, getUserEpisode, arg.UserID, arg.EpisodeUuid)
+	var i UserEpisode
+	err := row.Scan(
+		&i.UserID,
+		&i.EpisodeUuid,
+		&i.PodcastUuid,
+		&i.PlayingStatus,
+		&i.PlayingStatusModified,
+		&i.PlayedUpTo,
+		&i.PlayedUpToModified,
+		&i.Starred,
+		&i.StarredModified,
+		&i.IsDeleted,
+		&i.IsDeletedModified,
+		&i.Duration,
+		&i.DurationModified,
+		&i.DeselectedChapters,
+		&i.DeselectedChaptersModified,
+		&i.ModifiedAt,
+	)
+	return i, err
+}
+
+const getUserEpisodesForPodcast = `-- name: GetUserEpisodesForPodcast :many
+SELECT user_id, episode_uuid, podcast_uuid, playing_status, playing_status_modified, played_up_to, played_up_to_modified, starred, starred_modified, is_deleted, is_deleted_modified, duration, duration_modified, deselected_chapters, deselected_chapters_modified, modified_at FROM user_episodes
+WHERE user_id = $1 AND podcast_uuid = $2
+`
+
+type GetUserEpisodesForPodcastParams struct {
+	UserID      int64
+	PodcastUuid string
+}
+
+func (q *Queries) GetUserEpisodesForPodcast(ctx context.Context, arg GetUserEpisodesForPodcastParams) ([]UserEpisode, error) {
+	rows, err := q.db.Query(ctx, getUserEpisodesForPodcast, arg.UserID, arg.PodcastUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserEpisode
+	for rows.Next() {
+		var i UserEpisode
+		if err := rows.Scan(
+			&i.UserID,
+			&i.EpisodeUuid,
+			&i.PodcastUuid,
+			&i.PlayingStatus,
+			&i.PlayingStatusModified,
+			&i.PlayedUpTo,
+			&i.PlayedUpToModified,
+			&i.Starred,
+			&i.StarredModified,
+			&i.IsDeleted,
+			&i.IsDeletedModified,
+			&i.Duration,
+			&i.DurationModified,
+			&i.DeselectedChapters,
+			&i.DeselectedChaptersModified,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getUserEpisodesModifiedSince = `-- name: GetUserEpisodesModifiedSince :many
+SELECT user_id, episode_uuid, podcast_uuid, playing_status, playing_status_modified, played_up_to, played_up_to_modified, starred, starred_modified, is_deleted, is_deleted_modified, duration, duration_modified, deselected_chapters, deselected_chapters_modified, modified_at FROM user_episodes
+WHERE user_id = $1 AND modified_at > $2 AND modified_at <= $3
+`
+
+type GetUserEpisodesModifiedSinceParams struct {
+	UserID       int64
+	ModifiedAt   int64
+	ModifiedAt_2 int64
+}
+
+func (q *Queries) GetUserEpisodesModifiedSince(ctx context.Context, arg GetUserEpisodesModifiedSinceParams) ([]UserEpisode, error) {
+	rows, err := q.db.Query(ctx, getUserEpisodesModifiedSince, arg.UserID, arg.ModifiedAt, arg.ModifiedAt_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserEpisode
+	for rows.Next() {
+		var i UserEpisode
+		if err := rows.Scan(
+			&i.UserID,
+			&i.EpisodeUuid,
+			&i.PodcastUuid,
+			&i.PlayingStatus,
+			&i.PlayingStatusModified,
+			&i.PlayedUpTo,
+			&i.PlayedUpToModified,
+			&i.Starred,
+			&i.StarredModified,
+			&i.IsDeleted,
+			&i.IsDeletedModified,
+			&i.Duration,
+			&i.DurationModified,
+			&i.DeselectedChapters,
+			&i.DeselectedChaptersModified,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getUserForUpdate = `-- name: GetUserForUpdate :one
+SELECT id, uuid, email, password_hash, scope, created_at, updated_at, deleted_at, sync_last_modified, up_next_modified, history_modified, history_cleared_at_ms, marketing_opt_in FROM users
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetUserForUpdate(ctx context.Context, id int64) (User, error) {
+	row := q.db.QueryRow(ctx, getUserForUpdate, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Scope,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.SyncLastModified,
+		&i.UpNextModified,
+		&i.HistoryModified,
+		&i.HistoryClearedAtMs,
+		&i.MarketingOptIn,
+	)
+	return i, err
+}
+
+const getUserPodcast = `-- name: GetUserPodcast :one
+SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at FROM user_podcasts WHERE user_id = $1 AND podcast_uuid = $2
+`
+
+type GetUserPodcastParams struct {
+	UserID      int64
+	PodcastUuid string
+}
+
+func (q *Queries) GetUserPodcast(ctx context.Context, arg GetUserPodcastParams) (UserPodcast, error) {
+	row := q.db.QueryRow(ctx, getUserPodcast, arg.UserID, arg.PodcastUuid)
+	var i UserPodcast
+	err := row.Scan(
+		&i.UserID,
+		&i.PodcastUuid,
+		&i.Subscribed,
+		&i.IsDeleted,
+		&i.AutoStartFrom,
+		&i.AutoSkipLast,
+		&i.EpisodesSortOrder,
+		&i.FolderUuid,
+		&i.SortPosition,
+		&i.DateAdded,
+		&i.Settings,
+		&i.ModifiedAt,
+	)
+	return i, err
+}
+
+const getUserPodcastsModifiedSince = `-- name: GetUserPodcastsModifiedSince :many
+SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at FROM user_podcasts
+WHERE user_id = $1 AND modified_at > $2 AND modified_at <= $3
+`
+
+type GetUserPodcastsModifiedSinceParams struct {
+	UserID       int64
+	ModifiedAt   int64
+	ModifiedAt_2 int64
+}
+
+func (q *Queries) GetUserPodcastsModifiedSince(ctx context.Context, arg GetUserPodcastsModifiedSinceParams) ([]UserPodcast, error) {
+	rows, err := q.db.Query(ctx, getUserPodcastsModifiedSince, arg.UserID, arg.ModifiedAt, arg.ModifiedAt_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserPodcast
+	for rows.Next() {
+		var i UserPodcast
+		if err := rows.Scan(
+			&i.UserID,
+			&i.PodcastUuid,
+			&i.Subscribed,
+			&i.IsDeleted,
+			&i.AutoStartFrom,
+			&i.AutoSkipLast,
+			&i.EpisodesSortOrder,
+			&i.FolderUuid,
+			&i.SortPosition,
+			&i.DateAdded,
+			&i.Settings,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getUserSettings = `-- name: GetUserSettings :one
+SELECT user_id, settings, modified_at FROM user_settings WHERE user_id = $1
+`
+
+func (q *Queries) GetUserSettings(ctx context.Context, userID int64) (UserSetting, error) {
+	row := q.db.QueryRow(ctx, getUserSettings, userID)
+	var i UserSetting
+	err := row.Scan(&i.UserID, &i.Settings, &i.ModifiedAt)
+	return i, err
+}
+
+const insertUpNextItem = `-- name: InsertUpNextItem :exec
+INSERT INTO up_next_items (
+    user_id, episode_uuid, podcast_uuid, title, url, published, position
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+`
+
+type InsertUpNextItemParams struct {
+	UserID      int64
+	EpisodeUuid string
+	PodcastUuid string
+	Title       string
+	Url         string
+	Published   *time.Time
+	Position    int32
+}
+
+func (q *Queries) InsertUpNextItem(ctx context.Context, arg InsertUpNextItemParams) error {
+	_, err := q.db.Exec(ctx, insertUpNextItem,
+		arg.UserID,
+		arg.EpisodeUuid,
+		arg.PodcastUuid,
+		arg.Title,
+		arg.Url,
+		arg.Published,
+		arg.Position,
+	)
+	return err
+}
+
 const pingDb = `-- name: PingDb :one
 SELECT 1 as Result
 `
@@ -217,6 +1123,63 @@ func (q *Queries) RevokeRefreshToken(ctx context.Context, tokenHash string) (int
 	return result.RowsAffected(), nil
 }
 
+const setUserHistoryCleared = `-- name: SetUserHistoryCleared :exec
+UPDATE users SET history_cleared_at_ms = $2, history_modified = $3 WHERE id = $1
+`
+
+type SetUserHistoryClearedParams struct {
+	ID                 int64
+	HistoryClearedAtMs int64
+	HistoryModified    int64
+}
+
+func (q *Queries) SetUserHistoryCleared(ctx context.Context, arg SetUserHistoryClearedParams) error {
+	_, err := q.db.Exec(ctx, setUserHistoryCleared, arg.ID, arg.HistoryClearedAtMs, arg.HistoryModified)
+	return err
+}
+
+const setUserHistoryModified = `-- name: SetUserHistoryModified :exec
+UPDATE users SET history_modified = $2 WHERE id = $1
+`
+
+type SetUserHistoryModifiedParams struct {
+	ID              int64
+	HistoryModified int64
+}
+
+func (q *Queries) SetUserHistoryModified(ctx context.Context, arg SetUserHistoryModifiedParams) error {
+	_, err := q.db.Exec(ctx, setUserHistoryModified, arg.ID, arg.HistoryModified)
+	return err
+}
+
+const setUserSyncLastModified = `-- name: SetUserSyncLastModified :exec
+UPDATE users SET sync_last_modified = $2 WHERE id = $1
+`
+
+type SetUserSyncLastModifiedParams struct {
+	ID               int64
+	SyncLastModified int64
+}
+
+func (q *Queries) SetUserSyncLastModified(ctx context.Context, arg SetUserSyncLastModifiedParams) error {
+	_, err := q.db.Exec(ctx, setUserSyncLastModified, arg.ID, arg.SyncLastModified)
+	return err
+}
+
+const setUserUpNextModified = `-- name: SetUserUpNextModified :exec
+UPDATE users SET up_next_modified = $2 WHERE id = $1
+`
+
+type SetUserUpNextModifiedParams struct {
+	ID             int64
+	UpNextModified int64
+}
+
+func (q *Queries) SetUserUpNextModified(ctx context.Context, arg SetUserUpNextModifiedParams) error {
+	_, err := q.db.Exec(ctx, setUserUpNextModified, arg.ID, arg.UpNextModified)
+	return err
+}
+
 const softDeleteUser = `-- name: SoftDeleteUser :execrows
 UPDATE users SET deleted_at = now(), updated_at = now()
 WHERE id = $1 AND deleted_at IS NULL
@@ -228,6 +1191,26 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const trimHistory = `-- name: TrimHistory :exec
+DELETE FROM history
+WHERE history.user_id = $1 AND history.episode_uuid NOT IN (
+    SELECT h.episode_uuid FROM history h
+    WHERE h.user_id = $1
+    ORDER BY h.modified_at DESC
+    LIMIT $2
+)
+`
+
+type TrimHistoryParams struct {
+	UserID int64
+	Limit  int32
+}
+
+func (q *Queries) TrimHistory(ctx context.Context, arg TrimHistoryParams) error {
+	_, err := q.db.Exec(ctx, trimHistory, arg.UserID, arg.Limit)
+	return err
 }
 
 const updateUserEmail = `-- name: UpdateUserEmail :execrows
@@ -264,4 +1247,418 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const upsertBookmark = `-- name: UpsertBookmark :exec
+INSERT INTO bookmarks (
+    user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title,
+    title_modified, created_at, is_deleted, is_deleted_modified, modified_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (user_id, bookmark_uuid) DO UPDATE SET
+    podcast_uuid = EXCLUDED.podcast_uuid,
+    episode_uuid = EXCLUDED.episode_uuid,
+    time_secs = EXCLUDED.time_secs,
+    title = EXCLUDED.title,
+    title_modified = EXCLUDED.title_modified,
+    created_at = EXCLUDED.created_at,
+    is_deleted = EXCLUDED.is_deleted,
+    is_deleted_modified = EXCLUDED.is_deleted_modified,
+    modified_at = EXCLUDED.modified_at
+`
+
+type UpsertBookmarkParams struct {
+	UserID            int64
+	BookmarkUuid      string
+	PodcastUuid       string
+	EpisodeUuid       string
+	TimeSecs          int32
+	Title             string
+	TitleModified     int64
+	CreatedAt         time.Time
+	IsDeleted         bool
+	IsDeletedModified int64
+	ModifiedAt        int64
+}
+
+func (q *Queries) UpsertBookmark(ctx context.Context, arg UpsertBookmarkParams) error {
+	_, err := q.db.Exec(ctx, upsertBookmark,
+		arg.UserID,
+		arg.BookmarkUuid,
+		arg.PodcastUuid,
+		arg.EpisodeUuid,
+		arg.TimeSecs,
+		arg.Title,
+		arg.TitleModified,
+		arg.CreatedAt,
+		arg.IsDeleted,
+		arg.IsDeletedModified,
+		arg.ModifiedAt,
+	)
+	return err
+}
+
+const upsertDevice = `-- name: UpsertDevice :exec
+INSERT INTO devices (
+    user_id, device_id, device_type, times_started_at, time_silence_removal,
+    time_variable_speed, time_intro_skipping, time_skipping, time_listened,
+    updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+ON CONFLICT (user_id, device_id) DO UPDATE SET
+    device_type = EXCLUDED.device_type,
+    times_started_at = EXCLUDED.times_started_at,
+    time_silence_removal = EXCLUDED.time_silence_removal,
+    time_variable_speed = EXCLUDED.time_variable_speed,
+    time_intro_skipping = EXCLUDED.time_intro_skipping,
+    time_skipping = EXCLUDED.time_skipping,
+    time_listened = EXCLUDED.time_listened,
+    updated_at = now()
+`
+
+type UpsertDeviceParams struct {
+	UserID             int64
+	DeviceID           string
+	DeviceType         int32
+	TimesStartedAt     int64
+	TimeSilenceRemoval int64
+	TimeVariableSpeed  int64
+	TimeIntroSkipping  int64
+	TimeSkipping       int64
+	TimeListened       int64
+}
+
+func (q *Queries) UpsertDevice(ctx context.Context, arg UpsertDeviceParams) error {
+	_, err := q.db.Exec(ctx, upsertDevice,
+		arg.UserID,
+		arg.DeviceID,
+		arg.DeviceType,
+		arg.TimesStartedAt,
+		arg.TimeSilenceRemoval,
+		arg.TimeVariableSpeed,
+		arg.TimeIntroSkipping,
+		arg.TimeSkipping,
+		arg.TimeListened,
+	)
+	return err
+}
+
+const upsertFolder = `-- name: UpsertFolder :exec
+INSERT INTO folders (
+    user_id, folder_uuid, name, color, sort_position, podcasts_sort_type,
+    date_added, is_deleted, modified_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (user_id, folder_uuid) DO UPDATE SET
+    name = EXCLUDED.name,
+    color = EXCLUDED.color,
+    sort_position = EXCLUDED.sort_position,
+    podcasts_sort_type = EXCLUDED.podcasts_sort_type,
+    date_added = EXCLUDED.date_added,
+    is_deleted = EXCLUDED.is_deleted,
+    modified_at = EXCLUDED.modified_at
+`
+
+type UpsertFolderParams struct {
+	UserID           int64
+	FolderUuid       string
+	Name             string
+	Color            int32
+	SortPosition     int32
+	PodcastsSortType int32
+	DateAdded        *time.Time
+	IsDeleted        bool
+	ModifiedAt       int64
+}
+
+func (q *Queries) UpsertFolder(ctx context.Context, arg UpsertFolderParams) error {
+	_, err := q.db.Exec(ctx, upsertFolder,
+		arg.UserID,
+		arg.FolderUuid,
+		arg.Name,
+		arg.Color,
+		arg.SortPosition,
+		arg.PodcastsSortType,
+		arg.DateAdded,
+		arg.IsDeleted,
+		arg.ModifiedAt,
+	)
+	return err
+}
+
+const upsertHistoryItem = `-- name: UpsertHistoryItem :exec
+INSERT INTO history (
+    user_id, episode_uuid, podcast_uuid, title, url, published, modified_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (user_id, episode_uuid) DO UPDATE SET
+    podcast_uuid = EXCLUDED.podcast_uuid,
+    title = EXCLUDED.title,
+    url = EXCLUDED.url,
+    published = EXCLUDED.published,
+    modified_at = EXCLUDED.modified_at
+WHERE EXCLUDED.modified_at > history.modified_at
+`
+
+type UpsertHistoryItemParams struct {
+	UserID      int64
+	EpisodeUuid string
+	PodcastUuid string
+	Title       string
+	Url         string
+	Published   *time.Time
+	ModifiedAt  int64
+}
+
+func (q *Queries) UpsertHistoryItem(ctx context.Context, arg UpsertHistoryItemParams) error {
+	_, err := q.db.Exec(ctx, upsertHistoryItem,
+		arg.UserID,
+		arg.EpisodeUuid,
+		arg.PodcastUuid,
+		arg.Title,
+		arg.Url,
+		arg.Published,
+		arg.ModifiedAt,
+	)
+	return err
+}
+
+const upsertPlaylist = `-- name: UpsertPlaylist :exec
+INSERT INTO playlists (
+    user_id, uuid, original_uuid, title, is_deleted, all_podcasts,
+    podcast_uuids, episode_uuids, audio_video, not_downloaded, downloaded,
+    downloading, finished, partially_played, unplayed, starred, manual,
+    sort_position, sort_type, icon_id, filter_hours, filter_duration,
+    longer_than, shorter_than, show_archived, episode_order, episodes,
+    modified_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+ON CONFLICT (user_id, uuid) DO UPDATE SET
+    original_uuid = EXCLUDED.original_uuid,
+    title = EXCLUDED.title,
+    is_deleted = EXCLUDED.is_deleted,
+    all_podcasts = EXCLUDED.all_podcasts,
+    podcast_uuids = EXCLUDED.podcast_uuids,
+    episode_uuids = EXCLUDED.episode_uuids,
+    audio_video = EXCLUDED.audio_video,
+    not_downloaded = EXCLUDED.not_downloaded,
+    downloaded = EXCLUDED.downloaded,
+    downloading = EXCLUDED.downloading,
+    finished = EXCLUDED.finished,
+    partially_played = EXCLUDED.partially_played,
+    unplayed = EXCLUDED.unplayed,
+    starred = EXCLUDED.starred,
+    manual = EXCLUDED.manual,
+    sort_position = EXCLUDED.sort_position,
+    sort_type = EXCLUDED.sort_type,
+    icon_id = EXCLUDED.icon_id,
+    filter_hours = EXCLUDED.filter_hours,
+    filter_duration = EXCLUDED.filter_duration,
+    longer_than = EXCLUDED.longer_than,
+    shorter_than = EXCLUDED.shorter_than,
+    show_archived = EXCLUDED.show_archived,
+    episode_order = EXCLUDED.episode_order,
+    episodes = EXCLUDED.episodes,
+    modified_at = EXCLUDED.modified_at
+`
+
+type UpsertPlaylistParams struct {
+	UserID          int64
+	Uuid            string
+	OriginalUuid    string
+	Title           string
+	IsDeleted       bool
+	AllPodcasts     *bool
+	PodcastUuids    *string
+	EpisodeUuids    *string
+	AudioVideo      *int32
+	NotDownloaded   *bool
+	Downloaded      *bool
+	Downloading     *bool
+	Finished        *bool
+	PartiallyPlayed *bool
+	Unplayed        *bool
+	Starred         *bool
+	Manual          *bool
+	SortPosition    *int32
+	SortType        *int32
+	IconID          *int32
+	FilterHours     *int32
+	FilterDuration  *bool
+	LongerThan      *int32
+	ShorterThan     *int32
+	ShowArchived    *bool
+	EpisodeOrder    []string
+	Episodes        []byte
+	ModifiedAt      int64
+}
+
+func (q *Queries) UpsertPlaylist(ctx context.Context, arg UpsertPlaylistParams) error {
+	_, err := q.db.Exec(ctx, upsertPlaylist,
+		arg.UserID,
+		arg.Uuid,
+		arg.OriginalUuid,
+		arg.Title,
+		arg.IsDeleted,
+		arg.AllPodcasts,
+		arg.PodcastUuids,
+		arg.EpisodeUuids,
+		arg.AudioVideo,
+		arg.NotDownloaded,
+		arg.Downloaded,
+		arg.Downloading,
+		arg.Finished,
+		arg.PartiallyPlayed,
+		arg.Unplayed,
+		arg.Starred,
+		arg.Manual,
+		arg.SortPosition,
+		arg.SortType,
+		arg.IconID,
+		arg.FilterHours,
+		arg.FilterDuration,
+		arg.LongerThan,
+		arg.ShorterThan,
+		arg.ShowArchived,
+		arg.EpisodeOrder,
+		arg.Episodes,
+		arg.ModifiedAt,
+	)
+	return err
+}
+
+const upsertUserEpisode = `-- name: UpsertUserEpisode :exec
+INSERT INTO user_episodes (
+    user_id, episode_uuid, podcast_uuid,
+    playing_status, playing_status_modified,
+    played_up_to, played_up_to_modified,
+    starred, starred_modified,
+    is_deleted, is_deleted_modified,
+    duration, duration_modified,
+    deselected_chapters, deselected_chapters_modified,
+    modified_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+ON CONFLICT (user_id, episode_uuid) DO UPDATE SET
+    podcast_uuid = EXCLUDED.podcast_uuid,
+    playing_status = EXCLUDED.playing_status,
+    playing_status_modified = EXCLUDED.playing_status_modified,
+    played_up_to = EXCLUDED.played_up_to,
+    played_up_to_modified = EXCLUDED.played_up_to_modified,
+    starred = EXCLUDED.starred,
+    starred_modified = EXCLUDED.starred_modified,
+    is_deleted = EXCLUDED.is_deleted,
+    is_deleted_modified = EXCLUDED.is_deleted_modified,
+    duration = EXCLUDED.duration,
+    duration_modified = EXCLUDED.duration_modified,
+    deselected_chapters = EXCLUDED.deselected_chapters,
+    deselected_chapters_modified = EXCLUDED.deselected_chapters_modified,
+    modified_at = EXCLUDED.modified_at
+`
+
+type UpsertUserEpisodeParams struct {
+	UserID                     int64
+	EpisodeUuid                string
+	PodcastUuid                string
+	PlayingStatus              int32
+	PlayingStatusModified      int64
+	PlayedUpTo                 int64
+	PlayedUpToModified         int64
+	Starred                    bool
+	StarredModified            int64
+	IsDeleted                  bool
+	IsDeletedModified          int64
+	Duration                   int64
+	DurationModified           int64
+	DeselectedChapters         string
+	DeselectedChaptersModified int64
+	ModifiedAt                 int64
+}
+
+func (q *Queries) UpsertUserEpisode(ctx context.Context, arg UpsertUserEpisodeParams) error {
+	_, err := q.db.Exec(ctx, upsertUserEpisode,
+		arg.UserID,
+		arg.EpisodeUuid,
+		arg.PodcastUuid,
+		arg.PlayingStatus,
+		arg.PlayingStatusModified,
+		arg.PlayedUpTo,
+		arg.PlayedUpToModified,
+		arg.Starred,
+		arg.StarredModified,
+		arg.IsDeleted,
+		arg.IsDeletedModified,
+		arg.Duration,
+		arg.DurationModified,
+		arg.DeselectedChapters,
+		arg.DeselectedChaptersModified,
+		arg.ModifiedAt,
+	)
+	return err
+}
+
+const upsertUserPodcast = `-- name: UpsertUserPodcast :exec
+INSERT INTO user_podcasts (
+    user_id, podcast_uuid, subscribed, is_deleted, auto_start_from,
+    auto_skip_last, episodes_sort_order, folder_uuid, sort_position,
+    date_added, settings, modified_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+ON CONFLICT (user_id, podcast_uuid) DO UPDATE SET
+    subscribed = EXCLUDED.subscribed,
+    is_deleted = EXCLUDED.is_deleted,
+    auto_start_from = EXCLUDED.auto_start_from,
+    auto_skip_last = EXCLUDED.auto_skip_last,
+    episodes_sort_order = EXCLUDED.episodes_sort_order,
+    folder_uuid = EXCLUDED.folder_uuid,
+    sort_position = EXCLUDED.sort_position,
+    date_added = EXCLUDED.date_added,
+    settings = EXCLUDED.settings,
+    modified_at = EXCLUDED.modified_at
+`
+
+type UpsertUserPodcastParams struct {
+	UserID            int64
+	PodcastUuid       string
+	Subscribed        bool
+	IsDeleted         bool
+	AutoStartFrom     *int32
+	AutoSkipLast      *int32
+	EpisodesSortOrder *int32
+	FolderUuid        *string
+	SortPosition      *int32
+	DateAdded         *time.Time
+	Settings          []byte
+	ModifiedAt        int64
+}
+
+func (q *Queries) UpsertUserPodcast(ctx context.Context, arg UpsertUserPodcastParams) error {
+	_, err := q.db.Exec(ctx, upsertUserPodcast,
+		arg.UserID,
+		arg.PodcastUuid,
+		arg.Subscribed,
+		arg.IsDeleted,
+		arg.AutoStartFrom,
+		arg.AutoSkipLast,
+		arg.EpisodesSortOrder,
+		arg.FolderUuid,
+		arg.SortPosition,
+		arg.DateAdded,
+		arg.Settings,
+		arg.ModifiedAt,
+	)
+	return err
+}
+
+const upsertUserSettings = `-- name: UpsertUserSettings :exec
+INSERT INTO user_settings (user_id, settings, modified_at)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id) DO UPDATE SET
+    settings = EXCLUDED.settings,
+    modified_at = EXCLUDED.modified_at
+`
+
+type UpsertUserSettingsParams struct {
+	UserID     int64
+	Settings   []byte
+	ModifiedAt int64
+}
+
+func (q *Queries) UpsertUserSettings(ctx context.Context, arg UpsertUserSettingsParams) error {
+	_, err := q.db.Exec(ctx, upsertUserSettings, arg.UserID, arg.Settings, arg.ModifiedAt)
+	return err
 }

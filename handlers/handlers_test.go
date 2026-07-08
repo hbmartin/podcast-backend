@@ -19,9 +19,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// QuerierMock implements db.Querier with canned results. Extend it as the
-// interface grows; only the fields a test sets matter.
+// QuerierMock implements db.Store with canned results. The embedded
+// interface covers methods a test doesn't stub (calling one panics); only
+// the fields a test sets matter.
 type QuerierMock struct {
+	db.Store
+
 	PingDbResult int32
 	PingDbError  error
 
@@ -60,6 +63,11 @@ type QuerierMock struct {
 	RevokeAllRefreshTokensResult int64
 	RevokeAllRefreshTokensError  error
 	RevokeAllRefreshTokensUserID int64
+}
+
+// InTx runs fn against the mock itself, mimicking a transaction.
+func (m *QuerierMock) InTx(ctx context.Context, fn func(db.Querier) error) error {
+	return fn(m)
 }
 
 func (m *QuerierMock) PingDb(ctx context.Context) (int32, error) {

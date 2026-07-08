@@ -50,7 +50,7 @@ func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) htt
 			http.HandlerFunc(handler)))
 }
 
-func setupRouter(db db.Querier, queueClient *tasks.QueueClient) http.Handler {
+func setupRouter(db db.Store, queueClient *tasks.QueueClient) http.Handler {
 	slog.Info("Starting API... \n")
 
 	controllers := handlers.NewWithQueue(db, queueClient, configValues.AuthConfig)
@@ -69,6 +69,20 @@ func setupRouter(db db.Querier, queueClient *tasks.QueueClient) http.Handler {
 	router.Handle("POST /user/change_password", authChain(controllers.PostChangePassword))
 	router.Handle("POST /user/delete_account", authChain(controllers.PostDeleteAccount))
 
+	// api host role: sync & library (protobuf, authenticated)
+	router.Handle("POST /user/sync/update", authChain(controllers.PostSyncUpdate))
+	router.Handle("POST /user/last_sync_at", authChain(controllers.PostLastSyncAt))
+	router.Handle("POST /user/podcast/list", authChain(controllers.PostUserPodcastList))
+	router.Handle("POST /user/podcast/episodes", authChain(controllers.PostUserPodcastEpisodes))
+	router.Handle("POST /user/playlist/list", authChain(controllers.PostUserPlaylistList))
+	router.Handle("POST /user/bookmark/list", authChain(controllers.PostUserBookmarkList))
+	router.Handle("POST /starred/list", authChain(controllers.PostStarredList))
+	router.Handle("POST /up_next/sync", authChain(controllers.PostUpNextSync))
+	router.Handle("POST /history/sync", authChain(controllers.PostHistorySync))
+	router.Handle("POST /user/named_settings/update", authChain(controllers.PostNamedSettingsUpdate))
+	router.Handle("POST /sync/update_episode", authChain(controllers.PostUpdateEpisode))
+	router.Handle("POST /sync/update_episode_star", authChain(controllers.PostUpdateEpisodeStar))
+
 	if configValues.WebServerConfig.EnableSwagger {
 		slog.Info("Swagger enabled")
 		swaggerHandler := httpSwagger.Handler(
@@ -83,7 +97,7 @@ func setupRouter(db db.Querier, queueClient *tasks.QueueClient) http.Handler {
 	return router
 }
 
-func initDB(ctx context.Context, configValues *config.Configuration) (db.Querier, func()) {
+func initDB(ctx context.Context, configValues *config.Configuration) (db.Store, func()) {
 	if err := db.Init(configValues.WebServerConfig.ConnectionString); err != nil {
 		log.Fatal(err)
 	}
@@ -93,13 +107,12 @@ func initDB(ctx context.Context, configValues *config.Configuration) (db.Querier
 		log.Fatal(err)
 	}
 
-	queries := db.New(conn)
+	store := db.NewStore(conn)
 
-	return queries, conn.Close
+	return store, conn.Close
 }
 
-
-func startWebServer(querier db.Querier, queueClient *tasks.QueueClient, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
+func startWebServer(querier db.Store, queueClient *tasks.QueueClient, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
 	slog.Info("Setting up API router...\n")
 	docs.SwaggerInfo.BasePath = "/"
 
