@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"goapi-template/db"
+	"github.com/hbmartin/podcast-backend/db"
 
 	"github.com/stretchr/testify/assert"
 )

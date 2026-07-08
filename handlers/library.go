@@ -3,8 +3,8 @@ package handlers
 import (
 	"net/http"
 
-	"goapi-template/pcerrors"
-	pb "goapi-template/protos/api"
+	"github.com/hbmartin/podcast-backend/pcerrors"
+	pb "github.com/hbmartin/podcast-backend/protos/api"
 )
 
 // PostLastSyncAt handles POST user/last_sync_at.

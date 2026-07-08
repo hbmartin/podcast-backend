@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"goapi-template/db"
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/errs"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/mmcdole/gofeed"

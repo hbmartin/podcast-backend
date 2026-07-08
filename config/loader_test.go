@@ -10,7 +10,6 @@ import (
 func TestLoadWebConfig(t *testing.T) {
 	t.Setenv("ENV", "TEST")
 	t.Setenv("ALLOWED_ORIGIN", "localhost:8000")
-	t.Setenv("ENABLE_SWAGGER", "true")
 	t.Setenv("WEB_PORT", "localhost:8000")
 	t.Setenv("TLS_CERT_FILE", "tls_cert_file")
 	t.Setenv("TLS_CERT_KEY_FILE", "tls_cert_key_file")
@@ -22,7 +21,6 @@ func TestLoadWebConfig(t *testing.T) {
 	assert.NotNil(t, config)
 	assert.Equal(t, "localhost:8000", config.WebPort)
 	assert.Equal(t, "connection_string", config.ConnectionString)
-	assert.True(t, config.EnableSwagger)
 	assert.Contains(t, "TEST", config.Env)
 	assert.Contains(t, "tls_cert_file", config.TLSCertFile)
 	assert.Contains(t, "tls_cert_key_file", config.TLSCertKeyFile)
@@ -38,7 +36,6 @@ func TestLoadWebConfigDefaults(t *testing.T) {
 	assert.NotNil(t, config)
 	assert.Equal(t, "localhost:8000", config.WebPort)
 	assert.Equal(t, "connection_string", config.ConnectionString)
-	assert.False(t, config.EnableSwagger)
 	assert.Contains(t, "TEST", config.Env)
 	assert.Empty(t, config.TLSCertFile)
 	assert.Empty(t, config.TLSCertKeyFile)
@@ -142,7 +139,6 @@ func TestLoadCacheConfigValid(t *testing.T) {
 func TestLoadAllConfig(t *testing.T) {
 	t.Setenv("ENV", "TEST")
 	t.Setenv("ALLOWED_ORIGIN", "localhost:8000")
-	t.Setenv("ENABLE_SWAGGER", "true")
 	t.Setenv("WEB_PORT", "localhost:8000")
 	t.Setenv("TLS_CERT_FILE", "tls_cert_file")
 	t.Setenv("TLS_CERT_KEY_FILE", "tls_cert_key_file")

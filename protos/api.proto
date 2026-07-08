@@ -9,7 +9,7 @@ syntax = "proto3";
 
 package api;
 
-option go_package = "goapi-template/protos/api;api";
+option go_package = "github.com/hbmartin/podcast-backend/protos/api;api";
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";

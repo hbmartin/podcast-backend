@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/errs"
 
 	"golang.org/x/crypto/bcrypt"
 )

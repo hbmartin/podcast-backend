@@ -3,8 +3,8 @@ package syncsvc
 import (
 	"time"
 
-	"goapi-template/db"
-	pb "goapi-template/protos/api"
+	"github.com/hbmartin/podcast-backend/db"
+	pb "github.com/hbmartin/podcast-backend/protos/api"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"

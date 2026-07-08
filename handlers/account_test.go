@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"goapi-template/auth"
-	"goapi-template/db"
-	"goapi-template/pcerrors"
-	pb "goapi-template/protos/api"
+	"github.com/hbmartin/podcast-backend/auth"
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/pcerrors"
+	pb "github.com/hbmartin/podcast-backend/protos/api"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	"goapi-template/db"
+	"github.com/hbmartin/podcast-backend/db"
 
 	"github.com/jackc/pgx/v5"
 )

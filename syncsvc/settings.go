@@ -1,8 +1,8 @@
 package syncsvc
 
 import (
-	"goapi-template/errs"
-	pb "goapi-template/protos/api"
+	"github.com/hbmartin/podcast-backend/errs"
+	pb "github.com/hbmartin/podcast-backend/protos/api"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"

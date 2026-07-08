@@ -21,7 +21,6 @@ type AuthConfiguration struct {
 type WebServerConfiguration struct {
 	Env              string
 	Cors             cors.Cors
-	EnableSwagger    bool
 	WebPort          string
 	TLSCertFile      string
 	TLSCertKeyFile   string
@@ -95,10 +94,6 @@ func loadWebServerConfig() (*WebServerConfiguration, error) {
 	config.Cors = *cors.New(cors.Options{
 		AllowedOrigins: []string{allowedOrigin},
 	})
-
-	if enableSwagger, ok := os.LookupEnv("ENABLE_SWAGGER"); ok {
-		config.EnableSwagger = enableSwagger == "true"
-	}
 
 	if webPort, ok := os.LookupEnv("WEB_PORT"); ok {
 		config.WebPort = webPort

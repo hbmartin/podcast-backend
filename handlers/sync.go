@@ -3,9 +3,9 @@ package handlers
 import (
 	"net/http"
 
-	"goapi-template/pcerrors"
-	pb "goapi-template/protos/api"
-	"goapi-template/syncsvc"
+	"github.com/hbmartin/podcast-backend/pcerrors"
+	pb "github.com/hbmartin/podcast-backend/protos/api"
+	"github.com/hbmartin/podcast-backend/syncsvc"
 )
 
 func (h Handlers) engine() *syncsvc.Engine {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"goapi-template/db"
-	"goapi-template/errs"
-	pb "goapi-template/protos/api"
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/errs"
+	pb "github.com/hbmartin/podcast-backend/protos/api"
 
 	"github.com/jackc/pgx/v5"
 )

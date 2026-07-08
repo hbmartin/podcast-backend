@@ -3,9 +3,9 @@ package syncsvc
 import (
 	"context"
 
-	"goapi-template/db"
-	"goapi-template/errs"
-	pb "goapi-template/protos/api"
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/errs"
+	pb "github.com/hbmartin/podcast-backend/protos/api"
 )
 
 // History change actions (SyncHistoryTask.HistoryAction in the client).

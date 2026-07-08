@@ -3,7 +3,7 @@ package cache
 import (
 	"context"
 	"encoding/json"
-	"goapi-template/config"
+	"github.com/hbmartin/podcast-backend/config"
 	"log/slog"
 	"time"
 

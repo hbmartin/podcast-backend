@@ -10,7 +10,7 @@ import (
 
 	"github.com/hibiken/asynq"
 
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/errs"
 )
 
 // Task types. Each type is routed to a matching handler registered on the

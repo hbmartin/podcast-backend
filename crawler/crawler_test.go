@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"goapi-template/db"
+	"github.com/hbmartin/podcast-backend/db"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"

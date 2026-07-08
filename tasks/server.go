@@ -10,10 +10,10 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5"
 
-	"goapi-template/config"
-	"goapi-template/crawler"
-	"goapi-template/db"
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/config"
+	"github.com/hbmartin/podcast-backend/crawler"
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/errs"
 )
 
 // WorkerServer is the daemon that consumes tasks from the Redis queue and

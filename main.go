@@ -1,4 +1,4 @@
-// gorest-template REST API
+// Command podcast-backend serves a self-hosted Pocket Casts-compatible API.
 package main
 
 import (
@@ -14,17 +14,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	httpSwagger "github.com/swaggo/http-swagger/v2"
-
-	"goapi-template/auth"
-	"goapi-template/config"
-	"goapi-template/crawler"
-	"goapi-template/db"
-	"goapi-template/docs"
-	"goapi-template/handlers"
-	"goapi-template/itunes"
-	"goapi-template/middlewares"
-	"goapi-template/tasks"
+	"github.com/hbmartin/podcast-backend/auth"
+	"github.com/hbmartin/podcast-backend/config"
+	"github.com/hbmartin/podcast-backend/crawler"
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/handlers"
+	"github.com/hbmartin/podcast-backend/itunes"
+	"github.com/hbmartin/podcast-backend/middlewares"
+	"github.com/hbmartin/podcast-backend/tasks"
 )
 
 var configValues *config.Configuration
@@ -111,17 +108,6 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	// search host role
 	router.Handle("GET /autocomplete/search", publicChain(controllers.GetAutocompleteSearch))
 
-	if configValues.WebServerConfig.EnableSwagger {
-		slog.Info("Swagger enabled")
-		swaggerHandler := httpSwagger.Handler(
-			httpSwagger.URL("/swagger/doc.json"),
-			httpSwagger.DeepLinking(true),
-			httpSwagger.DocExpansion("none"),
-			httpSwagger.DomID("swagger-ui"),
-		)
-		router.Handle("GET /swagger/", swaggerHandler)
-	}
-
 	return router
 }
 
@@ -142,7 +128,6 @@ func initDB(ctx context.Context, configValues *config.Configuration) (db.Store, 
 
 func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
 	slog.Info("Setting up API router...\n")
-	docs.SwaggerInfo.BasePath = "/"
 
 	router := setupRouter(querier, queueClient, feedCrawler, searcher)
 

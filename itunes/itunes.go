@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/errs"
 )
 
 // Result is one podcast from the search upstream.

@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"errors"
-	"goapi-template/models"
+	"github.com/hbmartin/podcast-backend/models"
 	"net/http"
 	"testing"
 

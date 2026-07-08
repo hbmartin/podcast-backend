@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 
-	"goapi-template/db"
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/errs"
 )
 
 // storeStub returns not-found for podcast lookups; the embedded interface

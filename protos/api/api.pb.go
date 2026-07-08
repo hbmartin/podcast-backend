@@ -8453,7 +8453,7 @@ const file_api_proto_rawDesc = "" +
 	"\"save_up_next_on_playlists_play_all\x18a \x01(\v2\x10.api.BoolSettingR\x1csaveUpNextOnPlaylistsPlayAll\x12@\n" +
 	"\x14do_not_sell_or_share\x18b \x01(\v2\x10.api.BoolSettingR\x10doNotSellOrShare\x12@\n" +
 	"\x12live_analytics_url\x18c \x01(\v2\x12.api.StringSettingR\x10liveAnalyticsUrl\x12B\n" +
-	"\x14listening_time_stats\x18d \x01(\v2\x10.api.BoolSettingR\x12listeningTimeStatsB\x1fZ\x1dgoapi-template/protos/api;apib\x06proto3"
+	"\x14listening_time_stats\x18d \x01(\v2\x10.api.BoolSettingR\x12listeningTimeStatsB4Z2github.com/hbmartin/podcast-backend/protos/api;apib\x06proto3"
 
 var (
 	file_api_proto_rawDescOnce sync.Once

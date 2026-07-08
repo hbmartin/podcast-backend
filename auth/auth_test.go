@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"goapi-template/config"
+	"github.com/hbmartin/podcast-backend/config"
 
 	"github.com/stretchr/testify/assert"
 )

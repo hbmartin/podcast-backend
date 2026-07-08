@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"goapi-template/crawler"
-	"goapi-template/db"
-	"goapi-template/itunes"
+	"github.com/hbmartin/podcast-backend/crawler"
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/itunes"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	pb "goapi-template/protos/api"
+	pb "github.com/hbmartin/podcast-backend/protos/api"
 
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/timestamppb"

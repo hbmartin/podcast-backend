@@ -3,8 +3,8 @@ package auth
 import (
 	"time"
 
-	"goapi-template/config"
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/config"
+	"github.com/hbmartin/podcast-backend/errs"
 
 	"github.com/golang-jwt/jwt/v5"
 )

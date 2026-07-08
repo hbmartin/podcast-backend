@@ -4,7 +4,7 @@ import (
 	"io"
 	"net/http"
 
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/errs"
 
 	"google.golang.org/protobuf/proto"
 )

@@ -1,207 +1,108 @@
-## Features
-- [x] Golang
-  - [x] VS Code extension recommendations
-- [x] REST API
-  - [x] Handlers with dependency injection
-  - [x] Default Health handler with DB ping check
-  - [x] Swagger UI
-  - [x] Swagger json generation with `swag init`
-  - [x] Config from .env or environment variables
-- [x] Auth
-  - [x] Authentication with OAuth2 and JWT tokens
-  - [x] Use .well-known/openid-configuration for configuration agnostic of provider
-  - [x] Authorization via Open Policy Agent (OPA) policies
-- [x] DB
-  - ~~[x] GORM~~
-  - [x] SQLC
-  - [x] Automatic Migrations
-  - [x] Postgres DB provider
-  - ~~[x] SQLite DB provider~~
-- [x] Errors
-  - [x] Structured errors with operation stack traces (`errs` package)
-  - [x] Client-safe JSON error responses that mask database/internal details
-- [x] Background jobs
-  - [x] Redis-backed task queue with [asynq](https://github.com/hibiken/asynq) (`tasks` package)
-  - [x] Priority queues (critical/default/low) and configurable concurrency
-  - [x] Graceful shutdown of web server and worker pool
-- [x] CI/CD
-  - [x] Dockerfile
-  - [x] Docker compose
-  - [x] Kubernetes
-  - [x] Github actions workflow
+# podcast-backend
 
-## How to use this template
-This is a template repository so you can create a new repository based on this one. See instructions [here](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template).
+A self-hosted, open-source re-implementation of the Pocket Casts backend API,
+built to serve the open-source Pocket Casts iOS client
+([hbmartin/pocket-casts-ios](https://github.com/hbmartin/pocket-casts-ios)).
 
-## Getting started Locally
-You should use the latest version available of Go. The current version used by this repository is 1.20.
+One Go binary provides every first-party host role the client talks to —
+`api`, `refresh`, `cache`, and `search` — behind a single base URL. Wire
+formats match the client exactly: Protocol Buffers on the api-host endpoints
+(reconstructed from the client's generated `api.pb.swift`, field number for
+field number) and JSON matching the client's `Codable`/dictionary decoders
+everywhere else.
 
-### Install Go dependencies
-```cmd
-go mod download
-```
+## What's implemented
 
-### ENV
-> **IMPORTANT**: You should replace `AUTH_CONFIG_URL` and `AUTH_AUDIENCE` value with actual values from an OpenID provider.
+| Area | Endpoints |
+|---|---|
+| Account & auth | `user/login`, `user/register`, `user/token` (refresh_token grant with rotation), `user/forgot_password`, `user/change_email`, `user/change_password`, `user/delete_account` |
+| Sync | `user/sync/update` (incremental record sync with per-field last-writer-wins), `user/last_sync_at`, `user/podcast/list`, `user/podcast/episodes`, `user/playlist/list`, `user/bookmark/list`, `starred/list` |
+| Queue/history/settings | `up_next/sync`, `history/sync` (newest-100 cap), `user/named_settings/update` (per-key modifiedAt merge) |
+| Real-time playback | `sync/update_episode`, `sync/update_episode_star` |
+| Refresh host | `user/update`, `podcasts/refresh`, `podcasts/show`, `podcasts/search` (feed URLs crawl synchronously; text search proxies the iTunes Search API), `import/opml`, `import/export_feed_urls`, `/health.html` |
+| Cache host | `mobile/podcast/full/{uuid}` (ETag/304), `mobile/show_notes/full/{uuid}`, `mobile/episode/url/{p}/{e}`, `mobile/podcast/findbyepisode/{p}/{e}`, `mobile/podcast/episode/search`, `episode/search`, `search/combined` |
+| Search host | `autocomplete/search` |
 
-Create a .env file in the root of the project with the following configs:
+Not implemented (yet): user file uploads, sharing/curated lists, discover
+layout, ratings, stats summary, TV device auth, Sonos, push notifications,
+transcripts, recommendations.
 
-```env
-ENV=local
-WEB_PORT=localhost:8000
-AUTH_CONFIG_URL=https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0/.well-known/openid-configuration
-AUTH_AUDIENCE=api://c571ab3c-0fde-43b2-b010-77e7bdd0d6f7/api/
-ENABLE_SWAGGER=true
-DB_CONNECTION_STRING=postgres://postgres:94235CXcx@localhost:5432/goapitemplate?sslmode=disable
-```
-By default, the template uses Postres and thus you need it installed locally or available elsewhere.
+## Architecture
 
-#### Background task queue (optional)
+- **Go 1.25**, stdlib `net/http` routing, [sqlc](https://sqlc.dev) + pgx/v5
+  over **PostgreSQL**, migrations run automatically at startup
+  (golang-migrate).
+- **Auth**: bcrypt password hashing, server-minted HS256 access tokens
+  (`AUTH_JWT_SECRET`), opaque rotating refresh tokens stored as sha256
+  hashes. Error responses use the client's `{"errorMessageId": ...}`
+  envelope (`login_email_taken`, `invalid_grant`, ...).
+- **Sync engine** (`syncsvc`): each user has monotonic int64-millis sync
+  tokens (main / Up Next / history, mirroring the client's three stored
+  tokens). Mutations run in a transaction holding a row lock on the user;
+  responses echo all records with `modified_at > lastModified`, which the
+  client imports idempotently. Episode state and bookmark title/archive
+  merge per-field by the client's device-time `*Modified` tokens.
+- **Catalog** (`crawler`): podcasts and episodes have *deterministic* UUIDs
+  — `uuidv5(namespace, canonical feed URL)` and `uuidv5(podcast uuid, item
+  guid)` — so any instance derives identical ids for the same feeds, and
+  OPML import polling needs no server-side state. Feeds are fetched with
+  conditional GETs and parsed with gofeed; subscribed feeds re-crawl hourly,
+  idle ones daily (background jobs on an [asynq](https://github.com/hibiken/asynq)
+  Redis queue, swept every 5 minutes).
+  - Limitation: a bare unknown podcast uuid arriving via sync cannot be
+    reverse-resolved to a feed URL. The subscription still syncs across
+    devices; catalog data fills in once the server learns the URL (search,
+    OPML, another client action).
+- **Search**: catalog search uses Postgres `pg_trgm`; text podcast search
+  proxies the iTunes Search API (`ITUNES_BASE_URL` to override).
 
-The background task queue is disabled by default. To enable it, add the following to your .env (a reachable Redis instance is required):
-
-```env
-ENABLE_TASK_QUEUE=true
-# Defaults to REDIS_ADDRESS (the cache Redis) or localhost:6379
-QUEUE_REDIS_ADDRESS=localhost:6379
-# Defaults to REDIS_PASSWORD
-QUEUE_REDIS_PASSWORD=
-# Defaults to 0; use a separate DB or Redis instance from cache in production
-QUEUE_REDIS_DB=1
-# Number of concurrent workers, defaults to 10
-QUEUE_CONCURRENCY=10
-# Process queues in strict priority order (critical > default > low)
-QUEUE_STRICT_PRIORITY=false
-```
-
-### Run
-```powershell
-go run .\main.go
-```
-
-The API should now be available at http://localhost:8000/swagger/index.html
-
-### Test
-Without test coverage:
-```powershell
-go test ./...
-```
-
-With HTML coverage output:
-```powershell
-go test -coverprofile=coverage ./...
-go tool cover -html=coverage
-```
-
-### Build
-```powershell
-go build
-```
-In Windows, the command above yields a executable file `go-rest-template.exe`. In Linux, it yields an executable of same name but without extension.
-
-## Deploy
-### Docker
-> **IMPORTANT**: You should replace `AUTH_CONFIG_URL` and `AUTH_AUDIENCE` value with actual values from an OpenID provider.
-
-> **NOTE**: You will need docker installed and running
-
-First set the `AUTH_CONFIG_URL`, `AUTH_AUDIENCE`, and `POSTGRES_PASSWORD` environment variables.
-
-On Windows using PowerShell:
-```powershell
-$env:AUTH_CONFIG_URL = "https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0/.well-known/openid-configuration"
-$env:AUTH_AUDIENCE = "api://00000000-0000-0000-0000-000000000000/api/"
-$env:POSTGRES_PASSWORD = "mysecretpassword"
-```
-
-On Linux using bash:
-```bash
-export AUTH_CONFIG_URL="https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0/.well-known/openid-configuration"
-export AUTH_AUDIENCE="api://00000000-0000-0000-0000-000000000000/api/"
-export POSTGRES_PASSWORD="mysecretpassword"
-```
-
-Then, run docker compose:
-```powershell
-docker compose up -d
-```
-
-### Kubernetes
-You may use [minikube](https://minikube.sigs.k8s.io/docs/start/) locally to test kubernetes configuration.
+## Running
 
 ```bash
-kubectl create secret generic app-secrets --from-literal=AUTH_CONFIG_URL=<url> --from-literal=AUTH_AUDIENCE=<audience> --from-literal=DB_CONNECTION_STRING=<connection string>
-
-kubectl create secret generic db-secrets --from-literal=POSTGRES_DB=<db name> --from-literal=POSTGRES_USER=<db user> --from-literal=POSTGRES_PASSWORD=<password>
-
-kubectl apply -f ./db-pvc.yaml
-kubectl apply -f ./db-pv.yaml
-kubectl apply -f ./db-deployment.yaml
-kubectl apply -f ./db-service.yaml
-kubectl apply -f ./app-configmap.yaml
-kubectl apply -f ./app-deployment.yaml
-kubectl apply -f ./app-service.yaml
+export AUTH_JWT_SECRET=$(openssl rand -hex 32)
+export POSTGRES_PASSWORD=change-me REDIS_PASSWORD=change-me
+docker compose up      # app + postgres + redis
 ```
 
-## Authentication
-On startup, the application will execute an HTTP GET over the URL stored in `AUTH_CONFIG_URL` configuration. This variable should be a `.well-known/openid-configuration` endpoint which is typically provided by OAuth2 or OpenId providers such as:
+Configuration:
 
-|Provider|URL|Notes|
-|-|-|-|
-|Azure|https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0/.well-known/openid-configuration|The URL changes according to your Azure AD tenant id|
-|Google|https://accounts.google.com/.well-known/openid-configuration||
-|Facebook|https://www.facebook.com/.well-known/openid-configuration/||
+| Variable | Meaning |
+|---|---|
+| `DB_CONNECTION_STRING` | Postgres URL, e.g. `postgres://user:pass@host:5432/podcasts?sslmode=disable` (required) |
+| `AUTH_JWT_SECRET` | ≥32 bytes; signs access tokens (required) |
+| `WEB_PORT` | listen address, default `localhost:8000` |
+| `ENABLE_TASK_QUEUE` / `QUEUE_REDIS_ADDRESS` | enable background crawling (recommended) |
+| `AUTH_ACCESS_TOKEN_TTL` / `AUTH_REFRESH_TOKEN_TTL` | defaults `24h` / `8760h` |
+| `ITUNES_BASE_URL` | iTunes Search API base, default `https://itunes.apple.com` |
+| `ALLOWED_ORIGIN`, `TLS_CERT_FILE`, `TLS_CERT_KEY_FILE` | CORS / TLS |
 
-The startup will automatically pull the issuer, jwks, and token signing algorithm. These fields are used to validate the JWT token. The jwks is also monitored for changes and is updated as needed. 
+### Pointing the iOS client at this server
 
-Additionally, the JWT is validated against the configured `AUTH_AUDIENCE` so only tokens intended for this API are accepted. The `AUTH_CLAIMS` configuration is used in order to lookup and add claims from the JWT body to the provided User interface so the app is aware of information such as user name, email, etc.
+In your `pocket-casts-ios` fork, set the first-party base URLs in
+`Modules/Sources/PocketCastsServer/Public/Sharing/Structs/ServerConstants.swift`
+(`main()`, `api()`, `cache()`, and the `search` host) to this server's base
+URL. Host roles are path-routed, so one URL serves them all.
 
-The authentication middleware will validate the JWT against the parameters set and allow (or not) the API pipeline to proceed. Any additional validation should be executed by the Authorization layer.
+## Development
 
-## Authorization
-Authorization is provided via OPA policy with input fields method, path, and token. You may modify the `OpaMiddleware` to add more fields as necessary. The following basic policy is provided:
-
-```opa
-package authz
-
-import future.keywords.if
-
-default allow = false
-
-allow if {
-	endswith(payload.email, "@gmail.com")
-	payload.verified
-	startswith(input.path, "/person")
-}
-
-payload := {"verified": verified, "email": payload.email} if {
-	[_, payload, _] := io.jwt.decode(input.token)
-	verified := true
-}
+```bash
+make test    # unit tests (no network, no database needed)
+make lint    # go vet + staticcheck
+make proto   # regenerate protos/api from protos/api.proto (needs protoc)
+make sqlc    # regenerate db/ from db/queries.sql
+make e2e     # end-to-end suite, needs Postgres:
+             #   E2E_DB_CONNECTION_STRING=postgres://... make e2e
 ```
 
-Note that the token input field is the full JWT provided by the consumer. You may decode it and use any of the provided fields such as Role, name, email, etc to validate whether the call is authorized or not.
+The e2e suite builds the real binary, runs migrations against your Postgres,
+and drives the full client loop over HTTP: register → login → two-device
+sync convergence → Up Next/history/settings → feed ingestion from a fixture
+RSS server → cache-host reads with 304 revalidation.
 
-The above basic policy enforces that the URL path must start with `/person` and the user email must end with `@gmail.com`. This is obviously just to get the authorization started and should be modified before using this template. For more information on OPA, please see https://www.openpolicyagent.org/.
+### Wire-compatibility notes
 
-The `OpaMiddleware` is a combined local PEP (Policy Enforcement Point) and PDP (Policy Decision Point). As such, any time your policy changes, you need a code change as the policy is stored locally, and a release. As your needs outgrow this approach, you should look into introducing a centralized PDP, adding a PIP (Policy Information Point) to enrich the policy inputs, and PAP (Policy Administration point) to create or modify policies without the need for a release.
-
-## CI/CD
-By default, this repository includes a single GitHub Actions workflow with 3 jobs that will:
-
-1. Prepare and validate go code
-2. Execute unit tests
-3. Execute Linter
-4. Determine Semver by using git commits
-   1. See https://gitversion.net/docs/
-5. Build, tag, and push docker image to docker hub
-   1. You may want to change this step and push to a private repository
-6. Deploy to Azure Kubernetes Service
-7. Deploy to Azure Web App
-
-## General recommendations
-Before you push a similar solution to a production environment, keep the following recommendations in mind:
-
-1. Kubernetes secrets are not really secret. If possible, you should leverage a secrets platform such as Azure Key Vault.
-2. Favor managed database solutions instead of container based solution. Remember that if you use database in a container, you will need to take care of backups and other reliability related features that are typically available in managed solutions in cloud platforms such as AWS and Azure.
-3. Avoid using the latest tag for releases. If a pod goes down and comes back up, it might use a different version of the image than the other containers of the same type.
+`protos/api.proto` is reconstructed from the iOS client's generated
+SwiftProtobuf code. Field numbers are load-bearing: golden wire-format tests
+in `protos/api/wire_test.go` pin the known-tricky ones (field gaps, wrapper
+types). If you regenerate the client or add messages, verify against
+`api.pb.swift` and extend those tests.

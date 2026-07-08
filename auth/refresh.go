@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/errs"
 )
 
 // NewRefreshToken generates an opaque refresh token and the sha256 hex hash

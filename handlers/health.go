@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"goapi-template/models"
+	"github.com/hbmartin/podcast-backend/models"
 	"net/http"
 )
 

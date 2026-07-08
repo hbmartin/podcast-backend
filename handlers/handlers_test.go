@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"goapi-template/auth"
-	"goapi-template/config"
-	"goapi-template/db"
+	"github.com/hbmartin/podcast-backend/auth"
+	"github.com/hbmartin/podcast-backend/config"
+	"github.com/hbmartin/podcast-backend/db"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
