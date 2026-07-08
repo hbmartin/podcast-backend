@@ -27,3 +27,17 @@ func TestRequestBaseURL(t *testing.T) {
 	r.Header.Set("X-Forwarded-Host", "pods.example.com")
 	assert.Equal(t, "https://pods.example.com", requestBaseURL(r))
 }
+
+func TestBaseURLConfiguredOverride(t *testing.T) {
+	// a configured public base URL beats request headers entirely
+	r := httptest.NewRequest("GET", "/x", nil)
+	r.Host = "internal:8080"
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Host", "spoofed.example.com")
+
+	h := Handlers{PublicBaseURL: "https://pods.example.com/"}
+	assert.Equal(t, "https://pods.example.com", h.baseURL(r), "trailing slash trimmed")
+
+	h = Handlers{}
+	assert.Equal(t, "https://spoofed.example.com", h.baseURL(r), "falls back to request derivation")
+}

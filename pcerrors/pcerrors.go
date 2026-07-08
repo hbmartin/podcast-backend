@@ -25,6 +25,9 @@ const (
 	ExpiredToken          = "expired_token"
 	AccessDenied          = "access_denied"
 	InvalidGrant          = "invalid_grant"
+	// RateLimited is not in the client's enum; unknown ids fall back to its
+	// generic error message, which is the desired behavior for a 429.
+	RateLimited = "rate_limited"
 )
 
 type envelope struct {

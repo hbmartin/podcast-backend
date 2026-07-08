@@ -14,17 +14,19 @@ import (
 	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/errs"
+	"github.com/hbmartin/podcast-backend/push"
 )
 
 // WorkerServer is the daemon that consumes tasks from the Redis queue and
 // executes them.
 type WorkerServer struct {
-	srv     *asynq.Server
-	db      db.Store
-	crawler *crawler.Crawler
+	srv      *asynq.Server
+	db       db.Store
+	crawler  *crawler.Crawler
+	notifier *push.Notifier
 }
 
-func NewWorkerServer(cfg *config.Configuration, store db.Store, feedCrawler *crawler.Crawler) *WorkerServer {
+func NewWorkerServer(cfg *config.Configuration, store db.Store, feedCrawler *crawler.Crawler, notifier *push.Notifier) *WorkerServer {
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{
 			Addr:     cfg.QueueConfig.RedisAddress,
@@ -42,7 +44,7 @@ func NewWorkerServer(cfg *config.Configuration, store db.Store, feedCrawler *cra
 			Logger:         &slogAdapter{logger: slog.Default()},
 		},
 	)
-	return &WorkerServer{srv: srv, db: store, crawler: feedCrawler}
+	return &WorkerServer{srv: srv, db: store, crawler: feedCrawler, notifier: notifier}
 }
 
 // Start registers the task handlers and runs the worker until Shutdown is
@@ -53,6 +55,7 @@ func (w *WorkerServer) Start() error {
 	mux.HandleFunc(TypePodcastRefresh, w.HandlePodcastRefreshTask)
 	mux.HandleFunc(TypeOpmlImport, w.HandleOpmlImportTask)
 	mux.HandleFunc(TypeRefreshDuePodcasts, w.HandleRefreshDuePodcastsTask)
+	mux.HandleFunc(TypeNotifyNewEpisodes, w.HandleNotifyNewEpisodesTask)
 
 	return w.srv.Run(mux)
 }
@@ -137,6 +140,25 @@ func (w *WorkerServer) HandleRefreshDuePodcastsTask(ctx context.Context, t *asyn
 			slog.Warn("Scheduled crawl failed", "uuid", podcast.Uuid, "error", err)
 		}
 	}
+	return nil
+}
+
+// HandleNotifyNewEpisodesTask pushes new-episode alerts to registered
+// devices. A no-op when push is not configured.
+func (w *WorkerServer) HandleNotifyNewEpisodesTask(ctx context.Context, t *asynq.Task) error {
+	const op errs.Op = "tasks/WorkerServer.HandleNotifyNewEpisodesTask"
+
+	if w.notifier == nil {
+		return nil
+	}
+
+	var payload NotifyNewEpisodesPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return errs.E(op, errs.Internal, fmt.Errorf("%w: %v", asynq.SkipRetry, err))
+	}
+
+	slog.Info("Delivering new-episode notifications", "podcast", payload.PodcastUUID, "episodes", len(payload.EpisodeUUIDs))
+	w.notifier.NotifyNewEpisodes(ctx, payload.PodcastUUID, payload.EpisodeUUIDs)
 	return nil
 }
 

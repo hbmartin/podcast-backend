@@ -1,10 +1,10 @@
-version: "3.9"
 services:
   app:
     build:
       dockerfile: Dockerfile
       context: .
       target: runner
+    restart: unless-stopped
     environment:
       ENV: "local"
       WEB_PORT: ":8000"
@@ -18,12 +18,14 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - db
-      - cache
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
     networks:
       - backend
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     ports:
       - "5432:5432"
     volumes:
@@ -32,6 +34,11 @@ services:
       POSTGRES_DB: podcasts
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d podcasts"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - backend
   cache:
@@ -45,6 +52,11 @@ services:
       - /bin/sh
       - -c
       - redis-server --requirepass "$${REDIS_PASSWORD}"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - backend
 volumes:

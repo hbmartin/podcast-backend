@@ -28,14 +28,13 @@ type WebServerConfiguration struct {
 	TLSCertFile      string
 	TLSCertKeyFile   string
 	ConnectionString string
-}
-
-type CacheConfiguration struct {
-	EnableTransparentCaching bool
-	RedisAddress             string
-	RedisPassword            string
-	RedisDb                  int
-	Expiration               time.Duration
+	// PublicBaseURL, when set, is used verbatim as the base of generated
+	// absolute links (share URLs, discover sources) instead of trusting
+	// X-Forwarded-* request headers.
+	PublicBaseURL string
+	// AuthRateLimitPerMinute caps credential-endpoint requests per client IP
+	// per minute (0 disables).
+	AuthRateLimitPerMinute int
 }
 
 type QueueConfiguration struct {
@@ -47,11 +46,23 @@ type QueueConfiguration struct {
 	StrictPriority bool
 }
 
+// PushConfiguration holds APNs provider credentials. Push is enabled only
+// when the four APNS_* identity variables are all present.
+type PushConfiguration struct {
+	Enabled bool
+	KeyFile string // path to the .p8 auth key
+	KeyID   string
+	TeamID  string
+	Topic   string // the app's bundle id
+	// Endpoint overrides the production APNs host (sandbox, tests).
+	Endpoint string
+}
+
 type Configuration struct {
 	WebServerConfig *WebServerConfiguration
-	CacheConfig     *CacheConfiguration
 	AuthConfig      *AuthConfiguration
 	QueueConfig     *QueueConfiguration
+	PushConfig      *PushConfiguration
 }
 
 func loadAuthConfig() (*AuthConfiguration, error) {
@@ -115,42 +126,16 @@ func loadWebServerConfig() (*WebServerConfiguration, error) {
 		return nil, fmt.Errorf("must set DB_CONNECTION_STRING=<connection string>")
 	}
 
-	return config, nil
-}
+	config.PublicBaseURL = os.Getenv("PUBLIC_BASE_URL")
 
-func loadCacheConfig() (*CacheConfiguration, error) {
-	config := &CacheConfiguration{}
-
-	if enableTransparentCaching, ok := os.LookupEnv("ENABLE_TRANSPARENT_CACHE"); ok {
-		config.EnableTransparentCaching = enableTransparentCaching == "true"
+	config.AuthRateLimitPerMinute = 10
+	if limit, ok := os.LookupEnv("RATE_LIMIT_AUTH"); ok {
+		parsed, err := strconv.Atoi(limit)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("RATE_LIMIT_AUTH must be a non-negative integer (0 disables)")
+		}
+		config.AuthRateLimitPerMinute = parsed
 	}
-
-	if !config.EnableTransparentCaching {
-		// no reason to keep loading the cache config if we're not using it
-		return config, nil
-	}
-
-	if redisAddress, ok := os.LookupEnv("REDIS_ADDRESS"); ok {
-		config.RedisAddress = redisAddress
-	} else {
-		config.RedisAddress = "localhost:6379"
-	}
-
-	if redisDbStr, ok := os.LookupEnv("REDIS_DB"); ok {
-		redisDb, _ := strconv.Atoi(redisDbStr)
-		config.RedisDb = redisDb
-	} else {
-		config.RedisDb = 0
-	}
-
-	if expiration, ok := os.LookupEnv("REDIS_DEFAULT_EXPIRATION"); ok {
-		expirationParsed, _ := time.ParseDuration(expiration)
-		config.Expiration = expirationParsed
-	} else {
-		config.Expiration = time.Hour
-	}
-
-	config.RedisPassword, _ = os.LookupEnv("REDIS_PASSWORD")
 
 	return config, nil
 }
@@ -207,6 +192,32 @@ func loadQueueConfig() (*QueueConfiguration, error) {
 	return config, nil
 }
 
+func loadPushConfig() (*PushConfiguration, error) {
+	config := &PushConfiguration{
+		KeyFile:  os.Getenv("APNS_KEY_FILE"),
+		KeyID:    os.Getenv("APNS_KEY_ID"),
+		TeamID:   os.Getenv("APNS_TEAM_ID"),
+		Topic:    os.Getenv("APNS_TOPIC"),
+		Endpoint: os.Getenv("APNS_ENDPOINT"),
+	}
+
+	set := 0
+	for _, v := range []string{config.KeyFile, config.KeyID, config.TeamID, config.Topic} {
+		if v != "" {
+			set++
+		}
+	}
+	switch set {
+	case 0:
+		return config, nil // push disabled
+	case 4:
+		config.Enabled = true
+		return config, nil
+	default:
+		return nil, fmt.Errorf("APNS_KEY_FILE, APNS_KEY_ID, APNS_TEAM_ID, and APNS_TOPIC must be set together")
+	}
+}
+
 func LoadConfig() *Configuration {
 	webServerConfig, err := loadWebServerConfig()
 	if err != nil {
@@ -218,12 +229,12 @@ func LoadConfig() *Configuration {
 		log.Fatal(err)
 	}
 
-	cacheConfig, err := loadCacheConfig()
+	queueConfig, err := loadQueueConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	queueConfig, err := loadQueueConfig()
+	pushConfig, err := loadPushConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -231,7 +242,7 @@ func LoadConfig() *Configuration {
 	return &Configuration{
 		WebServerConfig: webServerConfig,
 		AuthConfig:      authConfig,
-		CacheConfig:     cacheConfig,
 		QueueConfig:     queueConfig,
+		PushConfig:      pushConfig,
 	}
 }

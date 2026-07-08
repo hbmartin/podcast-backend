@@ -20,20 +20,37 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.gitversion.outputs.majorMinorPatch }}
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: podcasts_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-  
+
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: 1.25.12
 
       - name: Pull dependencies
         run: go mod download
-      
+
+      - name: Vet
+        run: go vet ./...
+
       - uses: reviewdog/action-staticcheck@v1
         with:
           github_token: ${{ secrets.github_token }}
@@ -42,20 +59,26 @@ jobs:
           fail_on_error: true
 
       - name: Test
-        run: go test -cover ./... > test-result.txt
+        run: go test -cover ./... &> test-result.txt
+
+      - name: End-to-end test
+        env:
+          E2E_DB_CONNECTION_STRING: postgres://postgres:postgres@127.0.0.1:5432/podcasts_e2e?sslmode=disable
+        run: make e2e
 
       - name: Install GitVersion
-        uses: gittools/actions/gitversion/setup@v0.10.2
+        uses: gittools/actions/gitversion/setup@v3
         with:
           versionSpec: '5.x'
-    
+
       - name: Determine Version
         id: gitversion
-        uses: gittools/actions/gitversion/execute@v0.10.2
+        uses: gittools/actions/gitversion/execute@v3
         with:
           useConfigFile: true
 
       - name: Pull request comment
+        if: github.event_name == 'pull_request' && always()
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           path: test-result.txt
@@ -63,7 +86,7 @@ jobs:
       - name: Docker meta
         if: github.event_name == 'push'
         id: meta
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         with:
           images: |
             ${{ secrets.DOCKERHUB_USERNAME }}/podcast-backend
@@ -74,17 +97,17 @@ jobs:
 
       - name: Login to Docker Hub
         if: github.event_name == 'push'
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Build container
         if: github.event_name == 'pull_request'
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
@@ -93,7 +116,7 @@ jobs:
 
       - name: Build and push
         if: github.event_name == 'push'
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile

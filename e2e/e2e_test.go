@@ -10,7 +10,12 @@ package e2e
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"image"
 	"image/color"
@@ -22,6 +27,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,7 +44,42 @@ import (
 var (
 	baseURL    string
 	feedServer *httptest.Server
+
+	// push fixtures: a fake APNs endpoint recording deliveries, and a toggle
+	// that makes the fixture feed publish one extra (newer) episode
+	apnsMu              sync.Mutex
+	apnsPushes          []apnsPush
+	includeExtraEpisode atomic.Bool
 )
+
+type apnsPush struct {
+	path string
+	body string
+}
+
+const extraEpisodeItem = `    <item>
+      <title>Breaking Episode</title>
+      <guid>ep-guid-push</guid>
+      <pubDate>Fri, 05 Jan 2024 10:00:00 +0000</pubDate>
+      <description>Fresh off the press</description>
+      <enclosure url="https://cdn.example.com/ep-push.mp3" length="200" type="audio/mpeg"/>
+    </item>
+`
+
+// apnsKeyFile writes a throwaway EC P-256 key in Apple's .p8 layout so the
+// server's APNs client can sign provider tokens against the fixture endpoint.
+func apnsKeyFile() (string, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", err
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(os.TempDir(), "podcast-backend-e2e-apns.p8")
+	return path, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600)
+}
 
 func TestMain(m *testing.M) {
 	connString := os.Getenv("E2E_DB_CONNECTION_STRING")
@@ -61,10 +103,28 @@ func TestMain(m *testing.M) {
 			return
 		}
 		feed := strings.ReplaceAll(string(raw), "https://example.com/art.jpg", feedServer.URL+"/art.png")
+		if includeExtraEpisode.Load() {
+			feed = strings.Replace(feed, "    <item>", extraEpisodeItem+"    <item>", 1)
+		}
 		w.Header().Set("Content-Type", "application/rss+xml")
 		w.Write([]byte(feed))
 	}))
 	defer feedServer.Close()
+
+	apnsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		apnsMu.Lock()
+		apnsPushes = append(apnsPushes, apnsPush{path: r.URL.Path, body: string(body)})
+		apnsMu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer apnsServer.Close()
+
+	apnsKey, err := apnsKeyFile()
+	if err != nil {
+		fmt.Println("apns key generation failed:", err)
+		os.Exit(1)
+	}
 
 	binary := filepath.Join(os.TempDir(), "podcast-backend-e2e")
 	build := exec.Command("go", "build", "-o", binary, "..")
@@ -86,6 +146,16 @@ func TestMain(m *testing.M) {
 		"AUTH_JWT_SECRET=e2e-secret-e2e-secret-e2e-secret-32",
 		"ENABLE_TASK_QUEUE=false",
 		"ENABLE_SWAGGER=false",
+		// keep the auth rate limiter on its enabled code path without ever
+		// tripping during the suite's rapid-fire logins
+		"RATE_LIMIT_AUTH=1000",
+		// push notifications against the fixture APNs endpoint (queue off,
+		// so delivery runs in-process)
+		"APNS_KEY_FILE="+apnsKey,
+		"APNS_KEY_ID=E2EKEY",
+		"APNS_TEAM_ID=E2ETEAM",
+		"APNS_TOPIC=com.example.e2e",
+		"APNS_ENDPOINT="+apnsServer.URL,
 	)
 	server.Stdout, server.Stderr = os.Stdout, os.Stderr
 	if err := server.Start(); err != nil {
@@ -650,4 +720,70 @@ func TestShareListAndLinks(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "ok", shared.Status)
 	assert.Equal(t, "Test Show", shared.Result.Podcast.Title)
+}
+
+// TestPushNotifications registers a device's APNs token on the refresh call,
+// publishes a new episode in the fixture feed, forces a re-crawl, and asserts
+// the fixture APNs endpoint received the alert. It must run after the tests
+// that ingest the fixture podcast's baseline episodes (source order).
+func TestPushNotifications(t *testing.T) {
+	podcastUuid := ingestFixturePodcast(t)
+	token, _ := registerUser(t, fmt.Sprintf("push-%d@e2e.test", time.Now().UnixNano()))
+
+	// subscribe (push targets are subscribed podcasts only)
+	sync := &pb.SyncUpdateResponse{}
+	status0 := postProto(t, "/user/sync/update", token, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: time.Now().UnixMilli(),
+		Records: []*pb.Record{{Record: &pb.Record_Podcast{Podcast: &pb.SyncUserPodcast{
+			Uuid:       podcastUuid,
+			Subscribed: wrapperspb.Bool(true),
+		}}}},
+	}, sync)
+	require.Equal(t, http.StatusOK, status0)
+
+	// push registration piggybacks on user/update
+	var refresh struct {
+		Status string `json:"status"`
+	}
+	status := postJSON(t, "/user/update", token, map[string]string{
+		"podcasts":         podcastUuid,
+		"last_episodes":    "",
+		"device":           "e2e-device-push",
+		"push_token":       "E2EPUSHTOKEN00",
+		"push_on":          "true",
+		"push_messages_on": "1",
+	}, &refresh)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "ok", refresh.Status)
+
+	// the feed publishes a new episode; force a re-crawl (synchronous, since
+	// the e2e server runs without the task queue)
+	includeExtraEpisode.Store(true)
+	t.Cleanup(func() { includeExtraEpisode.Store(false) })
+
+	var crawl struct {
+		Status string `json:"status"`
+	}
+	status = postJSON(t, "/podcasts/refresh", "", map[string]string{"podcast_uuid": podcastUuid}, &crawl)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "ok", crawl.Status)
+
+	// delivery runs in a background goroutine; wait for it
+	var got []apnsPush
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		apnsMu.Lock()
+		got = append([]apnsPush(nil), apnsPushes...)
+		apnsMu.Unlock()
+		if len(got) > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	require.NotEmpty(t, got, "fixture APNs endpoint received no delivery")
+	assert.Equal(t, "/3/device/E2EPUSHTOKEN00", got[0].path)
+	assert.Contains(t, got[0].body, `"title":"Test Show"`)
+	assert.Contains(t, got[0].body, `"body":"Breaking Episode"`)
+	assert.Len(t, got, 1, "exactly one new episode, one registered device")
 }

@@ -26,9 +26,10 @@ everywhere else.
 | Ratings & stats | `user/podcast_rating/add`/`show`/`list`, `user/stats/summary` |
 | Discover | `discover/ios/content_v2.json`/`content_v3.json` with catalog-backed sources (trending/popular/recent/categories) |
 | Sharing | `share/list` (+ `GET /l/{code}` resolution), shared `podcast/{uuid}` and `episode/{uuid}` link lookups |
+| Push notifications | APNs new-episode alerts: token registration rides on `user/update` (`push_token`/`push_on`/`push_messages_on`), delivery fires from feed crawls (set `APNS_*`) |
 
-Not implemented (yet): user file uploads, TV device auth, Sonos, push
-notifications, transcripts, recommendations, supporter bundles.
+Not implemented (yet): user file uploads, TV device auth, Sonos,
+transcripts, recommendations, supporter bundles.
 
 ## Architecture
 
@@ -78,7 +79,11 @@ Configuration:
 | `AUTH_ACCESS_TOKEN_TTL` / `AUTH_REFRESH_TOKEN_TTL` | defaults `24h` / `8760h` |
 | `ITUNES_BASE_URL` | iTunes Search API base, default `https://itunes.apple.com` |
 | `ALLOWED_ORIGIN`, `TLS_CERT_FILE`, `TLS_CERT_KEY_FILE` | CORS / TLS |
+| `PUBLIC_BASE_URL` | base for generated links (share URLs, discover sources); set it behind a reverse proxy so client-supplied `X-Forwarded-*` headers aren't trusted |
+| `RATE_LIMIT_AUTH` | per-IP requests/minute on the credential endpoints (login, register, forgot password, token), default `10`, `0` disables |
 | `SHARING_CREDENTIAL` | optional; when set, `share/list` requests must carry the client's legacy SHA-1 signature |
+| `APNS_KEY_FILE`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | set all four to enable APNs push (`.p8` auth key path, key id, team id, app bundle id) |
+| `APNS_ENDPOINT` | APNs host override, e.g. `https://api.sandbox.push.apple.com` for development builds |
 
 ### Pointing the iOS client at this server
 

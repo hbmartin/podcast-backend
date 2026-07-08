@@ -61,11 +61,18 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 
 // PostRefreshUserUpdate handles POST user/update, the primary refresh call:
 // for each subscribed podcast uuid, return episodes newer than the client's
-// latest-known episode uuid.
+// latest-known episode uuid. It doubles as push-notification registration:
+// signed-in clients piggyback their APNs token, the global toggle, and a
+// positional per-podcast bit-string on the same body.
 func (h Handlers) PostRefreshUserUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Podcasts     string `json:"podcasts"`
 		LastEpisodes string `json:"last_episodes"`
+		Device       string `json:"device"`
+		PushToken    string `json:"push_token"`
+		PushOn       string `json:"push_on"`
+		// one '0'/'1' per entry of Podcasts, no separators
+		PushMessagesOn string `json:"push_messages_on"`
 	}
 	if err := bindJSON(r, &req); err != nil {
 		writeRefreshStatus(w, "error", "invalid request")
@@ -74,6 +81,8 @@ func (h Handlers) PostRefreshUserUpdate(w http.ResponseWriter, r *http.Request) 
 
 	uuids := splitCSV(req.Podcasts)
 	lastEpisodes := splitCSV(req.LastEpisodes)
+
+	h.persistPushState(r, req.Device, req.PushToken, req.PushOn, req.PushMessagesOn, uuids)
 
 	valid := make([]string, 0, len(uuids))
 	for _, uuid := range uuids {
@@ -174,13 +183,27 @@ func episodesToRefreshJSON(rows []db.Episode) []refreshEpisodeJSON {
 }
 
 // PostPodcastsRefresh handles POST podcasts/refresh: force a single feed
-// re-crawl.
+// re-crawl. Queued when the task queue is enabled, synchronous otherwise.
 func (h Handlers) PostPodcastsRefresh(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PodcastUuid string `json:"podcast_uuid"`
 	}
 	if err := bindJSON(r, &req); err != nil || req.PodcastUuid == "" {
 		writeRefreshStatus(w, "error", "podcast_uuid is required")
+		return
+	}
+
+	if h.Queue == nil {
+		podcast, err := h.Queries.GetPodcastByUUID(r.Context(), req.PodcastUuid)
+		if err != nil {
+			writeRefreshStatus(w, "error", "unknown podcast")
+			return
+		}
+		if err := h.Crawler.Crawl(r.Context(), podcast); err != nil {
+			writeRefreshStatus(w, "error", "crawl failed")
+			return
+		}
+		writeRefreshStatus(w, "ok", "")
 		return
 	}
 

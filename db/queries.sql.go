@@ -10,6 +10,16 @@ import (
 	"time"
 )
 
+const clearPushToken = `-- name: ClearPushToken :exec
+UPDATE devices SET push_token = '', updated_at = now()
+WHERE push_token = $1
+`
+
+func (q *Queries) ClearPushToken(ctx context.Context, pushToken string) error {
+	_, err := q.db.Exec(ctx, clearPushToken, pushToken)
+	return err
+}
+
 const createPodcastPending = `-- name: CreatePodcastPending :one
 INSERT INTO podcasts (uuid, feed_url)
 VALUES ($1, $2)
@@ -383,7 +393,7 @@ func (q *Queries) GetBookmarksModifiedSince(ctx context.Context, arg GetBookmark
 }
 
 const getDevice = `-- name: GetDevice :one
-SELECT user_id, device_id, device_type, times_started_at, time_silence_removal, time_variable_speed, time_intro_skipping, time_skipping, time_listened, updated_at, created_at FROM devices WHERE user_id = $1 AND device_id = $2
+SELECT user_id, device_id, device_type, times_started_at, time_silence_removal, time_variable_speed, time_intro_skipping, time_skipping, time_listened, updated_at, created_at, push_token, push_on FROM devices WHERE user_id = $1 AND device_id = $2
 `
 
 type GetDeviceParams struct {
@@ -406,6 +416,8 @@ func (q *Queries) GetDevice(ctx context.Context, arg GetDeviceParams) (Device, e
 		&i.TimeListened,
 		&i.UpdatedAt,
 		&i.CreatedAt,
+		&i.PushToken,
+		&i.PushOn,
 	)
 	return i, err
 }
@@ -1109,6 +1121,43 @@ func (q *Queries) GetPodcastsByUUIDs(ctx context.Context, dollar_1 []string) ([]
 	return items, nil
 }
 
+const getPushTargetsForPodcast = `-- name: GetPushTargetsForPodcast :many
+SELECT d.user_id, d.device_id, d.push_token
+FROM devices d
+JOIN user_podcasts up ON up.user_id = d.user_id
+WHERE up.podcast_uuid = $1
+  AND up.subscribed AND NOT up.is_deleted
+  AND d.push_on AND d.push_token <> ''
+  AND (up.notify_enabled
+       OR COALESCE((up.settings->'notification'->>'value')::boolean, false))
+`
+
+type GetPushTargetsForPodcastRow struct {
+	UserID    int64
+	DeviceID  string
+	PushToken string
+}
+
+func (q *Queries) GetPushTargetsForPodcast(ctx context.Context, podcastUuid string) ([]GetPushTargetsForPodcastRow, error) {
+	rows, err := q.db.Query(ctx, getPushTargetsForPodcast, podcastUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPushTargetsForPodcastRow
+	for rows.Next() {
+		var i GetPushTargetsForPodcastRow
+		if err := rows.Scan(&i.UserID, &i.DeviceID, &i.PushToken); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRefreshTokenByHash = `-- name: GetRefreshTokenByHash :one
 SELECT id, user_id, token_hash, scope, created_at, expires_at, revoked_at FROM refresh_tokens
 WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
@@ -1190,7 +1239,7 @@ func (q *Queries) GetStarredEpisodes(ctx context.Context, userID int64) ([]UserE
 }
 
 const getSubscribedPodcastsWithCatalog = `-- name: GetSubscribedPodcastsWithCatalog :many
-SELECT up.user_id, up.podcast_uuid, up.subscribed, up.is_deleted, up.auto_start_from, up.auto_skip_last, up.episodes_sort_order, up.folder_uuid, up.sort_position, up.date_added, up.settings, up.modified_at,
+SELECT up.user_id, up.podcast_uuid, up.subscribed, up.is_deleted, up.auto_start_from, up.auto_skip_last, up.episodes_sort_order, up.folder_uuid, up.sort_position, up.date_added, up.settings, up.modified_at, up.notify_enabled,
        COALESCE(p.title, '') AS cat_title,
        COALESCE(p.author, '') AS cat_author,
        COALESCE(p.description, '') AS cat_description,
@@ -1215,6 +1264,7 @@ type GetSubscribedPodcastsWithCatalogRow struct {
 	DateAdded                 *time.Time
 	Settings                  []byte
 	ModifiedAt                int64
+	NotifyEnabled             bool
 	CatTitle                  string
 	CatAuthor                 string
 	CatDescription            string
@@ -1245,6 +1295,7 @@ func (q *Queries) GetSubscribedPodcastsWithCatalog(ctx context.Context, userID i
 			&i.DateAdded,
 			&i.Settings,
 			&i.ModifiedAt,
+			&i.NotifyEnabled,
 			&i.CatTitle,
 			&i.CatAuthor,
 			&i.CatDescription,
@@ -1531,7 +1582,7 @@ func (q *Queries) GetUserForUpdate(ctx context.Context, id int64) (User, error) 
 }
 
 const getUserPodcast = `-- name: GetUserPodcast :one
-SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at FROM user_podcasts WHERE user_id = $1 AND podcast_uuid = $2
+SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at, notify_enabled FROM user_podcasts WHERE user_id = $1 AND podcast_uuid = $2
 `
 
 type GetUserPodcastParams struct {
@@ -1555,6 +1606,7 @@ func (q *Queries) GetUserPodcast(ctx context.Context, arg GetUserPodcastParams) 
 		&i.DateAdded,
 		&i.Settings,
 		&i.ModifiedAt,
+		&i.NotifyEnabled,
 	)
 	return i, err
 }
@@ -1591,7 +1643,7 @@ func (q *Queries) GetUserPodcastRatings(ctx context.Context, userID int64) ([]Po
 }
 
 const getUserPodcastsModifiedSince = `-- name: GetUserPodcastsModifiedSince :many
-SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at FROM user_podcasts
+SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at, notify_enabled FROM user_podcasts
 WHERE user_id = $1 AND modified_at > $2 AND modified_at <= $3
 `
 
@@ -1623,6 +1675,7 @@ func (q *Queries) GetUserPodcastsModifiedSince(ctx context.Context, arg GetUserP
 			&i.DateAdded,
 			&i.Settings,
 			&i.ModifiedAt,
+			&i.NotifyEnabled,
 		); err != nil {
 			return nil, err
 		}
@@ -2069,6 +2122,22 @@ func (q *Queries) SearchPodcasts(ctx context.Context, arg SearchPodcastsParams) 
 	return items, nil
 }
 
+const setPodcastNotifyFlags = `-- name: SetPodcastNotifyFlags :exec
+UPDATE user_podcasts
+SET notify_enabled = (podcast_uuid = ANY($2::uuid[]))
+WHERE user_id = $1 AND NOT is_deleted
+`
+
+type SetPodcastNotifyFlagsParams struct {
+	UserID      int64
+	NotifyUuids []string
+}
+
+func (q *Queries) SetPodcastNotifyFlags(ctx context.Context, arg SetPodcastNotifyFlagsParams) error {
+	_, err := q.db.Exec(ctx, setPodcastNotifyFlags, arg.UserID, arg.NotifyUuids)
+	return err
+}
+
 const setUserHistoryCleared = `-- name: SetUserHistoryCleared :exec
 UPDATE users SET history_cleared_at_ms = $2, history_modified = $3 WHERE id = $1
 `
@@ -2510,6 +2579,34 @@ func (q *Queries) UpsertDevice(ctx context.Context, arg UpsertDeviceParams) erro
 		arg.TimeIntroSkipping,
 		arg.TimeSkipping,
 		arg.TimeListened,
+	)
+	return err
+}
+
+const upsertDevicePush = `-- name: UpsertDevicePush :exec
+INSERT INTO devices (user_id, device_id, push_token, push_on, updated_at)
+VALUES ($1, $2, $3, $4, now())
+ON CONFLICT (user_id, device_id) DO UPDATE SET
+    push_token = CASE WHEN EXCLUDED.push_token <> '' THEN EXCLUDED.push_token ELSE devices.push_token END,
+    push_on = EXCLUDED.push_on,
+    updated_at = now()
+`
+
+type UpsertDevicePushParams struct {
+	UserID    int64
+	DeviceID  string
+	PushToken string
+	PushOn    bool
+}
+
+// The client omits push_token unless it holds one, so an empty incoming
+// token keeps whatever was registered before.
+func (q *Queries) UpsertDevicePush(ctx context.Context, arg UpsertDevicePushParams) error {
+	_, err := q.db.Exec(ctx, upsertDevicePush,
+		arg.UserID,
+		arg.DeviceID,
+		arg.PushToken,
+		arg.PushOn,
 	)
 	return err
 }

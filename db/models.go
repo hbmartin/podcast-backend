@@ -34,6 +34,8 @@ type Device struct {
 	TimeListened       int64
 	UpdatedAt          time.Time
 	CreatedAt          time.Time
+	PushToken          string
+	PushOn             bool
 }
 
 type Episode struct {
@@ -225,6 +227,7 @@ type UserPodcast struct {
 	DateAdded         *time.Time
 	Settings          []byte
 	ModifiedAt        int64
+	NotifyEnabled     bool
 }
 
 type UserSetting struct {

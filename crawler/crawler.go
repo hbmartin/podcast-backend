@@ -3,6 +3,7 @@ package crawler
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,6 +26,10 @@ const (
 type Crawler struct {
 	DB      db.Store
 	Fetcher Fetcher
+	// OnNewEpisodes, when set, is called after a successful crawl that found
+	// episodes published after the podcast's previous latest (newest first).
+	// The first crawl of a feed never fires it (everything would be "new").
+	OnNewEpisodes func(podcastUuid string, episodeUuids []string)
 }
 
 // EnsurePodcast makes sure a feed URL exists in the catalog and returns its
@@ -100,6 +105,7 @@ func (c *Crawler) Crawl(ctx context.Context, podcast db.Podcast) error {
 
 	var latestUuid *string
 	var latestPublished *time.Time
+	var fresh []db.UpsertEpisodeParams
 
 	count := 0
 	for _, item := range feed.Items {
@@ -121,6 +127,11 @@ func (c *Crawler) Crawl(ctx context.Context, podcast db.Podcast) error {
 			latestPublished = episode.PublishedAt
 			uuid := episode.Uuid
 			latestUuid = &uuid
+		}
+
+		if podcast.LatestEpisodePublished != nil && episode.PublishedAt != nil &&
+			episode.PublishedAt.After(*podcast.LatestEpisodePublished) {
+			fresh = append(fresh, episode)
 		}
 	}
 
@@ -145,6 +156,17 @@ func (c *Crawler) Crawl(ctx context.Context, podcast db.Podcast) error {
 	})
 	if err != nil {
 		return errs.E(op, errs.Database, err)
+	}
+
+	if c.OnNewEpisodes != nil && len(fresh) > 0 {
+		sort.Slice(fresh, func(i, j int) bool {
+			return fresh[i].PublishedAt.After(*fresh[j].PublishedAt)
+		})
+		uuids := make([]string, len(fresh))
+		for i, episode := range fresh {
+			uuids[i] = episode.Uuid
+		}
+		c.OnNewEpisodes(podcast.Uuid, uuids)
 	}
 	return nil
 }

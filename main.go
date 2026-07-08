@@ -22,6 +22,7 @@ import (
 	"github.com/hbmartin/podcast-backend/handlers"
 	"github.com/hbmartin/podcast-backend/itunes"
 	"github.com/hbmartin/podcast-backend/middlewares"
+	"github.com/hbmartin/podcast-backend/push"
 	"github.com/hbmartin/podcast-backend/tasks"
 )
 
@@ -44,6 +45,17 @@ func authChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handle
 					http.HandlerFunc(handler)))))
 }
 
+// optionalAuthChain attaches the user when a valid Bearer token is present
+// but serves anonymous requests too (refresh works signed out; push
+// registration piggybacked on it needs the identity).
+func optionalAuthChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+	return middlewares.TraceMiddleware(
+		middlewares.LogMiddleware(
+			configValues.WebServerConfig.Cors.Handler(
+				auth.OptionalTokenMiddleware(
+					http.HandlerFunc(handler)))))
+}
+
 func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
 	return middlewares.TraceMiddleware(
 		middlewares.LogMiddleware(
@@ -54,24 +66,39 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	slog.Info("Starting API... \n")
 
 	controllers := handlers.Handlers{
-		Queries: db,
-		Queue:   queueClient,
-		Config:  configValues.AuthConfig,
-		Crawler: feedCrawler,
-		Search:  searcher,
-		Images:  artwork.NewHTTPImageFetcher(),
+		Queries:       db,
+		Queue:         queueClient,
+		Config:        configValues.AuthConfig,
+		Crawler:       feedCrawler,
+		Search:        searcher,
+		Images:        artwork.NewHTTPImageFetcher(),
+		PublicBaseURL: configValues.WebServerConfig.PublicBaseURL,
 	}
 	router := http.NewServeMux()
+
+	// limitedChain additionally rate limits by client IP; credential
+	// endpoints only, to slow online brute-forcing.
+	authLimiter := middlewares.NewRateLimiter(
+		configValues.WebServerConfig.AuthRateLimitPerMinute,
+		configValues.WebServerConfig.PublicBaseURL != "",
+	)
+	limitedChain := func(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+		return middlewares.TraceMiddleware(
+			middlewares.LogMiddleware(
+				configValues.WebServerConfig.Cors.Handler(
+					authLimiter.Handler(
+						http.HandlerFunc(handler)))))
+	}
 
 	router.HandleFunc("OPTIONS /", configValues.WebServerConfig.Cors.HandlerFunc)
 	router.Handle("GET /health", onlyLogMiddleware(controllers.GetHealth))
 	router.Handle("GET /health.html", onlyLogMiddleware(controllers.GetHealthHTML))
 
 	// api host role: account & auth (protobuf)
-	router.Handle("POST /user/login", publicChain(controllers.PostUserLogin))
-	router.Handle("POST /user/register", publicChain(controllers.PostUserRegister))
-	router.Handle("POST /user/forgot_password", publicChain(controllers.PostForgotPassword))
-	router.Handle("POST /user/token", publicChain(controllers.PostUserToken))
+	router.Handle("POST /user/login", limitedChain(controllers.PostUserLogin))
+	router.Handle("POST /user/register", limitedChain(controllers.PostUserRegister))
+	router.Handle("POST /user/forgot_password", limitedChain(controllers.PostForgotPassword))
+	router.Handle("POST /user/token", limitedChain(controllers.PostUserToken))
 	router.Handle("POST /user/change_email", authChain(controllers.PostChangeEmail))
 	router.Handle("POST /user/change_password", authChain(controllers.PostChangePassword))
 	router.Handle("POST /user/delete_account", authChain(controllers.PostDeleteAccount))
@@ -91,7 +118,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /sync/update_episode_star", authChain(controllers.PostUpdateEpisodeStar))
 
 	// refresh host role (JSON)
-	router.Handle("POST /user/update", publicChain(controllers.PostRefreshUserUpdate))
+	router.Handle("POST /user/update", optionalAuthChain(controllers.PostRefreshUserUpdate))
 	router.Handle("POST /podcasts/refresh", publicChain(controllers.PostPodcastsRefresh))
 	router.Handle("POST /podcasts/show", publicChain(controllers.PostPodcastsShow))
 	router.Handle("POST /podcasts/search", publicChain(controllers.PostPodcastsSearch))
@@ -162,9 +189,14 @@ func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawle
 	router := setupRouter(querier, queueClient, feedCrawler, searcher)
 
 	srv := &http.Server{
-		Addr: configValues.WebServerConfig.WebPort,
+		Addr:              configValues.WebServerConfig.WebPort,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
 	}
-	srv.Handler = router
 
 	useTls := configValues.WebServerConfig.TLSCertFile != "" && configValues.WebServerConfig.TLSCertKeyFile != ""
 
@@ -222,13 +254,31 @@ func main() {
 	feedCrawler := &crawler.Crawler{DB: querier, Fetcher: crawler.NewHTTPFetcher()}
 	searcher := itunes.NewClient(os.Getenv("ITUNES_BASE_URL"))
 
+	// APNs push: new-episode alerts, delivered via the task queue when it is
+	// enabled, in-process otherwise.
+	var notifier *push.Notifier
+	if configValues.PushConfig.Enabled {
+		slog.Info("Init APNs push...")
+		sender, err := push.NewClientFromFile(
+			configValues.PushConfig.KeyFile,
+			configValues.PushConfig.KeyID,
+			configValues.PushConfig.TeamID,
+			configValues.PushConfig.Topic,
+			configValues.PushConfig.Endpoint,
+		)
+		if err != nil {
+			log.Fatal(err)
+		}
+		notifier = &push.Notifier{DB: querier, Sender: sender}
+	}
+
 	// Initialize and start the background worker server and the queue
 	// client used by API handlers to enqueue tasks.
 	var worker *tasks.WorkerServer
 	var queueClient *tasks.QueueClient
 	if configValues.QueueConfig.Enabled {
 		slog.Info("Starting background worker server...")
-		worker = tasks.NewWorkerServer(configValues, querier, feedCrawler)
+		worker = tasks.NewWorkerServer(configValues, querier, feedCrawler, notifier)
 		go func() {
 			if err := worker.Start(); err != nil {
 				slog.Error("Asynq server failed to start", "error", err)
@@ -246,6 +296,25 @@ func main() {
 				slog.Error("Error closing queue client", "error", err)
 			}
 		}()
+	}
+
+	if notifier != nil {
+		if queueClient != nil {
+			feedCrawler.OnNewEpisodes = func(podcastUuid string, episodeUuids []string) {
+				if err := queueClient.EnqueueNotifyNewEpisodes(context.Background(), podcastUuid, episodeUuids); err != nil {
+					slog.Warn("Unable to enqueue push delivery", "podcast", podcastUuid, "error", err)
+				}
+			}
+		} else {
+			directNotifier := notifier
+			feedCrawler.OnNewEpisodes = func(podcastUuid string, episodeUuids []string) {
+				go func() {
+					sendCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+					defer cancel()
+					directNotifier.NotifyNewEpisodes(sendCtx, podcastUuid, episodeUuids)
+				}()
+			}
+		}
 	}
 
 	if queueClient != nil {

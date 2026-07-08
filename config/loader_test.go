@@ -97,43 +97,15 @@ func TestLoadAuthConfigBadTTL(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestLoadCacheConfigDisableCache(t *testing.T) {
-	t.Setenv("ENABLE_TRANSPARENT_CACHE", "false")
+func TestLoadWebServerConfigPublicBaseURL(t *testing.T) {
+	t.Setenv("ENV", "TEST")
+	t.Setenv("DB_CONNECTION_STRING", "connection_string")
+	t.Setenv("PUBLIC_BASE_URL", "https://pods.example.com")
 
-	config, _ := loadCacheConfig()
+	config, err := loadWebServerConfig()
 
-	assert.NotNil(t, config)
-	assert.False(t, config.EnableTransparentCaching)
-}
-
-func TestLoadCacheConfigValidDefaults(t *testing.T) {
-	t.Setenv("ENABLE_TRANSPARENT_CACHE", "true")
-
-	config, _ := loadCacheConfig()
-
-	assert.NotNil(t, config)
-	assert.True(t, config.EnableTransparentCaching)
-	assert.Equal(t, "localhost:6379", config.RedisAddress)
-	assert.Equal(t, "", config.RedisPassword)
-	assert.Equal(t, time.Hour, config.Expiration)
-	assert.Equal(t, 0, config.RedisDb)
-}
-
-func TestLoadCacheConfigValid(t *testing.T) {
-	t.Setenv("ENABLE_TRANSPARENT_CACHE", "true")
-	t.Setenv("REDIS_ADDRESS", "localhost:6379")
-	t.Setenv("REDIS_PASSWORD", "password")
-	t.Setenv("REDIS_DB", "1")
-	t.Setenv("REDIS_DEFAULT_EXPIRATION", "2h")
-
-	config, _ := loadCacheConfig()
-
-	assert.NotNil(t, config)
-	assert.True(t, config.EnableTransparentCaching)
-	assert.Equal(t, "localhost:6379", config.RedisAddress)
-	assert.Equal(t, "password", config.RedisPassword)
-	assert.Equal(t, time.Hour*2, config.Expiration)
-	assert.Equal(t, 1, config.RedisDb)
+	assert.Nil(t, err)
+	assert.Equal(t, "https://pods.example.com", config.PublicBaseURL)
 }
 
 func TestLoadAllConfig(t *testing.T) {
@@ -145,7 +117,6 @@ func TestLoadAllConfig(t *testing.T) {
 	t.Setenv("DB_CONNECTION_STRING", "connection_string")
 
 	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef")
-	t.Setenv("ENABLE_TRANSPARENT_CACHE", "false")
 
 	config := LoadConfig()
 
@@ -193,7 +164,7 @@ func TestLoadQueueConfig(t *testing.T) {
 	assert.True(t, config.StrictPriority)
 }
 
-func TestLoadQueueConfigFallsBackToCacheRedis(t *testing.T) {
+func TestLoadQueueConfigFallsBackToSharedRedis(t *testing.T) {
 	t.Setenv("ENABLE_TASK_QUEUE", "true")
 	t.Setenv("REDIS_ADDRESS", "cache-redis:6379")
 	t.Setenv("REDIS_PASSWORD", "cache-password")
