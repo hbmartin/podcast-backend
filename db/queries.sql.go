@@ -832,6 +832,42 @@ func (q *Queries) GetPodcastByFeedURL(ctx context.Context, feedUrl string) (Podc
 	return i, err
 }
 
+const getPodcastByID = `-- name: GetPodcastByID :one
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts WHERE id = $1
+`
+
+func (q *Queries) GetPodcastByID(ctx context.Context, id int64) (Podcast, error) {
+	row := q.db.QueryRow(ctx, getPodcastByID, id)
+	var i Podcast
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.FeedUrl,
+		&i.Title,
+		&i.Author,
+		&i.Description,
+		&i.ImageUrl,
+		&i.WebsiteUrl,
+		&i.Category,
+		&i.Language,
+		&i.MediaType,
+		&i.ShowType,
+		&i.IsExplicit,
+		&i.RefreshStatus,
+		&i.RefreshError,
+		&i.FeedEtag,
+		&i.FeedLastModified,
+		&i.LastRefreshAt,
+		&i.NextRefreshAt,
+		&i.LatestEpisodeUuid,
+		&i.LatestEpisodePublished,
+		&i.ContentModifiedMs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getPodcastByUUID = `-- name: GetPodcastByUUID :one
 SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts WHERE uuid = $1
 `
@@ -1482,6 +1518,192 @@ func (q *Queries) RevokeRefreshToken(ctx context.Context, tokenHash string) (int
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const searchEpisodesGlobal = `-- name: SearchEpisodesGlobal :many
+SELECT e.id, e.uuid, e.podcast_id, e.guid, e.title, e.audio_url, e.file_type, e.file_size, e.duration_secs, e.published_at, e.episode_type, e.season, e.number, e.show_notes, e.image_url, e.created_at, e.updated_at, p.uuid AS parent_podcast_uuid, p.title AS parent_podcast_title
+FROM episodes e
+JOIN podcasts p ON p.id = e.podcast_id
+WHERE e.title ILIKE '%' || $1 || '%'
+ORDER BY e.published_at DESC NULLS LAST
+LIMIT $2
+`
+
+type SearchEpisodesGlobalParams struct {
+	Column1 *string
+	Limit   int32
+}
+
+type SearchEpisodesGlobalRow struct {
+	ID                 int64
+	Uuid               string
+	PodcastID          int64
+	Guid               string
+	Title              string
+	AudioUrl           string
+	FileType           string
+	FileSize           int64
+	DurationSecs       int32
+	PublishedAt        *time.Time
+	EpisodeType        string
+	Season             int32
+	Number             int32
+	ShowNotes          string
+	ImageUrl           string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	ParentPodcastUuid  string
+	ParentPodcastTitle string
+}
+
+func (q *Queries) SearchEpisodesGlobal(ctx context.Context, arg SearchEpisodesGlobalParams) ([]SearchEpisodesGlobalRow, error) {
+	rows, err := q.db.Query(ctx, searchEpisodesGlobal, arg.Column1, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchEpisodesGlobalRow
+	for rows.Next() {
+		var i SearchEpisodesGlobalRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.PodcastID,
+			&i.Guid,
+			&i.Title,
+			&i.AudioUrl,
+			&i.FileType,
+			&i.FileSize,
+			&i.DurationSecs,
+			&i.PublishedAt,
+			&i.EpisodeType,
+			&i.Season,
+			&i.Number,
+			&i.ShowNotes,
+			&i.ImageUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ParentPodcastUuid,
+			&i.ParentPodcastTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchEpisodesInPodcast = `-- name: SearchEpisodesInPodcast :many
+SELECT e.id, e.uuid, e.podcast_id, e.guid, e.title, e.audio_url, e.file_type, e.file_size, e.duration_secs, e.published_at, e.episode_type, e.season, e.number, e.show_notes, e.image_url, e.created_at, e.updated_at FROM episodes e
+JOIN podcasts p ON p.id = e.podcast_id
+WHERE p.uuid = $1 AND e.title ILIKE '%' || $2 || '%'
+ORDER BY e.published_at DESC NULLS LAST
+LIMIT $3
+`
+
+type SearchEpisodesInPodcastParams struct {
+	Uuid    string
+	Column2 *string
+	Limit   int32
+}
+
+func (q *Queries) SearchEpisodesInPodcast(ctx context.Context, arg SearchEpisodesInPodcastParams) ([]Episode, error) {
+	rows, err := q.db.Query(ctx, searchEpisodesInPodcast, arg.Uuid, arg.Column2, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Episode
+	for rows.Next() {
+		var i Episode
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.PodcastID,
+			&i.Guid,
+			&i.Title,
+			&i.AudioUrl,
+			&i.FileType,
+			&i.FileSize,
+			&i.DurationSecs,
+			&i.PublishedAt,
+			&i.EpisodeType,
+			&i.Season,
+			&i.Number,
+			&i.ShowNotes,
+			&i.ImageUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchPodcasts = `-- name: SearchPodcasts :many
+SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at FROM podcasts
+WHERE refresh_status = 'ok'
+  AND (title ILIKE '%' || $1 || '%' OR author ILIKE '%' || $1 || '%')
+ORDER BY similarity(title, $1) DESC
+LIMIT $2
+`
+
+type SearchPodcastsParams struct {
+	Column1 *string
+	Limit   int32
+}
+
+func (q *Queries) SearchPodcasts(ctx context.Context, arg SearchPodcastsParams) ([]Podcast, error) {
+	rows, err := q.db.Query(ctx, searchPodcasts, arg.Column1, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Podcast
+	for rows.Next() {
+		var i Podcast
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.FeedUrl,
+			&i.Title,
+			&i.Author,
+			&i.Description,
+			&i.ImageUrl,
+			&i.WebsiteUrl,
+			&i.Category,
+			&i.Language,
+			&i.MediaType,
+			&i.ShowType,
+			&i.IsExplicit,
+			&i.RefreshStatus,
+			&i.RefreshError,
+			&i.FeedEtag,
+			&i.FeedLastModified,
+			&i.LastRefreshAt,
+			&i.NextRefreshAt,
+			&i.LatestEpisodeUuid,
+			&i.LatestEpisodePublished,
+			&i.ContentModifiedMs,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setUserHistoryCleared = `-- name: SetUserHistoryCleared :exec

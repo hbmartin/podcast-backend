@@ -79,6 +79,11 @@ type Querier interface {
 	UpdatePodcastCrawlNotModified(ctx context.Context, arg UpdatePodcastCrawlNotModifiedParams) error
 	UpdatePodcastCrawlFailure(ctx context.Context, arg UpdatePodcastCrawlFailureParams) error
 
+	GetPodcastByID(ctx context.Context, id int64) (Podcast, error)
+	SearchPodcasts(ctx context.Context, arg SearchPodcastsParams) ([]Podcast, error)
+	SearchEpisodesGlobal(ctx context.Context, arg SearchEpisodesGlobalParams) ([]SearchEpisodesGlobalRow, error)
+	SearchEpisodesInPodcast(ctx context.Context, arg SearchEpisodesInPodcastParams) ([]Episode, error)
+
 	UpsertEpisode(ctx context.Context, arg UpsertEpisodeParams) error
 	GetEpisodesByPodcastID(ctx context.Context, arg GetEpisodesByPodcastIDParams) ([]Episode, error)
 	GetEpisodeByUUID(ctx context.Context, uuid string) (Episode, error)

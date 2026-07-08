@@ -99,6 +99,18 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /import/opml", authChain(controllers.PostImportOpml))
 	router.Handle("POST /import/export_feed_urls", authChain(controllers.PostExportFeedUrls))
 
+	// cache host role (JSON)
+	router.Handle("GET /mobile/podcast/full/{uuid}", publicChain(controllers.GetPodcastFull))
+	router.Handle("GET /mobile/show_notes/full/{uuid}", publicChain(controllers.GetShowNotesFull))
+	router.Handle("GET /mobile/episode/url/{podcastUuid}/{episodeUuid}", publicChain(controllers.GetEpisodeURL))
+	router.Handle("GET /mobile/podcast/findbyepisode/{podcastUuid}/{episodeUuid}", publicChain(controllers.GetFindByEpisode))
+	router.Handle("POST /mobile/podcast/episode/search", authChain(controllers.PostEpisodeSearchInPodcast))
+	router.Handle("POST /episode/search", publicChain(controllers.PostEpisodeSearch))
+	router.Handle("POST /search/combined", publicChain(controllers.PostCombinedSearch))
+
+	// search host role
+	router.Handle("GET /autocomplete/search", publicChain(controllers.GetAutocompleteSearch))
+
 	if configValues.WebServerConfig.EnableSwagger {
 		slog.Info("Swagger enabled")
 		swaggerHandler := httpSwagger.Handler(

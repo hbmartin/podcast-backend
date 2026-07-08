@@ -421,3 +421,28 @@ SELECT * FROM episodes
 WHERE podcast_id = $1 AND published_at > $2
 ORDER BY published_at DESC
 LIMIT $3;
+
+-- name: GetPodcastByID :one
+SELECT * FROM podcasts WHERE id = $1;
+
+-- name: SearchPodcasts :many
+SELECT * FROM podcasts
+WHERE refresh_status = 'ok'
+  AND (title ILIKE '%' || $1 || '%' OR author ILIKE '%' || $1 || '%')
+ORDER BY similarity(title, $1) DESC
+LIMIT $2;
+
+-- name: SearchEpisodesGlobal :many
+SELECT e.*, p.uuid AS parent_podcast_uuid, p.title AS parent_podcast_title
+FROM episodes e
+JOIN podcasts p ON p.id = e.podcast_id
+WHERE e.title ILIKE '%' || $1 || '%'
+ORDER BY e.published_at DESC NULLS LAST
+LIMIT $2;
+
+-- name: SearchEpisodesInPodcast :many
+SELECT e.* FROM episodes e
+JOIN podcasts p ON p.id = e.podcast_id
+WHERE p.uuid = $1 AND e.title ILIKE '%' || $2 || '%'
+ORDER BY e.published_at DESC NULLS LAST
+LIMIT $3;
