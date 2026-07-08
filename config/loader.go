@@ -46,10 +46,23 @@ type QueueConfiguration struct {
 	StrictPriority bool
 }
 
+// PushConfiguration holds APNs provider credentials. Push is enabled only
+// when the four APNS_* identity variables are all present.
+type PushConfiguration struct {
+	Enabled bool
+	KeyFile string // path to the .p8 auth key
+	KeyID   string
+	TeamID  string
+	Topic   string // the app's bundle id
+	// Endpoint overrides the production APNs host (sandbox, tests).
+	Endpoint string
+}
+
 type Configuration struct {
 	WebServerConfig *WebServerConfiguration
 	AuthConfig      *AuthConfiguration
 	QueueConfig     *QueueConfiguration
+	PushConfig      *PushConfiguration
 }
 
 func loadAuthConfig() (*AuthConfiguration, error) {
@@ -179,6 +192,32 @@ func loadQueueConfig() (*QueueConfiguration, error) {
 	return config, nil
 }
 
+func loadPushConfig() (*PushConfiguration, error) {
+	config := &PushConfiguration{
+		KeyFile:  os.Getenv("APNS_KEY_FILE"),
+		KeyID:    os.Getenv("APNS_KEY_ID"),
+		TeamID:   os.Getenv("APNS_TEAM_ID"),
+		Topic:    os.Getenv("APNS_TOPIC"),
+		Endpoint: os.Getenv("APNS_ENDPOINT"),
+	}
+
+	set := 0
+	for _, v := range []string{config.KeyFile, config.KeyID, config.TeamID, config.Topic} {
+		if v != "" {
+			set++
+		}
+	}
+	switch set {
+	case 0:
+		return config, nil // push disabled
+	case 4:
+		config.Enabled = true
+		return config, nil
+	default:
+		return nil, fmt.Errorf("APNS_KEY_FILE, APNS_KEY_ID, APNS_TEAM_ID, and APNS_TOPIC must be set together")
+	}
+}
+
 func LoadConfig() *Configuration {
 	webServerConfig, err := loadWebServerConfig()
 	if err != nil {
@@ -195,9 +234,15 @@ func LoadConfig() *Configuration {
 		log.Fatal(err)
 	}
 
+	pushConfig, err := loadPushConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	return &Configuration{
 		WebServerConfig: webServerConfig,
 		AuthConfig:      authConfig,
 		QueueConfig:     queueConfig,
+		PushConfig:      pushConfig,
 	}
 }

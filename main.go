@@ -22,6 +22,7 @@ import (
 	"github.com/hbmartin/podcast-backend/handlers"
 	"github.com/hbmartin/podcast-backend/itunes"
 	"github.com/hbmartin/podcast-backend/middlewares"
+	"github.com/hbmartin/podcast-backend/push"
 	"github.com/hbmartin/podcast-backend/tasks"
 )
 
@@ -253,13 +254,31 @@ func main() {
 	feedCrawler := &crawler.Crawler{DB: querier, Fetcher: crawler.NewHTTPFetcher()}
 	searcher := itunes.NewClient(os.Getenv("ITUNES_BASE_URL"))
 
+	// APNs push: new-episode alerts, delivered via the task queue when it is
+	// enabled, in-process otherwise.
+	var notifier *push.Notifier
+	if configValues.PushConfig.Enabled {
+		slog.Info("Init APNs push...")
+		sender, err := push.NewClientFromFile(
+			configValues.PushConfig.KeyFile,
+			configValues.PushConfig.KeyID,
+			configValues.PushConfig.TeamID,
+			configValues.PushConfig.Topic,
+			configValues.PushConfig.Endpoint,
+		)
+		if err != nil {
+			log.Fatal(err)
+		}
+		notifier = &push.Notifier{DB: querier, Sender: sender}
+	}
+
 	// Initialize and start the background worker server and the queue
 	// client used by API handlers to enqueue tasks.
 	var worker *tasks.WorkerServer
 	var queueClient *tasks.QueueClient
 	if configValues.QueueConfig.Enabled {
 		slog.Info("Starting background worker server...")
-		worker = tasks.NewWorkerServer(configValues, querier, feedCrawler)
+		worker = tasks.NewWorkerServer(configValues, querier, feedCrawler, notifier)
 		go func() {
 			if err := worker.Start(); err != nil {
 				slog.Error("Asynq server failed to start", "error", err)
@@ -277,6 +296,25 @@ func main() {
 				slog.Error("Error closing queue client", "error", err)
 			}
 		}()
+	}
+
+	if notifier != nil {
+		if queueClient != nil {
+			feedCrawler.OnNewEpisodes = func(podcastUuid string, episodeUuids []string) {
+				if err := queueClient.EnqueueNotifyNewEpisodes(context.Background(), podcastUuid, episodeUuids); err != nil {
+					slog.Warn("Unable to enqueue push delivery", "podcast", podcastUuid, "error", err)
+				}
+			}
+		} else {
+			directNotifier := notifier
+			feedCrawler.OnNewEpisodes = func(podcastUuid string, episodeUuids []string) {
+				go func() {
+					sendCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+					defer cancel()
+					directNotifier.NotifyNewEpisodes(sendCtx, podcastUuid, episodeUuids)
+				}()
+			}
+		}
 	}
 
 	if queueClient != nil {

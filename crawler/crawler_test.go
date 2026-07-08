@@ -259,3 +259,38 @@ func TestEnsurePodcastRejectsInvalidURL(t *testing.T) {
 	_, err := c.EnsurePodcast(context.Background(), "not a url")
 	assert.Error(t, err)
 }
+
+func TestCrawlNotifiesNewEpisodes(t *testing.T) {
+	store := newCatalogFake()
+	fetcher := &fixtureFetcher{file: "testdata/feed.xml"}
+
+	var notifiedPodcast string
+	var notifiedEpisodes []string
+	calls := 0
+	c := &Crawler{DB: store, Fetcher: fetcher, OnNewEpisodes: func(podcastUuid string, episodeUuids []string) {
+		calls++
+		notifiedPodcast = podcastUuid
+		notifiedEpisodes = episodeUuids
+	}}
+
+	// first crawl ingests the backlog without notifying anyone
+	podcast, err := c.EnsurePodcast(context.Background(), "https://example.com/feed.xml")
+	assert.NoError(t, err)
+	assert.Equal(t, 0, calls)
+
+	// feed gains a newer episode: exactly that one is announced
+	fetcher.file = "testdata/feed_updated.xml"
+	podcast, err = store.GetPodcastByUUID(context.Background(), podcast.Uuid)
+	assert.NoError(t, err)
+	assert.NoError(t, c.Crawl(context.Background(), podcast))
+
+	assert.Equal(t, 1, calls)
+	assert.Equal(t, podcast.Uuid, notifiedPodcast)
+	assert.Equal(t, []string{EpisodeUUID(podcast.Uuid, "ep-guid-4")}, notifiedEpisodes)
+
+	// an unchanged re-crawl stays quiet
+	podcast, err = store.GetPodcastByUUID(context.Background(), podcast.Uuid)
+	assert.NoError(t, err)
+	assert.NoError(t, c.Crawl(context.Background(), podcast))
+	assert.Equal(t, 1, calls)
+}

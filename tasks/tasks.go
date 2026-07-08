@@ -19,6 +19,7 @@ const (
 	TypePodcastRefresh     = "podcast:refresh"
 	TypeOpmlImport         = "opml:import"
 	TypeRefreshDuePodcasts = "podcast:refresh_due"
+	TypeNotifyNewEpisodes  = "push:new_episodes"
 )
 
 // Queue names, in priority order.
@@ -37,6 +38,13 @@ type PodcastRefreshPayload struct {
 // OpmlImportPayload carries the data needed to import an OPML feed list.
 type OpmlImportPayload struct {
 	FeedURLs []string `json:"feed_urls"`
+}
+
+// NotifyNewEpisodesPayload carries newly published episodes to push out
+// (newest first).
+type NotifyNewEpisodesPayload struct {
+	PodcastUUID  string   `json:"podcast_uuid"`
+	EpisodeUUIDs []string `json:"episode_uuids"`
 }
 
 // QueueClient enqueues background tasks onto the Redis queue.
@@ -102,6 +110,23 @@ func (qc *QueueClient) EnqueueOpmlImport(ctx context.Context, feedURLs []string)
 
 	task := asynq.NewTask(TypeOpmlImport, payload)
 	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow)); err != nil {
+		return errs.E(op, err)
+	}
+	return nil
+}
+
+// EnqueueNotifyNewEpisodes queues push delivery for a podcast's newly
+// published episodes.
+func (qc *QueueClient) EnqueueNotifyNewEpisodes(ctx context.Context, podcastUUID string, episodeUUIDs []string) error {
+	const op errs.Op = "tasks/QueueClient.EnqueueNotifyNewEpisodes"
+
+	payload, err := json.Marshal(NotifyNewEpisodesPayload{PodcastUUID: podcastUUID, EpisodeUUIDs: episodeUUIDs})
+	if err != nil {
+		return errs.E(op, errs.Internal, err)
+	}
+
+	task := asynq.NewTask(TypeNotifyNewEpisodes, payload)
+	if err := qc.Enqueue(ctx, task); err != nil {
 		return errs.E(op, err)
 	}
 	return nil

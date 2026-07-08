@@ -183,13 +183,27 @@ func episodesToRefreshJSON(rows []db.Episode) []refreshEpisodeJSON {
 }
 
 // PostPodcastsRefresh handles POST podcasts/refresh: force a single feed
-// re-crawl.
+// re-crawl. Queued when the task queue is enabled, synchronous otherwise.
 func (h Handlers) PostPodcastsRefresh(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PodcastUuid string `json:"podcast_uuid"`
 	}
 	if err := bindJSON(r, &req); err != nil || req.PodcastUuid == "" {
 		writeRefreshStatus(w, "error", "podcast_uuid is required")
+		return
+	}
+
+	if h.Queue == nil {
+		podcast, err := h.Queries.GetPodcastByUUID(r.Context(), req.PodcastUuid)
+		if err != nil {
+			writeRefreshStatus(w, "error", "unknown podcast")
+			return
+		}
+		if err := h.Crawler.Crawl(r.Context(), podcast); err != nil {
+			writeRefreshStatus(w, "error", "crawl failed")
+			return
+		}
+		writeRefreshStatus(w, "ok", "")
 		return
 	}
 
