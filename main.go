@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/hbmartin/podcast-backend/artwork"
 	"github.com/hbmartin/podcast-backend/auth"
 	"github.com/hbmartin/podcast-backend/config"
 	"github.com/hbmartin/podcast-backend/crawler"
@@ -58,6 +59,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 		Config:  configValues.AuthConfig,
 		Crawler: feedCrawler,
 		Search:  searcher,
+		Images:  artwork.NewHTTPImageFetcher(),
 	}
 	router := http.NewServeMux()
 
@@ -107,6 +109,10 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 
 	// search host role
 	router.Handle("GET /autocomplete/search", publicChain(controllers.GetAutocompleteSearch))
+
+	// static host role: artwork + color metadata
+	router.Handle("GET /discover/images/metadata/{file}", publicChain(controllers.GetDiscoverImageMetadata))
+	router.Handle("GET /discover/images/{size}/{file}", publicChain(controllers.GetDiscoverImage))
 
 	return router
 }

@@ -12,12 +12,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,9 +46,23 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
-	// serve the crawler fixture feed for catalog ingestion
+	// serve the crawler fixture feed for catalog ingestion, rewriting its
+	// artwork URL to a tiny PNG this server also hosts so color extraction
+	// exercises the real fetch path
 	feedServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, filepath.Join("..", "crawler", "testdata", "feed.xml"))
+		if r.URL.Path == "/art.png" {
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(artworkPNG())
+			return
+		}
+		raw, err := os.ReadFile(filepath.Join("..", "crawler", "testdata", "feed.xml"))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		feed := strings.ReplaceAll(string(raw), "https://example.com/art.jpg", feedServer.URL+"/art.png")
+		w.Header().Set("Content-Type", "application/rss+xml")
+		w.Write([]byte(feed))
 	}))
 	defer feedServer.Close()
 
@@ -85,6 +103,21 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	server.Process.Kill()
 	os.Exit(code)
+}
+
+// artworkPNG renders a solid dark-red 10x10 cover image.
+func artworkPNG() []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 20, B: 20, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
 }
 
 func waitForHealth(url string) bool {
@@ -401,4 +434,56 @@ func TestAuthFailures(t *testing.T) {
 
 func nowProto() *timestamppb.Timestamp {
 	return timestamppb.New(time.Now())
+}
+
+// ingestFixturePodcast ensures the fixture feed is in the catalog and
+// returns its uuid (deterministic, so repeat calls converge).
+func ingestFixturePodcast(t *testing.T) string {
+	t.Helper()
+
+	var search struct {
+		Status string `json:"status"`
+		Result struct {
+			Podcast struct {
+				UUID string `json:"uuid"`
+			} `json:"podcast"`
+		} `json:"result"`
+	}
+	status := postJSON(t, "/podcasts/search", "", map[string]string{"q": feedServer.URL + "/feed.xml"}, &search)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "ok", search.Status)
+	require.NotEmpty(t, search.Result.Podcast.UUID)
+	return search.Result.Podcast.UUID
+}
+
+func TestArtworkAndColors(t *testing.T) {
+	podcastUuid := ingestFixturePodcast(t)
+
+	// artwork redirects to the feed's cover image
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Get(baseURL + "/discover/images/280/" + podcastUuid + ".jpg")
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusFound, resp.StatusCode)
+	assert.Equal(t, feedServer.URL+"/art.png", resp.Header.Get("Location"))
+
+	// color metadata computed from the artwork
+	resp, err = http.Get(baseURL + "/discover/images/metadata/" + podcastUuid + ".json")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var envelope struct {
+		Colors struct {
+			Background     string `json:"background"`
+			TintForLightBg string `json:"tintForLightBg"`
+			TintForDarkBg  string `json:"tintForDarkBg"`
+		} `json:"colors"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
+	assert.Equal(t, "#C81414", envelope.Colors.Background)
+	assert.Regexp(t, `^#[0-9A-F]{6}$`, envelope.Colors.TintForLightBg)
+	assert.Regexp(t, `^#[0-9A-F]{6}$`, envelope.Colors.TintForDarkBg)
 }

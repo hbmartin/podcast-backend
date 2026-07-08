@@ -33,6 +33,7 @@ type Device struct {
 	TimeSkipping       int64
 	TimeListened       int64
 	UpdatedAt          time.Time
+	CreatedAt          time.Time
 }
 
 type Episode struct {
@@ -133,6 +134,17 @@ type Podcast struct {
 	ContentModifiedMs      int64
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	BackgroundColor        string
+	TintForLightBg         string
+	TintForDarkBg          string
+	ColorsSourceImageUrl   string
+}
+
+type PodcastRating struct {
+	UserID      int64
+	PodcastUuid string
+	Rating      int16
+	ModifiedAt  time.Time
 }
 
 type RefreshToken struct {
@@ -143,6 +155,15 @@ type RefreshToken struct {
 	CreatedAt time.Time
 	ExpiresAt time.Time
 	RevokedAt *time.Time
+}
+
+type SharedList struct {
+	ID           int64
+	Code         string
+	Title        string
+	Description  string
+	PodcastUuids []string
+	CreatedAt    time.Time
 }
 
 type UpNextItem struct {

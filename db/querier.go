@@ -80,6 +80,11 @@ type Querier interface {
 	UpdatePodcastCrawlFailure(ctx context.Context, arg UpdatePodcastCrawlFailureParams) error
 
 	GetPodcastByID(ctx context.Context, id int64) (Podcast, error)
+	UpdatePodcastColors(ctx context.Context, arg UpdatePodcastColorsParams) error
+	TopPodcastsBySubscribers(ctx context.Context, limit int32) ([]TopPodcastsBySubscribersRow, error)
+	RecentPodcasts(ctx context.Context, limit int32) ([]Podcast, error)
+	DistinctCategories(ctx context.Context) ([]DistinctCategoriesRow, error)
+	PodcastsByCategory(ctx context.Context, arg PodcastsByCategoryParams) ([]Podcast, error)
 	SearchPodcasts(ctx context.Context, arg SearchPodcastsParams) ([]Podcast, error)
 	SearchEpisodesGlobal(ctx context.Context, arg SearchEpisodesGlobalParams) ([]SearchEpisodesGlobalRow, error)
 	SearchEpisodesInPodcast(ctx context.Context, arg SearchEpisodesInPodcastParams) ([]Episode, error)
@@ -88,4 +93,15 @@ type Querier interface {
 	GetEpisodesByPodcastID(ctx context.Context, arg GetEpisodesByPodcastIDParams) ([]Episode, error)
 	GetEpisodeByUUID(ctx context.Context, uuid string) (Episode, error)
 	GetEpisodesPublishedAfter(ctx context.Context, arg GetEpisodesPublishedAfterParams) ([]Episode, error)
+
+	UpsertPodcastRating(ctx context.Context, arg UpsertPodcastRatingParams) error
+	GetPodcastRating(ctx context.Context, arg GetPodcastRatingParams) (PodcastRating, error)
+	GetUserPodcastRatings(ctx context.Context, userID int64) ([]PodcastRating, error)
+	GetPodcastRatingAggregate(ctx context.Context, podcastUuid string) (GetPodcastRatingAggregateRow, error)
+
+	GetDevice(ctx context.Context, arg GetDeviceParams) (Device, error)
+	GetUserStatsTotals(ctx context.Context, userID int64) (GetUserStatsTotalsRow, error)
+
+	CreateSharedList(ctx context.Context, arg CreateSharedListParams) (SharedList, error)
+	GetSharedListByCode(ctx context.Context, code string) (SharedList, error)
 }
