@@ -862,3 +862,32 @@ message NamedSettingsResponse {
   StringSetting live_analytics_url = 99;
   BoolSetting listening_time_stats = 100;
 }
+
+message PodcastRatingAddRequest {
+  string podcast_uuid = 1;
+  uint32 podcast_rating = 2;
+}
+
+message PodcastRatingShowRequest {
+  string podcast_uuid = 1;
+}
+
+message PodcastRating {
+  string podcast_uuid = 1;
+  // field 2 intentionally unused, matching the client's generated code
+  google.protobuf.Timestamp modified_at = 3;
+  uint32 podcast_rating = 4;
+}
+
+message PodcastRatingsResponse {
+  repeated PodcastRating podcast_ratings = 1;
+}
+
+message StatsResponse {
+  int64 time_silence_removal = 1;
+  int64 time_skipping = 2;
+  int64 time_intro_skipping = 3;
+  int64 time_variable_speed = 4;
+  int64 time_listened = 5;
+  google.protobuf.Timestamp times_started_at = 6;
+}

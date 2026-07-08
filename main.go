@@ -110,6 +110,15 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	// search host role
 	router.Handle("GET /autocomplete/search", publicChain(controllers.GetAutocompleteSearch))
 
+	// api host role: ratings & stats (protobuf, authenticated)
+	router.Handle("POST /user/podcast_rating/add", authChain(controllers.PostPodcastRatingAdd))
+	router.Handle("POST /user/podcast_rating/show", authChain(controllers.PostPodcastRatingShow))
+	router.Handle("GET /user/podcast_rating/list", authChain(controllers.GetPodcastRatingList))
+	router.Handle("POST /user/stats/summary", authChain(controllers.PostStatsSummary))
+
+	// cache host role: aggregate rating (public JSON)
+	router.Handle("GET /podcast/rating/{uuid}", publicChain(controllers.GetPodcastRatingPublic))
+
 	// static host role: artwork + color metadata
 	router.Handle("GET /discover/images/metadata/{file}", publicChain(controllers.GetDiscoverImageMetadata))
 	router.Handle("GET /discover/images/{size}/{file}", publicChain(controllers.GetDiscoverImage))

@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -50,6 +51,29 @@ func TestRecordOneofWire(t *testing.T) {
 	assert.Equal(t, "12030a0175", mustHex(t, msg))
 }
 
+func TestPodcastRatingWire(t *testing.T) {
+	// field 2 is intentionally unused in the client contract: modified_at is
+	// field 3 (Timestamp) and podcast_rating is field 4 (uint32)
+	msg := &PodcastRating{
+		PodcastUuid:   "u",
+		ModifiedAt:    &timestamppb.Timestamp{Seconds: 1},
+		PodcastRating: 5,
+	}
+	assert.Equal(t, "0a01751a0208012005", mustHex(t, msg))
+}
+
+func TestStatsResponseWire(t *testing.T) {
+	msg := &StatsResponse{
+		TimeSilenceRemoval: 1,
+		TimeSkipping:       2,
+		TimeIntroSkipping:  3,
+		TimeVariableSpeed:  4,
+		TimeListened:       5,
+		TimesStartedAt:     &timestamppb.Timestamp{Seconds: 6},
+	}
+	assert.Equal(t, "0801100218032004280532020806", mustHex(t, msg))
+}
+
 func TestRoundTripCoreMessages(t *testing.T) {
 	msgs := []proto.Message{
 		&UserLoginRequest{Email: "e", Password: "p", Scope: "mobile", Dt: "1", Device: "d", V: "1.7", M: "iPhone", Av: "7.0", F: "0", L: "en", C: "US"},
@@ -77,6 +101,9 @@ func TestRoundTripCoreMessages(t *testing.T) {
 			Podcasts: []*UserPodcastResponse{{Uuid: "p", Title: "t", FolderUuid: wrapperspb.String("f")}},
 			Folders:  []*PodcastFolder{{FolderUuid: "f", Name: "n"}}},
 		&UpdateEpisodeRequest{Uuid: "u", Podcast: "p", Position: wrapperspb.Int32(10), Status: 2, Duration: 100},
+		&PodcastRatingAddRequest{PodcastUuid: "p", PodcastRating: 4},
+		&PodcastRatingsResponse{PodcastRatings: []*PodcastRating{{PodcastUuid: "p", PodcastRating: 4, ModifiedAt: &timestamppb.Timestamp{Seconds: 9}}}},
+		&StatsResponse{TimeListened: 100, TimesStartedAt: &timestamppb.Timestamp{Seconds: 6}},
 	}
 
 	for _, m := range msgs {

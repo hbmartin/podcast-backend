@@ -487,3 +487,58 @@ func TestArtworkAndColors(t *testing.T) {
 	assert.Regexp(t, `^#[0-9A-F]{6}$`, envelope.Colors.TintForLightBg)
 	assert.Regexp(t, `^#[0-9A-F]{6}$`, envelope.Colors.TintForDarkBg)
 }
+
+func TestRatingsAndStats(t *testing.T) {
+	email := fmt.Sprintf("ratings-%d@e2e.test", time.Now().UnixNano())
+	token, _ := registerUser(t, email)
+	podcastUuid := ingestFixturePodcast(t)
+
+	// rate the podcast
+	status := postProto(t, "/user/podcast_rating/add", token,
+		&pb.PodcastRatingAddRequest{PodcastUuid: podcastUuid, PodcastRating: 5}, nil)
+	require.Equal(t, http.StatusOK, status)
+
+	// own rating round-trips
+	shown := &pb.PodcastRating{}
+	status = postProto(t, "/user/podcast_rating/show", token,
+		&pb.PodcastRatingShowRequest{PodcastUuid: podcastUuid}, shown)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, uint32(5), shown.PodcastRating)
+
+	// aggregate rating is public JSON on the cache host role
+	resp, err := http.Get(baseURL + "/podcast/rating/" + podcastUuid)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var aggregate struct {
+		Total   int64   `json:"total"`
+		Average float64 `json:"average"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&aggregate))
+	assert.Equal(t, int64(1), aggregate.Total)
+	assert.Equal(t, float64(5), aggregate.Average)
+
+	// device stats ride along in sync; summary reflects them
+	syncResp := &pb.SyncUpdateResponse{}
+	status = postProto(t, "/user/sync/update", token, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: time.Now().UnixMilli(),
+		Records: []*pb.Record{
+			{Record: &pb.Record_Device{Device: &pb.SyncUserDevice{
+				DeviceId:       wrapperspb.String("e2e-device"),
+				DeviceType:     wrapperspb.Int32(1),
+				TimeListened:   wrapperspb.Int64(3600),
+				TimeSkipping:   wrapperspb.Int64(42),
+				TimesStartedAt: wrapperspb.Int64(1700000000),
+			}}},
+		},
+	}, syncResp)
+	require.Equal(t, http.StatusOK, status)
+
+	stats := &pb.StatsResponse{}
+	status = postProto(t, "/user/stats/summary", token,
+		&pb.StatsRequest{DeviceId: "", DeviceType: 1}, stats)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, int64(3600), stats.TimeListened)
+	assert.Equal(t, int64(42), stats.TimeSkipping)
+	assert.Equal(t, int64(1700000000), stats.TimesStartedAt.Seconds)
+}
