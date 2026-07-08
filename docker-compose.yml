@@ -8,12 +8,8 @@ services:
     environment:
       ENV: "local"
       WEB_PORT: ":8000"
-      AUTH_CONFIG_URL: "${AUTH_CONFIG_URL}"
-      AUTH_AUDIENCE: "${AUTH_AUDIENCE}"
-      AUTH_CLAIMS: "given_name,family_name"
-      AUTH_SCOPES: "api"
-      DB_CONNECTION_STRING: "postgres://postgres:${POSTGRES_PASSWORD}@db:5432/goapitemplate?sslmode=disable"
-      ENABLE_SWAGGER: true
+      AUTH_JWT_SECRET: "${AUTH_JWT_SECRET}"
+      DB_CONNECTION_STRING: "postgres://postgres:${POSTGRES_PASSWORD}@db:5432/podcasts?sslmode=disable"
       ALLOWED_ORIGIN: "*"
       ENABLE_TASK_QUEUE: true
       QUEUE_REDIS_ADDRESS: "cache:6379"
@@ -33,7 +29,7 @@ services:
     volumes:
       - data:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: goapitemplate
+      POSTGRES_DB: podcasts
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
     networks:

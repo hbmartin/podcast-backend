@@ -6,17 +6,19 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/hibiken/asynq"
 
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/errs"
 )
 
 // Task types. Each type is routed to a matching handler registered on the
 // WorkerServer mux.
 const (
-	TypePodcastRefresh = "podcast:refresh"
-	TypeOpmlImport     = "opml:import"
+	TypePodcastRefresh     = "podcast:refresh"
+	TypeOpmlImport         = "opml:import"
+	TypeRefreshDuePodcasts = "podcast:refresh_due"
 )
 
 // Queue names, in priority order.
@@ -34,7 +36,6 @@ type PodcastRefreshPayload struct {
 
 // OpmlImportPayload carries the data needed to import an OPML feed list.
 type OpmlImportPayload struct {
-	UserUUID string   `json:"user_uuid"`
 	FeedURLs []string `json:"feed_urls"`
 }
 
@@ -91,16 +92,32 @@ func (qc *QueueClient) EnqueuePodcastRefresh(ctx context.Context, uuid string, u
 }
 
 // EnqueueOpmlImport queues a background import of a batch of feed URLs.
-func (qc *QueueClient) EnqueueOpmlImport(ctx context.Context, userUUID string, feedURLs []string) error {
+func (qc *QueueClient) EnqueueOpmlImport(ctx context.Context, feedURLs []string) error {
 	const op errs.Op = "tasks/QueueClient.EnqueueOpmlImport"
 
-	payload, err := json.Marshal(OpmlImportPayload{UserUUID: userUUID, FeedURLs: feedURLs})
+	payload, err := json.Marshal(OpmlImportPayload{FeedURLs: feedURLs})
 	if err != nil {
 		return errs.E(op, errs.Internal, err)
 	}
 
 	task := asynq.NewTask(TypeOpmlImport, payload)
 	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow)); err != nil {
+		return errs.E(op, err)
+	}
+	return nil
+}
+
+// EnqueueRefreshDuePodcasts queues one sweep of catalog podcasts whose
+// next_refresh_at has passed. asynq.TaskID de-duplicates overlapping sweeps.
+func (qc *QueueClient) EnqueueRefreshDuePodcasts(ctx context.Context) error {
+	const op errs.Op = "tasks/QueueClient.EnqueueRefreshDuePodcasts"
+
+	task := asynq.NewTask(TypeRefreshDuePodcasts, nil)
+	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.TaskID(TypeRefreshDuePodcasts)); err != nil {
+		// a sweep already waiting in the queue is not an error
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
+			return nil
+		}
 		return errs.E(op, err)
 	}
 	return nil

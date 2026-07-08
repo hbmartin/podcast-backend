@@ -1,4 +1,4 @@
-// gorest-template REST API
+// Command podcast-backend serves a self-hosted Pocket Casts-compatible API.
 package main
 
 import (
@@ -14,27 +14,33 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	httpSwagger "github.com/swaggo/http-swagger/v2"
-
-	"goapi-template/auth"
-	"goapi-template/cache"
-	"goapi-template/config"
-	"goapi-template/db"
-	"goapi-template/docs"
-	"goapi-template/handlers"
-	"goapi-template/middlewares"
-	"goapi-template/tasks"
+	"github.com/hbmartin/podcast-backend/auth"
+	"github.com/hbmartin/podcast-backend/config"
+	"github.com/hbmartin/podcast-backend/crawler"
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/handlers"
+	"github.com/hbmartin/podcast-backend/itunes"
+	"github.com/hbmartin/podcast-backend/middlewares"
+	"github.com/hbmartin/podcast-backend/tasks"
 )
 
 var configValues *config.Configuration
 
-func withMiddlewares(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+// publicChain serves unauthenticated endpoints: trace, log, CORS.
+func publicChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+	return middlewares.TraceMiddleware(
+		middlewares.LogMiddleware(
+			configValues.WebServerConfig.Cors.Handler(
+				http.HandlerFunc(handler))))
+}
+
+// authChain additionally requires a valid Bearer access token.
+func authChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
 	return middlewares.TraceMiddleware(
 		middlewares.LogMiddleware(
 			configValues.WebServerConfig.Cors.Handler(
 				auth.TokenAuthMiddleware(
-					auth.OpaMiddleware(
-						http.HandlerFunc(handler))))))
+					http.HandlerFunc(handler)))))
 }
 
 func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
@@ -43,35 +49,69 @@ func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) htt
 			http.HandlerFunc(handler)))
 }
 
-func setupRouter(db db.Querier, queueClient *tasks.QueueClient) http.Handler {
+func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher) http.Handler {
 	slog.Info("Starting API... \n")
 
-	controllers := handlers.NewWithQueue(db, queueClient)
+	controllers := handlers.Handlers{
+		Queries: db,
+		Queue:   queueClient,
+		Config:  configValues.AuthConfig,
+		Crawler: feedCrawler,
+		Search:  searcher,
+	}
 	router := http.NewServeMux()
 
 	router.HandleFunc("OPTIONS /", configValues.WebServerConfig.Cors.HandlerFunc)
 	router.Handle("GET /health", onlyLogMiddleware(controllers.GetHealth))
+	router.Handle("GET /health.html", onlyLogMiddleware(controllers.GetHealthHTML))
 
-	router.Handle("GET /person/{id}", withMiddlewares(controllers.GetPerson))
-	router.Handle("POST /person", withMiddlewares(controllers.PostPerson))
-	router.Handle("PUT /person/{id}", withMiddlewares(controllers.PutPerson))
-	router.Handle("DELETE /person/{id}", withMiddlewares(controllers.DeletePerson))
+	// api host role: account & auth (protobuf)
+	router.Handle("POST /user/login", publicChain(controllers.PostUserLogin))
+	router.Handle("POST /user/register", publicChain(controllers.PostUserRegister))
+	router.Handle("POST /user/forgot_password", publicChain(controllers.PostForgotPassword))
+	router.Handle("POST /user/token", publicChain(controllers.PostUserToken))
+	router.Handle("POST /user/change_email", authChain(controllers.PostChangeEmail))
+	router.Handle("POST /user/change_password", authChain(controllers.PostChangePassword))
+	router.Handle("POST /user/delete_account", authChain(controllers.PostDeleteAccount))
 
-	if configValues.WebServerConfig.EnableSwagger {
-		slog.Info("Swagger enabled")
-		swaggerHandler := httpSwagger.Handler(
-			httpSwagger.URL("/swagger/doc.json"),
-			httpSwagger.DeepLinking(true),
-			httpSwagger.DocExpansion("none"),
-			httpSwagger.DomID("swagger-ui"),
-		)
-		router.Handle("GET /swagger/", swaggerHandler)
-	}
+	// api host role: sync & library (protobuf, authenticated)
+	router.Handle("POST /user/sync/update", authChain(controllers.PostSyncUpdate))
+	router.Handle("POST /user/last_sync_at", authChain(controllers.PostLastSyncAt))
+	router.Handle("POST /user/podcast/list", authChain(controllers.PostUserPodcastList))
+	router.Handle("POST /user/podcast/episodes", authChain(controllers.PostUserPodcastEpisodes))
+	router.Handle("POST /user/playlist/list", authChain(controllers.PostUserPlaylistList))
+	router.Handle("POST /user/bookmark/list", authChain(controllers.PostUserBookmarkList))
+	router.Handle("POST /starred/list", authChain(controllers.PostStarredList))
+	router.Handle("POST /up_next/sync", authChain(controllers.PostUpNextSync))
+	router.Handle("POST /history/sync", authChain(controllers.PostHistorySync))
+	router.Handle("POST /user/named_settings/update", authChain(controllers.PostNamedSettingsUpdate))
+	router.Handle("POST /sync/update_episode", authChain(controllers.PostUpdateEpisode))
+	router.Handle("POST /sync/update_episode_star", authChain(controllers.PostUpdateEpisodeStar))
+
+	// refresh host role (JSON)
+	router.Handle("POST /user/update", publicChain(controllers.PostRefreshUserUpdate))
+	router.Handle("POST /podcasts/refresh", publicChain(controllers.PostPodcastsRefresh))
+	router.Handle("POST /podcasts/show", publicChain(controllers.PostPodcastsShow))
+	router.Handle("POST /podcasts/search", publicChain(controllers.PostPodcastsSearch))
+	router.Handle("POST /import/opml", authChain(controllers.PostImportOpml))
+	router.Handle("POST /import/export_feed_urls", authChain(controllers.PostExportFeedUrls))
+
+	// cache host role (JSON)
+	router.Handle("GET /mobile/podcast/full/{uuid}", publicChain(controllers.GetPodcastFull))
+	router.Handle("GET /mobile/show_notes/full/{uuid}", publicChain(controllers.GetShowNotesFull))
+	router.Handle("GET /mobile/episode/url/{podcastUuid}/{episodeUuid}", publicChain(controllers.GetEpisodeURL))
+	router.Handle("GET /mobile/podcast/findbyepisode/{podcastUuid}/{episodeUuid}", publicChain(controllers.GetFindByEpisode))
+	router.Handle("POST /mobile/podcast/episode/search", authChain(controllers.PostEpisodeSearchInPodcast))
+	router.Handle("POST /episode/search", publicChain(controllers.PostEpisodeSearch))
+	router.Handle("POST /search/combined", publicChain(controllers.PostCombinedSearch))
+
+	// search host role
+	router.Handle("GET /autocomplete/search", publicChain(controllers.GetAutocompleteSearch))
 
 	return router
 }
 
-func initDB(ctx context.Context, configValues *config.Configuration) (db.Querier, func()) {
+func initDB(ctx context.Context, configValues *config.Configuration) (db.Store, func()) {
 	if err := db.Init(configValues.WebServerConfig.ConnectionString); err != nil {
 		log.Fatal(err)
 	}
@@ -81,28 +121,15 @@ func initDB(ctx context.Context, configValues *config.Configuration) (db.Querier
 		log.Fatal(err)
 	}
 
-	queries := db.New(conn)
+	store := db.NewStore(conn)
 
-	return queries, conn.Close
+	return store, conn.Close
 }
 
-func initCache(querier db.Querier, configValues *config.CacheConfiguration) (db.Querier, func()) {
-	// replace regular querier with caching querier if config says so
-	if configValues.EnableTransparentCaching {
-		cache := cache.NewRawCacher(configValues)
-
-		return db.NewCachingQuerier(querier, cache), cache.Close
-	}
-
-	return querier, func() {}
-
-}
-
-func startWebServer(querier db.Querier, queueClient *tasks.QueueClient, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
+func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
 	slog.Info("Setting up API router...\n")
-	docs.SwaggerInfo.BasePath = "/"
 
-	router := setupRouter(querier, queueClient)
+	router := setupRouter(querier, queueClient, feedCrawler, searcher)
 
 	srv := &http.Server{
 		Addr: configValues.WebServerConfig.WebPort,
@@ -130,10 +157,24 @@ func startWebServer(querier db.Querier, queueClient *tasks.QueueClient, configVa
 	return srv.Shutdown
 }
 
-// @securitydefinitions.oauth2.implicit					OAuth2Implicit
-// @authorizationUrl										https://login.microsoftonline.com/9e6b9f31-c202-4cbd-a9b1-7e5cb3874384/oauth2/v2.0/authorize
-// @tokenUrl												https://login.microsoftonline.com/9e6b9f31-c202-4cbd-a9b1-7e5cb3874384/oauth2/v2.0/token
-// @scope.api://c571ab3c-0fde-43b2-b010-77e7bdd0d6f7/api	API
+// refreshScheduler periodically enqueues a sweep of catalog podcasts whose
+// next_refresh_at has passed.
+func refreshScheduler(ctx context.Context, queueClient *tasks.QueueClient) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := queueClient.EnqueueRefreshDuePodcasts(ctx); err != nil {
+				slog.Warn("Unable to enqueue podcast refresh sweep", "error", err)
+			}
+		}
+	}
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -148,9 +189,8 @@ func main() {
 	querier, dbDispose := initDB(ctx, configValues)
 	defer dbDispose()
 
-	slog.Info("Init Caching...")
-	querier, cacheDispose := initCache(querier, configValues.CacheConfig)
-	defer cacheDispose()
+	feedCrawler := &crawler.Crawler{DB: querier, Fetcher: crawler.NewHTTPFetcher()}
+	searcher := itunes.NewClient(os.Getenv("ITUNES_BASE_URL"))
 
 	// Initialize and start the background worker server and the queue
 	// client used by API handlers to enqueue tasks.
@@ -158,7 +198,7 @@ func main() {
 	var queueClient *tasks.QueueClient
 	if configValues.QueueConfig.Enabled {
 		slog.Info("Starting background worker server...")
-		worker = tasks.NewWorkerServer(configValues, querier)
+		worker = tasks.NewWorkerServer(configValues, querier, feedCrawler)
 		go func() {
 			if err := worker.Start(); err != nil {
 				slog.Error("Asynq server failed to start", "error", err)
@@ -178,7 +218,11 @@ func main() {
 		}()
 	}
 
-	webDispose := startWebServer(querier, queueClient, configValues, stop)
+	if queueClient != nil {
+		go refreshScheduler(ctx, queueClient)
+	}
+
+	webDispose := startWebServer(querier, queueClient, feedCrawler, searcher, configValues, stop)
 
 	// Block until an interrupt signal is received
 	<-ctx.Done()

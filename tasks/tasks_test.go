@@ -7,10 +7,26 @@ import (
 	"testing"
 
 	"github.com/hibiken/asynq"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 
-	"goapi-template/errs"
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/errs"
 )
+
+// storeStub returns not-found for podcast lookups; the embedded interface
+// panics on anything else.
+type storeStub struct {
+	db.Store
+}
+
+func (s *storeStub) GetPodcastByUUID(ctx context.Context, uuid string) (db.Podcast, error) {
+	return db.Podcast{}, pgx.ErrNoRows
+}
+
+func (s *storeStub) GetPodcastByFeedURL(ctx context.Context, feedURL string) (db.Podcast, error) {
+	return db.Podcast{}, pgx.ErrNoRows
+}
 
 func TestEnqueueWithoutClientReturnsInternalError(t *testing.T) {
 	var qc *QueueClient
@@ -27,14 +43,15 @@ func TestCloseWithoutClientIsSafe(t *testing.T) {
 	assert.Nil(t, qc.Close())
 }
 
-func TestHandlePodcastRefreshTask(t *testing.T) {
+func TestHandlePodcastRefreshTaskUnknownPodcast(t *testing.T) {
 	payload, err := json.Marshal(PodcastRefreshPayload{
 		PodcastUUID: "6a09813e-84ba-4f4c-b70c-620ae7dcbfc9",
 		FeedURL:     "https://example.com/feed.xml",
 	})
 	assert.Nil(t, err)
 
-	worker := &WorkerServer{}
+	// unknown podcasts are skipped without retrying
+	worker := &WorkerServer{db: &storeStub{}}
 	task := asynq.NewTask(TypePodcastRefresh, payload)
 
 	assert.Nil(t, worker.HandlePodcastRefreshTask(context.Background(), task))
@@ -50,19 +67,6 @@ func TestHandlePodcastRefreshTaskBadPayload(t *testing.T) {
 	assert.True(t, errs.KindIs(err, errs.Internal))
 	assert.True(t, errors.Is(err, asynq.SkipRetry))
 	assert.Equal(t, []string{"tasks/WorkerServer.HandlePodcastRefreshTask"}, errs.OpStack(err))
-}
-
-func TestHandleOpmlImportTask(t *testing.T) {
-	payload, err := json.Marshal(OpmlImportPayload{
-		UserUUID: "9b1fdc19-e2e6-4b34-a3f1-72b0d5b83b40",
-		FeedURLs: []string{"https://example.com/a.xml", "https://example.com/b.xml"},
-	})
-	assert.Nil(t, err)
-
-	worker := &WorkerServer{}
-	task := asynq.NewTask(TypeOpmlImport, payload)
-
-	assert.Nil(t, worker.HandleOpmlImportTask(context.Background(), task))
 }
 
 func TestHandleOpmlImportTaskBadPayload(t *testing.T) {

@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"goapi-template/models"
+	"github.com/hbmartin/podcast-backend/models"
 	"net/http"
 )
 
@@ -32,4 +32,12 @@ func (h Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, status, result)
+}
+
+// GetHealthHTML serves GET /health.html, the endpoint the Pocket Casts status
+// page probes on the refresh host.
+func (h Handlers) GetHealthHTML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }

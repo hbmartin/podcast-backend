@@ -2,148 +2,76 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
-	"goapi-template/config"
-	"goapi-template/middlewares"
-	"goapi-template/models"
-	"log"
-	"log/slog"
+	"errors"
 	"net/http"
-	"os"
-	"time"
-
-	keyfunc "github.com/MicahParks/keyfunc/v2"
-	"github.com/open-policy-agent/opa/rego"
+	"strings"
 )
-
-var authConfig *config.AuthConfiguration
-var opaQuery *rego.PreparedEvalQuery
-var cachedSet JKWS
-
-func Init(configValues *config.AuthConfiguration) {
-	authConfig = configValues
-	opaQuery = loadOpaQuery()
-	cachedSet = loadJWKSCache()
-}
 
 type key int
 
+// UserKey is the request-context key under which TokenAuthMiddleware stores
+// the authenticated *User.
 const UserKey key = 1
 
+var allowedScopes = map[string]bool{"mobile": true, "tv": true, "sonos": true}
+
+// TokenAuthMiddleware requires a valid Bearer access token. On success the
+// authenticated *User is stored in the request context; on failure it replies
+// 401. The Pocket Casts client inspects only the status code (TokenHelper
+// retries once on 401, then deauths), so the body stays empty.
 func TokenAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		returnResult := "valid"
-
-		defer func() {
-			elapsed := time.Since(start)
-			slog.Debug("Auth middleware",
-				"timeElapsed", elapsed,
-				"result", returnResult,
-				"traceId", r.Context().Value(middlewares.ContextKey("traceId")))
-		}()
-
-		token, err := extractToken(r)
-
+		user, err := userFromRequest(r)
 		if err != nil {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="pocketcasts"`)
 			w.WriteHeader(http.StatusUnauthorized)
-			w.Header().Set("Content-Type", "application/json")
-			data := &models.ErrorResult{Errors: []string{"Auth token was not provided or is invalid"}}
-			result, _ := json.Marshal(data)
-			w.Write(result)
-			returnResult = err.Error()
 			return
 		}
 
-		user, err := validateUserToken(token, authConfig, cachedSet)
-
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Header().Set("Content-Type", "application/json")
-			data := &models.ErrorResult{Errors: []string{"Auth token is invalid"}}
-			result, _ := json.Marshal(data)
-			w.Write(result)
-			returnResult = err.Error()
-			return
-		}
-
-		newReq := r.WithContext(context.WithValue(r.Context(), UserKey, user))
-
-		next.ServeHTTP(w, newReq)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), UserKey, user)))
 	})
 }
 
-func OpaMiddleware(next http.Handler) http.Handler {
+// OptionalTokenMiddleware parses a Bearer token when present but lets the
+// request through anonymously otherwise. Used by endpoints that serve both
+// signed-in and signed-out clients (e.g. refresh, public cache lookups).
+func OptionalTokenMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		returnResult := "allowed"
-
-		defer func() {
-			elapsed := time.Since(start)
-			slog.Debug("OPA middleware",
-				"timeElapsed", elapsed,
-				"result", returnResult,
-				"traceId", r.Context().Value(middlewares.ContextKey("traceId")))
-		}()
-
-		token, _ := extractToken(r)
-
-		input := map[string]interface{}{
-			"method": r.Method,
-			"path":   r.RequestURI,
-			"token":  token,
+		if user, err := userFromRequest(r); err == nil {
+			r = r.WithContext(context.WithValue(r.Context(), UserKey, user))
 		}
-		res, err := opaQuery.Eval(r.Context(), rego.EvalInput(input))
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Header().Set("Content-Type", "application/json")
-			result, _ := json.Marshal(err)
-			w.Write(result)
-			returnResult = err.Error()
-			return
-		}
-
-		if !res.Allowed() {
-			w.WriteHeader(http.StatusForbidden)
-			w.Header().Set("Content-Type", "application/json")
-			result, _ := json.Marshal(&models.ErrorResult{Errors: []string{"forbidden"}})
-			w.Write(result)
-			returnResult = "forbidden"
-			return
-		}
-
 		next.ServeHTTP(w, r)
 	})
 }
 
-func loadOpaQuery() *rego.PreparedEvalQuery {
-	regoPath, ok := os.LookupEnv("AUTH_REGO_PATH")
-
-	if !ok {
-		regoPath = "./auth/authz.rego"
-	}
-
-	query, err := rego.New(rego.Query("data.authz.allow"), rego.Load([]string{regoPath}, nil)).PrepareForEval(context.TODO())
+func userFromRequest(r *http.Request) (*User, error) {
+	token, err := extractToken(r)
 	if err != nil {
-		log.Fatalf("failed to create rego query. Error: %v", err)
+		return nil, err
 	}
 
-	return &query
+	user, err := ValidateAccessToken(token)
+	if err != nil {
+		return nil, err
+	}
+
+	if !allowedScopes[user.Scope] {
+		return nil, errInvalidScope
+	}
+
+	return user, nil
 }
 
-func loadJWKSCache() *keyfunc.JWKS {
-	options := keyfunc.Options{
-		RefreshInterval: time.Hour,
-		RefreshTimeout:  time.Second * 10,
-		RefreshErrorHandler: func(err error) {
-			slog.Error("There was an error with the jwt.Keyfunc", "error", err.Error())
-		},
-	}
+var (
+	errInvalidScope = errors.New("token scope is not allowed")
+	errNoToken      = errors.New("no bearer token provided")
+)
 
-	jwks, err := keyfunc.Get(authConfig.JWKSUri, options)
-	if err != nil {
-		log.Fatalf("Failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
+func extractToken(r *http.Request) (string, error) {
+	header := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if len(header) <= len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
+		return "", errNoToken
 	}
-
-	return jwks
+	return header[len(prefix):], nil
 }

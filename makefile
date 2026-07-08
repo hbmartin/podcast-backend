@@ -1,7 +1,7 @@
 GOCMD=go
 GOTEST=$(GOCMD) test
 GOVET=$(GOCMD) vet
-BINARY_NAME=go-rest-template
+BINARY_NAME=podcast-backend
 VERSION?=1.0.0
 DOCKER_REGISTRY?= #if set it should finished by /
 
@@ -63,6 +63,18 @@ cobertura: ## Run the tests of the project and export a cobertura coverage xml
 	$(GOCMD) tool cover -func profile.cov
 	$(GOHOME)gocov convert profile.cov > profile.json
 	$(GOHOME)gocov-xml < profile.json > coverage.xml
+
+## Codegen:
+proto: ## Regenerate Go protobuf code from protos/api.proto
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	PATH="$$PATH:$(GOHOME)" protoc -I protos --go_out=. --go_opt=module=github.com/hbmartin/podcast-backend protos/api.proto
+
+sqlc: ## Regenerate database code from db/queries.sql
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+	$(GOHOME)sqlc generate
+
+e2e: ## Run the end-to-end suite (needs Postgres; see readme)
+	go test -tags e2e -count=1 -v ./e2e
 
 ## Lint:
 lint: vet-go lint-go ## Run all available linters
