@@ -86,6 +86,9 @@ func TestMain(m *testing.M) {
 		"AUTH_JWT_SECRET=e2e-secret-e2e-secret-e2e-secret-32",
 		"ENABLE_TASK_QUEUE=false",
 		"ENABLE_SWAGGER=false",
+		// keep the auth rate limiter on its enabled code path without ever
+		// tripping during the suite's rapid-fire logins
+		"RATE_LIMIT_AUTH=1000",
 	)
 	server.Stdout, server.Stderr = os.Stdout, os.Stderr
 	if err := server.Start(); err != nil {

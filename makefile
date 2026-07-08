@@ -15,7 +15,7 @@ ifneq ($(OS),Windows_NT)
 	GOHOME := $(HOME)/go/bin/
 endif
 
-.PHONY: all test build clean coverage lint lint-go vet-go docker-build docker-release help
+.PHONY: all test build clean coverage lint lint-go vet-go e2e proto sqlc docker-build docker-run docker-stop docker-release help
 
 all: help
 

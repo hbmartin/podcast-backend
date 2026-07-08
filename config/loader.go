@@ -32,6 +32,9 @@ type WebServerConfiguration struct {
 	// absolute links (share URLs, discover sources) instead of trusting
 	// X-Forwarded-* request headers.
 	PublicBaseURL string
+	// AuthRateLimitPerMinute caps credential-endpoint requests per client IP
+	// per minute (0 disables).
+	AuthRateLimitPerMinute int
 }
 
 type QueueConfiguration struct {
@@ -111,6 +114,15 @@ func loadWebServerConfig() (*WebServerConfiguration, error) {
 	}
 
 	config.PublicBaseURL = os.Getenv("PUBLIC_BASE_URL")
+
+	config.AuthRateLimitPerMinute = 10
+	if limit, ok := os.LookupEnv("RATE_LIMIT_AUTH"); ok {
+		parsed, err := strconv.Atoi(limit)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("RATE_LIMIT_AUTH must be a non-negative integer (0 disables)")
+		}
+		config.AuthRateLimitPerMinute = parsed
+	}
 
 	return config, nil
 }

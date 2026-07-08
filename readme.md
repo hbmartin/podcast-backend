@@ -79,6 +79,7 @@ Configuration:
 | `ITUNES_BASE_URL` | iTunes Search API base, default `https://itunes.apple.com` |
 | `ALLOWED_ORIGIN`, `TLS_CERT_FILE`, `TLS_CERT_KEY_FILE` | CORS / TLS |
 | `PUBLIC_BASE_URL` | base for generated links (share URLs, discover sources); set it behind a reverse proxy so client-supplied `X-Forwarded-*` headers aren't trusted |
+| `RATE_LIMIT_AUTH` | per-IP requests/minute on the credential endpoints (login, register, forgot password, token), default `10`, `0` disables |
 | `SHARING_CREDENTIAL` | optional; when set, `share/list` requests must carry the client's legacy SHA-1 signature |
 
 ### Pointing the iOS client at this server

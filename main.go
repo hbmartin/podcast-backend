@@ -64,15 +64,29 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	}
 	router := http.NewServeMux()
 
+	// limitedChain additionally rate limits by client IP; credential
+	// endpoints only, to slow online brute-forcing.
+	authLimiter := middlewares.NewRateLimiter(
+		configValues.WebServerConfig.AuthRateLimitPerMinute,
+		configValues.WebServerConfig.PublicBaseURL != "",
+	)
+	limitedChain := func(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+		return middlewares.TraceMiddleware(
+			middlewares.LogMiddleware(
+				configValues.WebServerConfig.Cors.Handler(
+					authLimiter.Handler(
+						http.HandlerFunc(handler)))))
+	}
+
 	router.HandleFunc("OPTIONS /", configValues.WebServerConfig.Cors.HandlerFunc)
 	router.Handle("GET /health", onlyLogMiddleware(controllers.GetHealth))
 	router.Handle("GET /health.html", onlyLogMiddleware(controllers.GetHealthHTML))
 
 	// api host role: account & auth (protobuf)
-	router.Handle("POST /user/login", publicChain(controllers.PostUserLogin))
-	router.Handle("POST /user/register", publicChain(controllers.PostUserRegister))
-	router.Handle("POST /user/forgot_password", publicChain(controllers.PostForgotPassword))
-	router.Handle("POST /user/token", publicChain(controllers.PostUserToken))
+	router.Handle("POST /user/login", limitedChain(controllers.PostUserLogin))
+	router.Handle("POST /user/register", limitedChain(controllers.PostUserRegister))
+	router.Handle("POST /user/forgot_password", limitedChain(controllers.PostForgotPassword))
+	router.Handle("POST /user/token", limitedChain(controllers.PostUserToken))
 	router.Handle("POST /user/change_email", authChain(controllers.PostChangeEmail))
 	router.Handle("POST /user/change_password", authChain(controllers.PostChangePassword))
 	router.Handle("POST /user/delete_account", authChain(controllers.PostDeleteAccount))
