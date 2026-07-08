@@ -44,6 +44,17 @@ func authChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handle
 					http.HandlerFunc(handler)))))
 }
 
+// optionalAuthChain attaches the user when a valid Bearer token is present
+// but serves anonymous requests too (refresh works signed out; push
+// registration piggybacked on it needs the identity).
+func optionalAuthChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+	return middlewares.TraceMiddleware(
+		middlewares.LogMiddleware(
+			configValues.WebServerConfig.Cors.Handler(
+				auth.OptionalTokenMiddleware(
+					http.HandlerFunc(handler)))))
+}
+
 func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
 	return middlewares.TraceMiddleware(
 		middlewares.LogMiddleware(
@@ -106,7 +117,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /sync/update_episode_star", authChain(controllers.PostUpdateEpisodeStar))
 
 	// refresh host role (JSON)
-	router.Handle("POST /user/update", publicChain(controllers.PostRefreshUserUpdate))
+	router.Handle("POST /user/update", optionalAuthChain(controllers.PostRefreshUserUpdate))
 	router.Handle("POST /podcasts/refresh", publicChain(controllers.PostPodcastsRefresh))
 	router.Handle("POST /podcasts/show", publicChain(controllers.PostPodcastsShow))
 	router.Handle("POST /podcasts/search", publicChain(controllers.PostPodcastsSearch))

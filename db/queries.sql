@@ -524,3 +524,32 @@ RETURNING *;
 
 -- name: GetSharedListByCode :one
 SELECT * FROM shared_lists WHERE code = $1;
+
+-- name: UpsertDevicePush :exec
+-- The client omits push_token unless it holds one, so an empty incoming
+-- token keeps whatever was registered before.
+INSERT INTO devices (user_id, device_id, push_token, push_on, updated_at)
+VALUES ($1, $2, $3, $4, now())
+ON CONFLICT (user_id, device_id) DO UPDATE SET
+    push_token = CASE WHEN EXCLUDED.push_token <> '' THEN EXCLUDED.push_token ELSE devices.push_token END,
+    push_on = EXCLUDED.push_on,
+    updated_at = now();
+
+-- name: SetPodcastNotifyFlags :exec
+UPDATE user_podcasts
+SET notify_enabled = (podcast_uuid = ANY(@notify_uuids::uuid[]))
+WHERE user_id = $1 AND NOT is_deleted;
+
+-- name: GetPushTargetsForPodcast :many
+SELECT d.user_id, d.device_id, d.push_token
+FROM devices d
+JOIN user_podcasts up ON up.user_id = d.user_id
+WHERE up.podcast_uuid = $1
+  AND up.subscribed AND NOT up.is_deleted
+  AND d.push_on AND d.push_token <> ''
+  AND (up.notify_enabled
+       OR COALESCE((up.settings->'notification'->>'value')::boolean, false));
+
+-- name: ClearPushToken :exec
+UPDATE devices SET push_token = '', updated_at = now()
+WHERE push_token = $1;

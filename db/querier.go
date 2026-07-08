@@ -104,4 +104,9 @@ type Querier interface {
 
 	CreateSharedList(ctx context.Context, arg CreateSharedListParams) (SharedList, error)
 	GetSharedListByCode(ctx context.Context, code string) (SharedList, error)
+
+	UpsertDevicePush(ctx context.Context, arg UpsertDevicePushParams) error
+	SetPodcastNotifyFlags(ctx context.Context, arg SetPodcastNotifyFlagsParams) error
+	GetPushTargetsForPodcast(ctx context.Context, podcastUuid string) ([]GetPushTargetsForPodcastRow, error)
+	ClearPushToken(ctx context.Context, pushToken string) error
 }

@@ -83,7 +83,23 @@ func (f *fakeStore) GetUserPodcast(ctx context.Context, arg db.GetUserPodcastPar
 }
 
 func (f *fakeStore) UpsertUserPodcast(ctx context.Context, arg db.UpsertUserPodcastParams) error {
-	f.podcasts[arg.PodcastUuid] = db.UserPodcast(arg)
+	// preserve fields the upsert doesn't touch (notify_enabled)
+	row := f.podcasts[arg.PodcastUuid]
+	f.podcasts[arg.PodcastUuid] = db.UserPodcast{
+		UserID:            arg.UserID,
+		PodcastUuid:       arg.PodcastUuid,
+		Subscribed:        arg.Subscribed,
+		IsDeleted:         arg.IsDeleted,
+		AutoStartFrom:     arg.AutoStartFrom,
+		AutoSkipLast:      arg.AutoSkipLast,
+		EpisodesSortOrder: arg.EpisodesSortOrder,
+		FolderUuid:        arg.FolderUuid,
+		SortPosition:      arg.SortPosition,
+		DateAdded:         arg.DateAdded,
+		Settings:          arg.Settings,
+		ModifiedAt:        arg.ModifiedAt,
+		NotifyEnabled:     row.NotifyEnabled,
+	}
 	return nil
 }
 
