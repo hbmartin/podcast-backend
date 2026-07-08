@@ -271,7 +271,7 @@ var transcriptTypes = map[string]bool{
 func itemTranscripts(item *gofeed.Item) []byte {
 	var out []Transcript
 	for _, tag := range item.Extensions["podcast"]["transcript"] {
-		url, mimeType := tag.Attrs["url"], tag.Attrs["type"]
+		url, mimeType := tag.Attrs["url"], strings.ToLower(tag.Attrs["type"])
 		if url == "" || !transcriptTypes[mimeType] {
 			continue
 		}

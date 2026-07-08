@@ -213,6 +213,11 @@ func TestGetShowNotes(t *testing.T) {
 	assert.Equal(t, []crawler.Transcript{{URL: "https://cdn/ep2.vtt", Type: "text/vtt", Language: "en"}}, resp.Podcast.Episodes[0].Transcripts)
 	assert.Equal(t, "https://cdn/ep2-chapters.json", resp.Podcast.Episodes[0].ChaptersURL)
 
+	// a stored literal JSON null must also serialize back as [], not null
+	episodes = m.episodes[testPodcastUUID]
+	episodes[1].Transcripts = []byte("null")
+	m.episodes[testPodcastUUID] = episodes
+
 	// the client's Episode.Metadata decode REQUIRES the transcripts key even
 	// when empty — assert it is materialized as [], never omitted or null
 	req, _ := http.NewRequest("GET", "/mobile/show_notes/full/"+testPodcastUUID, nil)

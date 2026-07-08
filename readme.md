@@ -88,9 +88,12 @@ Configuration:
 
 Operations: `GET /health` reports each dependency (Postgres, and the queue's
 Redis when enabled); `GET /metrics` serves Prometheus metrics (HTTP latency
-by route, crawl and push-delivery outcomes); `podcast-backend -health` is a
-self-contained container health probe and is wired as the image's
-`HEALTHCHECK`.
+by route, crawl and push-delivery outcomes) — it is unauthenticated, so keep
+it reachable only from your scrape network / behind the firewall;
+`podcast-backend -health` is a self-contained container health probe and is
+wired as the image's `HEALTHCHECK`. Tracing samples 100% by default — set
+`OTEL_TRACES_SAMPLER`/`OTEL_TRACES_SAMPLER_ARG` (e.g. `traceidratio` / `0.1`)
+for high-traffic deployments.
 
 ### Pointing the iOS client at this server
 

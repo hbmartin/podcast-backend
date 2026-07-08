@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -175,6 +176,12 @@ func (h Handlers) GetShowNotesFull(w http.ResponseWriter, r *http.Request) {
 		transcripts := []crawler.Transcript{}
 		if len(episode.Transcripts) > 0 {
 			if err := json.Unmarshal(episode.Transcripts, &transcripts); err != nil {
+				slog.Warn("show_notes: undecodable transcripts column", "episode", episode.Uuid, "error", err)
+				transcripts = []crawler.Transcript{}
+			}
+			if transcripts == nil {
+				// a literal JSON null would serialize back as null, which the
+				// client's non-optional transcripts field rejects
 				transcripts = []crawler.Transcript{}
 			}
 		}

@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"github.com/hbmartin/podcast-backend/db"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/mmcdole/gofeed"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -315,4 +317,20 @@ func TestCrawlParsesTranscriptsAndChapters(t *testing.T) {
 	ep1 := store.episodes[EpisodeUUID(podcast.Uuid, "ep-guid-1")]
 	assert.Equal(t, "[]", string(ep1.Transcripts))
 	assert.Empty(t, ep1.ChaptersUrl)
+}
+
+func TestItemTranscriptsCaseInsensitiveType(t *testing.T) {
+	raw := []byte(`<?xml version="1.0"?>
+<rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0"><channel><title>x</title>
+  <item>
+    <title>ep</title><guid>g1</guid>
+    <enclosure url="https://cdn/e.mp3" length="1" type="audio/mpeg"/>
+    <podcast:transcript url="https://cdn/e.vtt" type="Text/VTT"/>
+  </item>
+</channel></rss>`)
+	feed, err := gofeed.NewParser().Parse(bytes.NewReader(raw))
+	assert.NoError(t, err)
+
+	got := itemTranscripts(feed.Items[0])
+	assert.JSONEq(t, `[{"url":"https://cdn/e.vtt","type":"text/vtt"}]`, string(got), "MIME type matching is case-insensitive, stored normalized")
 }

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -256,20 +257,43 @@ func refreshScheduler(ctx context.Context, queueClient *tasks.QueueClient) {
 	}
 }
 
+// probeURL derives the local /health URL for the container probe. The listen
+// address may be ":8000", "0.0.0.0:8000", "localhost:8000", or a bare port —
+// the probe always connects to loopback with that port. TLS-serving instances
+// are probed over https.
+func probeURL(webPort string, useTLS bool) string {
+	port := "8000"
+	if webPort != "" {
+		if idx := strings.LastIndex(webPort, ":"); idx >= 0 {
+			port = webPort[idx+1:]
+		} else {
+			port = webPort
+		}
+	}
+
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	return scheme + "://127.0.0.1:" + port + "/health"
+}
+
 // runHealthProbe implements the container HEALTHCHECK: GET /health on the
 // local server and exit 0/1. It must work inside the scratch image, where
 // there is no shell or curl.
 func runHealthProbe() int {
-	port := os.Getenv("WEB_PORT")
-	if port == "" {
-		port = "localhost:8000"
-	}
-	if strings.HasPrefix(port, ":") {
-		port = "127.0.0.1" + port
-	}
+	useTLS := os.Getenv("TLS_CERT_FILE") != "" && os.Getenv("TLS_CERT_KEY_FILE") != ""
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("http://" + port + "/health")
+	if useTLS {
+		// the loopback connection won't match the cert's hostnames, and a
+		// self-signed cert is common; the probe only checks liveness
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
+
+	resp, err := client.Get(probeURL(os.Getenv("WEB_PORT"), useTLS))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "health probe failed:", err)
 		return 1
