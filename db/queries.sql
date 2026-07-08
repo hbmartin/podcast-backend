@@ -391,8 +391,8 @@ WHERE id = $1;
 INSERT INTO episodes (
     uuid, podcast_id, guid, title, audio_url, file_type, file_size,
     duration_secs, published_at, episode_type, season, number, show_notes,
-    image_url
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    image_url, transcripts, chapters_url
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (podcast_id, guid) DO UPDATE SET
     title = EXCLUDED.title,
     audio_url = EXCLUDED.audio_url,
@@ -405,6 +405,8 @@ ON CONFLICT (podcast_id, guid) DO UPDATE SET
     number = EXCLUDED.number,
     show_notes = EXCLUDED.show_notes,
     image_url = EXCLUDED.image_url,
+    transcripts = EXCLUDED.transcripts,
+    chapters_url = EXCLUDED.chapters_url,
     updated_at = now();
 
 -- name: GetEpisodesByPodcastID :many

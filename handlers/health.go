@@ -16,18 +16,28 @@ import (
 //	@Failure		400	{object}	models.HealthResult
 //	@Router			/health [get]
 func (h Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
-	isDbHealthy := true
 	pingResult, err := h.Queries.PingDb(r.Context())
+	isDbHealthy := err == nil && pingResult == 1
+	dbHealth := models.HealthResultItem{Name: "DB", Healthy: isDbHealthy}
 	if err != nil {
-		isDbHealthy = false
+		dbHealth.Error = err.Error()
 	}
 
-	isDbHealthy = pingResult == 1
-	dbHealth := models.HealthResultItem{Name: "DB", Healthy: isDbHealthy}
 	result := &models.HealthResult{Healthy: isDbHealthy, Dependencies: []models.HealthResultItem{dbHealth}}
 
+	// the queue's Redis is only checked when the queue is configured
+	if h.QueuePing != nil {
+		queueHealth := models.HealthResultItem{Name: "Queue", Healthy: true}
+		if err := h.QueuePing(r.Context()); err != nil {
+			queueHealth.Healthy = false
+			queueHealth.Error = err.Error()
+			result.Healthy = false
+		}
+		result.Dependencies = append(result.Dependencies, queueHealth)
+	}
+
 	status := http.StatusOK
-	if !isDbHealthy {
+	if !result.Healthy {
 		status = http.StatusInternalServerError
 	}
 

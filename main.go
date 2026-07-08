@@ -3,16 +3,23 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"flag"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/hbmartin/podcast-backend/artwork"
 	"github.com/hbmartin/podcast-backend/auth"
@@ -24,9 +31,14 @@ import (
 	"github.com/hbmartin/podcast-backend/middlewares"
 	"github.com/hbmartin/podcast-backend/push"
 	"github.com/hbmartin/podcast-backend/tasks"
+	"github.com/hbmartin/podcast-backend/telemetry"
 )
 
 var configValues *config.Configuration
+
+// tracingEnabled reports whether telemetry.Init activated OTel; the router
+// is wrapped with otelhttp only then, keeping the no-tracing path free.
+var tracingEnabled bool
 
 // publicChain serves unauthenticated endpoints: trace, log, CORS.
 func publicChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
@@ -62,7 +74,7 @@ func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) htt
 			http.HandlerFunc(handler)))
 }
 
-func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher) http.Handler {
+func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, queuePing func(ctx context.Context) error) http.Handler {
 	slog.Info("Starting API... \n")
 
 	controllers := handlers.Handlers{
@@ -73,6 +85,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 		Search:        searcher,
 		Images:        artwork.NewHTTPImageFetcher(),
 		PublicBaseURL: configValues.WebServerConfig.PublicBaseURL,
+		QueuePing:     queuePing,
 	}
 	router := http.NewServeMux()
 
@@ -93,6 +106,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.HandleFunc("OPTIONS /", configValues.WebServerConfig.Cors.HandlerFunc)
 	router.Handle("GET /health", onlyLogMiddleware(controllers.GetHealth))
 	router.Handle("GET /health.html", onlyLogMiddleware(controllers.GetHealthHTML))
+	router.Handle("GET /metrics", promhttp.Handler())
 
 	// api host role: account & auth (protobuf)
 	router.Handle("POST /user/login", limitedChain(controllers.PostUserLogin))
@@ -183,10 +197,16 @@ func initDB(ctx context.Context, configValues *config.Configuration) (db.Store, 
 	return store, conn.Close
 }
 
-func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
+func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, queuePing func(ctx context.Context) error, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
 	slog.Info("Setting up API router...\n")
 
-	router := setupRouter(querier, queueClient, feedCrawler, searcher)
+	router := setupRouter(querier, queueClient, feedCrawler, searcher, queuePing)
+	if tracingEnabled {
+		router = otelhttp.NewHandler(router, "podcast-backend",
+			otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+				return r.Method + " " + r.URL.Path
+			}))
+	}
 
 	srv := &http.Server{
 		Addr:              configValues.WebServerConfig.WebPort,
@@ -237,12 +257,83 @@ func refreshScheduler(ctx context.Context, queueClient *tasks.QueueClient) {
 	}
 }
 
+// probeURL derives the local /health URL for the container probe. The listen
+// address may be ":8000", "0.0.0.0:8000", "localhost:8000", or a bare port —
+// the probe always connects to loopback with that port. TLS-serving instances
+// are probed over https.
+func probeURL(webPort string, useTLS bool) string {
+	port := "8000"
+	if webPort != "" {
+		if idx := strings.LastIndex(webPort, ":"); idx >= 0 {
+			port = webPort[idx+1:]
+		} else {
+			port = webPort
+		}
+	}
+
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	return scheme + "://127.0.0.1:" + port + "/health"
+}
+
+// runHealthProbe implements the container HEALTHCHECK: GET /health on the
+// local server and exit 0/1. It must work inside the scratch image, where
+// there is no shell or curl.
+func runHealthProbe() int {
+	useTLS := os.Getenv("TLS_CERT_FILE") != "" && os.Getenv("TLS_CERT_KEY_FILE") != ""
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	if useTLS {
+		// the loopback connection won't match the cert's hostnames, and a
+		// self-signed cert is common; the probe only checks liveness
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
+
+	resp, err := client.Get(probeURL(os.Getenv("WEB_PORT"), useTLS))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "health probe failed:", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintln(os.Stderr, "health probe: status", resp.StatusCode)
+		return 1
+	}
+	return 0
+}
+
 func main() {
+	healthProbe := flag.Bool("health", false, "probe the local server's /health endpoint and exit (container HEALTHCHECK)")
+	flag.Parse()
+	if *healthProbe {
+		os.Exit(runHealthProbe())
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	slog.Info("loading .env file...\n")
 	configValues = config.LoadConfig()
+
+	otelShutdown, otelEnabled, err := telemetry.Init(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if otelEnabled {
+		slog.Info("OpenTelemetry tracing enabled")
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(shutdownCtx); err != nil {
+			slog.Error("Error shutting down tracer provider", "error", err)
+		}
+	}()
+	tracingEnabled = otelEnabled
 
 	slog.Info("Init auth...\n")
 	auth.Init(configValues.AuthConfig)
@@ -321,7 +412,21 @@ func main() {
 		go refreshScheduler(ctx, queueClient)
 	}
 
-	webDispose := startWebServer(querier, queueClient, feedCrawler, searcher, configValues, stop)
+	// /health reports the queue's Redis as a dependency when enabled
+	var queuePing func(ctx context.Context) error
+	if configValues.QueueConfig.Enabled {
+		queueRedis := redis.NewClient(&redis.Options{
+			Addr:     configValues.QueueConfig.RedisAddress,
+			Password: configValues.QueueConfig.RedisPassword,
+			DB:       configValues.QueueConfig.RedisDb,
+		})
+		defer queueRedis.Close()
+		queuePing = func(ctx context.Context) error {
+			return queueRedis.Ping(ctx).Err()
+		}
+	}
+
+	webDispose := startWebServer(querier, queueClient, feedCrawler, searcher, queuePing, configValues, stop)
 
 	// Block until an interrupt signal is received
 	<-ctx.Done()

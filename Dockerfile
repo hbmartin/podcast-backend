@@ -29,4 +29,7 @@ COPY --from=builder /app/podcast-backend .
 COPY --from=builder /app/db/migrations/ ./db/migrations/
 USER appuser:appuser
 EXPOSE 8000
+# the binary doubles as its own health probe (no shell/curl in scratch)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD ["./podcast-backend", "-health"]
 ENTRYPOINT ["./podcast-backend"]

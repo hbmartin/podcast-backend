@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/metrics"
 )
 
 // maxEpisodesPerNotify caps alerts per crawl so a feed that suddenly
@@ -61,6 +62,7 @@ func (n *Notifier) NotifyNewEpisodes(ctx context.Context, podcastUuid string, ep
 			}
 			err := n.Sender.Send(ctx, target.PushToken, notification)
 			if errors.Is(err, ErrUnregistered) {
+				metrics.PushDeliveries.WithLabelValues("unregistered").Inc()
 				dropped[target.PushToken] = true
 				if err := n.DB.ClearPushToken(ctx, target.PushToken); err != nil {
 					slog.Warn("push: unable to clear dead token", "error", err)
@@ -68,8 +70,11 @@ func (n *Notifier) NotifyNewEpisodes(ctx context.Context, podcastUuid string, ep
 				continue
 			}
 			if err != nil {
+				metrics.PushDeliveries.WithLabelValues("failed").Inc()
 				slog.Warn("push: delivery failed", "podcast", podcastUuid, "error", err)
+				continue
 			}
+			metrics.PushDeliveries.WithLabelValues("delivered").Inc()
 		}
 	}
 }

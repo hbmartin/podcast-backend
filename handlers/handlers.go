@@ -34,6 +34,9 @@ type Handlers struct {
 	// PublicBaseURL, when set, overrides request-derived base URLs in
 	// generated links (see baseURL).
 	PublicBaseURL string
+	// QueuePing, when set, is consulted by /health to report the task
+	// queue's Redis as a dependency.
+	QueuePing func(ctx context.Context) error
 }
 
 func New(store db.Store) Handlers {

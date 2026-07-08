@@ -436,6 +436,43 @@ func TestCatalogIngestAndCacheHost(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusNotModified, resp.StatusCode)
 
+	// show notes carry the full episode metadata: transcripts (required key,
+	// even when empty), episode image, and the podcast:chapters URL
+	resp, err = http.Get(baseURL + "/mobile/show_notes/full/" + podcastUuid)
+	require.NoError(t, err)
+	var notes struct {
+		Podcast struct {
+			Episodes []struct {
+				UUID        string `json:"uuid"`
+				ShowNotes   string `json:"show_notes"`
+				Transcripts []struct {
+					URL      string `json:"url"`
+					Type     string `json:"type"`
+					Language string `json:"language"`
+				} `json:"transcripts"`
+				ChaptersURL string `json:"chapters_url"`
+			} `json:"episodes"`
+		} `json:"podcast"`
+	}
+	rawNotes, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NoError(t, json.Unmarshal(rawNotes, &notes))
+	require.Len(t, notes.Podcast.Episodes, 2)
+	assert.Contains(t, string(rawNotes), `"transcripts"`)
+	var withTranscript bool
+	for _, episode := range notes.Podcast.Episodes {
+		require.NotNil(t, episode.Transcripts, "transcripts key must decode on every episode")
+		if len(episode.Transcripts) > 0 {
+			withTranscript = true
+			assert.Equal(t, "https://cdn.example.com/ep2.vtt", episode.Transcripts[0].URL)
+			assert.Equal(t, "text/vtt", episode.Transcripts[0].Type)
+			assert.Equal(t, "en", episode.Transcripts[0].Language)
+			assert.Equal(t, "https://cdn.example.com/ep2-chapters.json", episode.ChaptersURL)
+		}
+	}
+	assert.True(t, withTranscript, "fixture feed's podcast:transcript tag was ingested")
+
 	// episode URL lookup returns the enclosure URL as plain text
 	episodeUuid := full.Podcast.Episodes[0].UUID
 	resp, err = http.Get(baseURL + "/mobile/episode/url/" + podcastUuid + "/" + episodeUuid)
@@ -720,6 +757,42 @@ func TestShareListAndLinks(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "ok", shared.Status)
 	assert.Equal(t, "Test Show", shared.Result.Podcast.Title)
+}
+
+// TestObservability covers the ops surface: /health dependency reporting,
+// Prometheus /metrics output, and the binary's -health container probe.
+func TestObservability(t *testing.T) {
+	// /health reports the DB dependency (queue is off in e2e)
+	resp, err := http.Get(baseURL + "/health")
+	require.NoError(t, err)
+	var health struct {
+		Healthy      bool `json:"healthy"`
+		Dependencies []struct {
+			Name    string `json:"name"`
+			Healthy bool   `json:"healthy"`
+		} `json:"dependencies"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&health))
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.True(t, health.Healthy)
+	require.Len(t, health.Dependencies, 1)
+	assert.Equal(t, "DB", health.Dependencies[0].Name)
+
+	// /metrics serves Prometheus text including our HTTP histogram
+	resp, err = http.Get(baseURL + "/metrics")
+	require.NoError(t, err)
+	metricsBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, string(metricsBody), "podcast_backend_http_request_duration_seconds")
+	assert.Contains(t, string(metricsBody), `route="GET /health"`)
+
+	// the binary doubles as the container HEALTHCHECK probe
+	probe := exec.Command(filepath.Join(os.TempDir(), "podcast-backend-e2e"), "-health")
+	probe.Env = append(os.Environ(), "WEB_PORT=127.0.0.1:8091")
+	out, err := probe.CombinedOutput()
+	assert.NoError(t, err, "health probe should exit 0: %s", out)
 }
 
 // TestPushNotifications registers a device's APNs token on the refresh call,
