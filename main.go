@@ -4,15 +4,20 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/hbmartin/podcast-backend/artwork"
 	"github.com/hbmartin/podcast-backend/auth"
@@ -62,7 +67,7 @@ func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) htt
 			http.HandlerFunc(handler)))
 }
 
-func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher) http.Handler {
+func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, queuePing func(ctx context.Context) error) http.Handler {
 	slog.Info("Starting API... \n")
 
 	controllers := handlers.Handlers{
@@ -73,6 +78,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 		Search:        searcher,
 		Images:        artwork.NewHTTPImageFetcher(),
 		PublicBaseURL: configValues.WebServerConfig.PublicBaseURL,
+		QueuePing:     queuePing,
 	}
 	router := http.NewServeMux()
 
@@ -93,6 +99,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.HandleFunc("OPTIONS /", configValues.WebServerConfig.Cors.HandlerFunc)
 	router.Handle("GET /health", onlyLogMiddleware(controllers.GetHealth))
 	router.Handle("GET /health.html", onlyLogMiddleware(controllers.GetHealthHTML))
+	router.Handle("GET /metrics", promhttp.Handler())
 
 	// api host role: account & auth (protobuf)
 	router.Handle("POST /user/login", limitedChain(controllers.PostUserLogin))
@@ -183,10 +190,10 @@ func initDB(ctx context.Context, configValues *config.Configuration) (db.Store, 
 	return store, conn.Close
 }
 
-func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
+func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, queuePing func(ctx context.Context) error, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
 	slog.Info("Setting up API router...\n")
 
-	router := setupRouter(querier, queueClient, feedCrawler, searcher)
+	router := setupRouter(querier, queueClient, feedCrawler, searcher, queuePing)
 
 	srv := &http.Server{
 		Addr:              configValues.WebServerConfig.WebPort,
@@ -237,7 +244,39 @@ func refreshScheduler(ctx context.Context, queueClient *tasks.QueueClient) {
 	}
 }
 
+// runHealthProbe implements the container HEALTHCHECK: GET /health on the
+// local server and exit 0/1. It must work inside the scratch image, where
+// there is no shell or curl.
+func runHealthProbe() int {
+	port := os.Getenv("WEB_PORT")
+	if port == "" {
+		port = "localhost:8000"
+	}
+	if strings.HasPrefix(port, ":") {
+		port = "127.0.0.1" + port
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://" + port + "/health")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "health probe failed:", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintln(os.Stderr, "health probe: status", resp.StatusCode)
+		return 1
+	}
+	return 0
+}
+
 func main() {
+	healthProbe := flag.Bool("health", false, "probe the local server's /health endpoint and exit (container HEALTHCHECK)")
+	flag.Parse()
+	if *healthProbe {
+		os.Exit(runHealthProbe())
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -321,7 +360,21 @@ func main() {
 		go refreshScheduler(ctx, queueClient)
 	}
 
-	webDispose := startWebServer(querier, queueClient, feedCrawler, searcher, configValues, stop)
+	// /health reports the queue's Redis as a dependency when enabled
+	var queuePing func(ctx context.Context) error
+	if configValues.QueueConfig.Enabled {
+		queueRedis := redis.NewClient(&redis.Options{
+			Addr:     configValues.QueueConfig.RedisAddress,
+			Password: configValues.QueueConfig.RedisPassword,
+			DB:       configValues.QueueConfig.RedisDb,
+		})
+		defer queueRedis.Close()
+		queuePing = func(ctx context.Context) error {
+			return queueRedis.Ping(ctx).Err()
+		}
+	}
+
+	webDispose := startWebServer(querier, queueClient, feedCrawler, searcher, queuePing, configValues, stop)
 
 	// Block until an interrupt signal is received
 	<-ctx.Done()

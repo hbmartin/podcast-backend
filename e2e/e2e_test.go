@@ -759,6 +759,42 @@ func TestShareListAndLinks(t *testing.T) {
 	assert.Equal(t, "Test Show", shared.Result.Podcast.Title)
 }
 
+// TestObservability covers the ops surface: /health dependency reporting,
+// Prometheus /metrics output, and the binary's -health container probe.
+func TestObservability(t *testing.T) {
+	// /health reports the DB dependency (queue is off in e2e)
+	resp, err := http.Get(baseURL + "/health")
+	require.NoError(t, err)
+	var health struct {
+		Healthy      bool `json:"healthy"`
+		Dependencies []struct {
+			Name    string `json:"name"`
+			Healthy bool   `json:"healthy"`
+		} `json:"dependencies"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&health))
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.True(t, health.Healthy)
+	require.Len(t, health.Dependencies, 1)
+	assert.Equal(t, "DB", health.Dependencies[0].Name)
+
+	// /metrics serves Prometheus text including our HTTP histogram
+	resp, err = http.Get(baseURL + "/metrics")
+	require.NoError(t, err)
+	metricsBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, string(metricsBody), "podcast_backend_http_request_duration_seconds")
+	assert.Contains(t, string(metricsBody), `route="GET /health"`)
+
+	// the binary doubles as the container HEALTHCHECK probe
+	probe := exec.Command(filepath.Join(os.TempDir(), "podcast-backend-e2e"), "-health")
+	probe.Env = append(os.Environ(), "WEB_PORT=127.0.0.1:8091")
+	out, err := probe.CombinedOutput()
+	assert.NoError(t, err, "health probe should exit 0: %s", out)
+}
+
 // TestPushNotifications registers a device's APNs token on the refresh call,
 // publishes a new episode in the fixture feed, forces a re-crawl, and asserts
 // the fixture APNs endpoint received the alert. It must run after the tests

@@ -10,6 +10,7 @@ import (
 
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/errs"
+	"github.com/hbmartin/podcast-backend/metrics"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/mmcdole/gofeed"
@@ -92,6 +93,7 @@ func (c *Crawler) Crawl(ctx context.Context, podcast db.Podcast) error {
 	}
 
 	if result.NotModified {
+		metrics.CrawlsTotal.WithLabelValues("not_modified").Inc()
 		return c.DB.UpdatePodcastCrawlNotModified(ctx, db.UpdatePodcastCrawlNotModifiedParams{
 			ID:            podcast.ID,
 			NextRefreshAt: next,
@@ -158,6 +160,7 @@ func (c *Crawler) Crawl(ctx context.Context, podcast db.Podcast) error {
 	if err != nil {
 		return errs.E(op, errs.Database, err)
 	}
+	metrics.CrawlsTotal.WithLabelValues("ok").Inc()
 
 	if c.OnNewEpisodes != nil && len(fresh) > 0 {
 		sort.Slice(fresh, func(i, j int) bool {
@@ -174,6 +177,8 @@ func (c *Crawler) Crawl(ctx context.Context, podcast db.Podcast) error {
 
 func (c *Crawler) recordFailure(ctx context.Context, podcast db.Podcast, cause error) error {
 	const op errs.Op = "crawler/Crawler.recordFailure"
+
+	metrics.CrawlsTotal.WithLabelValues("failed").Inc()
 
 	message := cause.Error()
 	if len(message) > 500 {

@@ -3,7 +3,10 @@ package middlewares
 import (
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
+
+	"github.com/hbmartin/podcast-backend/metrics"
 )
 
 // LogResponseWriter captures the status code for request logging; a handler
@@ -29,12 +32,24 @@ func LogMiddleware(next http.Handler) http.Handler {
 		logRespWriter := newLogResponseWriter(w)
 		next.ServeHTTP(logRespWriter, r)
 
+		duration := time.Since(startTime)
+
+		// r.Pattern is the matched mux route (bounded cardinality); requests
+		// that never hit the mux (none in this chain) would be empty
+		route := r.Pattern
+		if route == "" {
+			route = "unmatched"
+		}
+		metrics.HTTPRequestDuration.
+			WithLabelValues(r.Method, route, strconv.Itoa(logRespWriter.statusCode)).
+			Observe(duration.Seconds())
+
 		slog.Info(
 			"WebRequest",
 			"proto", r.Proto,
 			"method", r.Method,
 			"url", r.URL,
-			"duration", time.Since(startTime),
+			"duration", duration,
 			"status", logRespWriter.statusCode,
 			"traceId", r.Context().Value(ContextKey("traceId")))
 	})

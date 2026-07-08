@@ -17,6 +17,12 @@ services:
       QUEUE_REDIS_DB: "1"
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "./podcast-backend", "-health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     depends_on:
       db:
         condition: service_healthy
