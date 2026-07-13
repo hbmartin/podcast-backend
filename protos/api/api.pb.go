@@ -690,10 +690,11 @@ func (x *UserChangePasswordRequest) GetScope() string {
 }
 
 type UserChangeResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       *wrapperspb.BoolValue  `protobuf:"bytes,1,opt,name=success,proto3" json:"success,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	MessageId     string                 `protobuf:"bytes,3,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Success *wrapperspb.BoolValue  `protobuf:"bytes,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// JSON name is camelCase in the client's nameMap (upstream quirk).
+	MessageId     string `protobuf:"bytes,3,opt,name=messageId,proto3" json:"messageId,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8579,7 +8580,7 @@ func (x *ReferralRedemptionResponse) GetCode() string {
 type WinbackResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Offer         string                 `protobuf:"bytes,1,opt,name=offer,proto3" json:"offer,omitempty"`
-	Platform      string                 `protobuf:"bytes,2,opt,name=platform,proto3" json:"platform,omitempty"`
+	Platform      int32                  `protobuf:"varint,2,opt,name=platform,proto3" json:"platform,omitempty"` // int32 in the generated client (sync_api.proto had string)
 	Details       string                 `protobuf:"bytes,3,opt,name=details,proto3" json:"details,omitempty"`
 	Code          string                 `protobuf:"bytes,4,opt,name=code,proto3" json:"code,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -8623,11 +8624,11 @@ func (x *WinbackResponse) GetOffer() string {
 	return ""
 }
 
-func (x *WinbackResponse) GetPlatform() string {
+func (x *WinbackResponse) GetPlatform() int32 {
 	if x != nil {
 		return x.Platform
 	}
-	return ""
+	return 0
 }
 
 func (x *WinbackResponse) GetDetails() string {
@@ -9429,6 +9430,5444 @@ func (x *EpisodeGeneratedChapters) GetOrigin() string {
 	return ""
 }
 
+type ApiPodcastListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Podcasts      []*ApiPodcastResponse  `protobuf:"bytes,1,rep,name=podcasts,proto3" json:"podcasts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApiPodcastListResponse) Reset() {
+	*x = ApiPodcastListResponse{}
+	mi := &file_api_proto_msgTypes[89]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApiPodcastListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApiPodcastListResponse) ProtoMessage() {}
+
+func (x *ApiPodcastListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[89]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApiPodcastListResponse.ProtoReflect.Descriptor instead.
+func (*ApiPodcastListResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{89}
+}
+
+func (x *ApiPodcastListResponse) GetPodcasts() []*ApiPodcastResponse {
+	if x != nil {
+		return x.Podcasts
+	}
+	return nil
+}
+
+type AuthorizeCallbackRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IdToken       string                 `protobuf:"bytes,1,opt,name=id_token,json=idToken,proto3" json:"id_token,omitempty"`
+	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthorizeCallbackRequest) Reset() {
+	*x = AuthorizeCallbackRequest{}
+	mi := &file_api_proto_msgTypes[90]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizeCallbackRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizeCallbackRequest) ProtoMessage() {}
+
+func (x *AuthorizeCallbackRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[90]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizeCallbackRequest.ProtoReflect.Descriptor instead.
+func (*AuthorizeCallbackRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{90}
+}
+
+func (x *AuthorizeCallbackRequest) GetIdToken() string {
+	if x != nil {
+		return x.IdToken
+	}
+	return ""
+}
+
+func (x *AuthorizeCallbackRequest) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+type BundleUserRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserUuid      string                 `protobuf:"bytes,1,opt,name=user_uuid,json=userUuid,proto3" json:"user_uuid,omitempty"`
+	Bundles       []string               `protobuf:"bytes,2,rep,name=bundles,proto3" json:"bundles,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BundleUserRequest) Reset() {
+	*x = BundleUserRequest{}
+	mi := &file_api_proto_msgTypes[91]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BundleUserRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BundleUserRequest) ProtoMessage() {}
+
+func (x *BundleUserRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[91]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BundleUserRequest.ProtoReflect.Descriptor instead.
+func (*BundleUserRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{91}
+}
+
+func (x *BundleUserRequest) GetUserUuid() string {
+	if x != nil {
+		return x.UserUuid
+	}
+	return ""
+}
+
+func (x *BundleUserRequest) GetBundles() []string {
+	if x != nil {
+		return x.Bundles
+	}
+	return nil
+}
+
+type BundleUserResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserExists    bool                   `protobuf:"varint,1,opt,name=user_exists,json=userExists,proto3" json:"user_exists,omitempty"`
+	Paid          bool                   `protobuf:"varint,2,opt,name=paid,proto3" json:"paid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BundleUserResponse) Reset() {
+	*x = BundleUserResponse{}
+	mi := &file_api_proto_msgTypes[92]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BundleUserResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BundleUserResponse) ProtoMessage() {}
+
+func (x *BundleUserResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[92]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BundleUserResponse.ProtoReflect.Descriptor instead.
+func (*BundleUserResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{92}
+}
+
+func (x *BundleUserResponse) GetUserExists() bool {
+	if x != nil {
+		return x.UserExists
+	}
+	return false
+}
+
+func (x *BundleUserResponse) GetPaid() bool {
+	if x != nil {
+		return x.Paid
+	}
+	return false
+}
+
+type CancelUserSubscriptionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BundleUuid    string                 `protobuf:"bytes,1,opt,name=bundle_uuid,json=bundleUuid,proto3" json:"bundle_uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelUserSubscriptionRequest) Reset() {
+	*x = CancelUserSubscriptionRequest{}
+	mi := &file_api_proto_msgTypes[93]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelUserSubscriptionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelUserSubscriptionRequest) ProtoMessage() {}
+
+func (x *CancelUserSubscriptionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[93]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelUserSubscriptionRequest.ProtoReflect.Descriptor instead.
+func (*CancelUserSubscriptionRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{93}
+}
+
+func (x *CancelUserSubscriptionRequest) GetBundleUuid() string {
+	if x != nil {
+		return x.BundleUuid
+	}
+	return ""
+}
+
+type CheckEligibleRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to StoreReceipt:
+	//
+	//	*CheckEligibleRequest_Android
+	//	*CheckEligibleRequest_Apple
+	//	*CheckEligibleRequest_Web
+	StoreReceipt  isCheckEligibleRequest_StoreReceipt `protobuf_oneof:"store_receipt"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckEligibleRequest) Reset() {
+	*x = CheckEligibleRequest{}
+	mi := &file_api_proto_msgTypes[94]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckEligibleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckEligibleRequest) ProtoMessage() {}
+
+func (x *CheckEligibleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[94]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckEligibleRequest.ProtoReflect.Descriptor instead.
+func (*CheckEligibleRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{94}
+}
+
+func (x *CheckEligibleRequest) GetStoreReceipt() isCheckEligibleRequest_StoreReceipt {
+	if x != nil {
+		return x.StoreReceipt
+	}
+	return nil
+}
+
+func (x *CheckEligibleRequest) GetAndroid() *SubscriptionsPurchaseAndroidRequest {
+	if x != nil {
+		if x, ok := x.StoreReceipt.(*CheckEligibleRequest_Android); ok {
+			return x.Android
+		}
+	}
+	return nil
+}
+
+func (x *CheckEligibleRequest) GetApple() *SubscriptionsPurchaseAppleRequest {
+	if x != nil {
+		if x, ok := x.StoreReceipt.(*CheckEligibleRequest_Apple); ok {
+			return x.Apple
+		}
+	}
+	return nil
+}
+
+func (x *CheckEligibleRequest) GetWeb() *SubscriptionsPurchaseWebRequest {
+	if x != nil {
+		if x, ok := x.StoreReceipt.(*CheckEligibleRequest_Web); ok {
+			return x.Web
+		}
+	}
+	return nil
+}
+
+type isCheckEligibleRequest_StoreReceipt interface {
+	isCheckEligibleRequest_StoreReceipt()
+}
+
+type CheckEligibleRequest_Android struct {
+	Android *SubscriptionsPurchaseAndroidRequest `protobuf:"bytes,1,opt,name=android,proto3,oneof"`
+}
+
+type CheckEligibleRequest_Apple struct {
+	Apple *SubscriptionsPurchaseAppleRequest `protobuf:"bytes,2,opt,name=apple,proto3,oneof"`
+}
+
+type CheckEligibleRequest_Web struct {
+	Web *SubscriptionsPurchaseWebRequest `protobuf:"bytes,3,opt,name=web,proto3,oneof"`
+}
+
+func (*CheckEligibleRequest_Android) isCheckEligibleRequest_StoreReceipt() {}
+
+func (*CheckEligibleRequest_Apple) isCheckEligibleRequest_StoreReceipt() {}
+
+func (*CheckEligibleRequest_Web) isCheckEligibleRequest_StoreReceipt() {}
+
+type CheckEligibleResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Platform      int32                  `protobuf:"varint,1,opt,name=platform,proto3" json:"platform,omitempty"`
+	Eligible      bool                   `protobuf:"varint,2,opt,name=eligible,proto3" json:"eligible,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckEligibleResponse) Reset() {
+	*x = CheckEligibleResponse{}
+	mi := &file_api_proto_msgTypes[95]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckEligibleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckEligibleResponse) ProtoMessage() {}
+
+func (x *CheckEligibleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[95]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckEligibleResponse.ProtoReflect.Descriptor instead.
+func (*CheckEligibleResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{95}
+}
+
+func (x *CheckEligibleResponse) GetPlatform() int32 {
+	if x != nil {
+		return x.Platform
+	}
+	return 0
+}
+
+func (x *CheckEligibleResponse) GetEligible() bool {
+	if x != nil {
+		return x.Eligible
+	}
+	return false
+}
+
+type CreateBetaUserRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateBetaUserRequest) Reset() {
+	*x = CreateBetaUserRequest{}
+	mi := &file_api_proto_msgTypes[96]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateBetaUserRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateBetaUserRequest) ProtoMessage() {}
+
+func (x *CreateBetaUserRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[96]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateBetaUserRequest.ProtoReflect.Descriptor instead.
+func (*CreateBetaUserRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{96}
+}
+
+func (x *CreateBetaUserRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+type DeviceApproveRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserCode      string                 `protobuf:"bytes,1,opt,name=user_code,json=userCode,proto3" json:"user_code,omitempty"`
+	Deny          bool                   `protobuf:"varint,2,opt,name=deny,proto3" json:"deny,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceApproveRequest) Reset() {
+	*x = DeviceApproveRequest{}
+	mi := &file_api_proto_msgTypes[97]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceApproveRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceApproveRequest) ProtoMessage() {}
+
+func (x *DeviceApproveRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[97]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceApproveRequest.ProtoReflect.Descriptor instead.
+func (*DeviceApproveRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{97}
+}
+
+func (x *DeviceApproveRequest) GetUserCode() string {
+	if x != nil {
+		return x.UserCode
+	}
+	return ""
+}
+
+func (x *DeviceApproveRequest) GetDeny() bool {
+	if x != nil {
+		return x.Deny
+	}
+	return false
+}
+
+type DeviceAuthorizeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Scope         string                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceAuthorizeRequest) Reset() {
+	*x = DeviceAuthorizeRequest{}
+	mi := &file_api_proto_msgTypes[98]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceAuthorizeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceAuthorizeRequest) ProtoMessage() {}
+
+func (x *DeviceAuthorizeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[98]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceAuthorizeRequest.ProtoReflect.Descriptor instead.
+func (*DeviceAuthorizeRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{98}
+}
+
+func (x *DeviceAuthorizeRequest) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+type DeviceAuthorizeResponse struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	DeviceCode              string                 `protobuf:"bytes,1,opt,name=device_code,json=deviceCode,proto3" json:"device_code,omitempty"`
+	UserCode                string                 `protobuf:"bytes,2,opt,name=user_code,json=userCode,proto3" json:"user_code,omitempty"`
+	VerificationUri         string                 `protobuf:"bytes,3,opt,name=verification_uri,json=verificationUri,proto3" json:"verification_uri,omitempty"`
+	VerificationUriComplete string                 `protobuf:"bytes,4,opt,name=verification_uri_complete,json=verificationUriComplete,proto3" json:"verification_uri_complete,omitempty"`
+	ExpiresIn               int32                  `protobuf:"varint,5,opt,name=expires_in,json=expiresIn,proto3" json:"expires_in,omitempty"`
+	Interval                int32                  `protobuf:"varint,6,opt,name=interval,proto3" json:"interval,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *DeviceAuthorizeResponse) Reset() {
+	*x = DeviceAuthorizeResponse{}
+	mi := &file_api_proto_msgTypes[99]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceAuthorizeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceAuthorizeResponse) ProtoMessage() {}
+
+func (x *DeviceAuthorizeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[99]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceAuthorizeResponse.ProtoReflect.Descriptor instead.
+func (*DeviceAuthorizeResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{99}
+}
+
+func (x *DeviceAuthorizeResponse) GetDeviceCode() string {
+	if x != nil {
+		return x.DeviceCode
+	}
+	return ""
+}
+
+func (x *DeviceAuthorizeResponse) GetUserCode() string {
+	if x != nil {
+		return x.UserCode
+	}
+	return ""
+}
+
+func (x *DeviceAuthorizeResponse) GetVerificationUri() string {
+	if x != nil {
+		return x.VerificationUri
+	}
+	return ""
+}
+
+func (x *DeviceAuthorizeResponse) GetVerificationUriComplete() string {
+	if x != nil {
+		return x.VerificationUriComplete
+	}
+	return ""
+}
+
+func (x *DeviceAuthorizeResponse) GetExpiresIn() int32 {
+	if x != nil {
+		return x.ExpiresIn
+	}
+	return 0
+}
+
+func (x *DeviceAuthorizeResponse) GetInterval() int32 {
+	if x != nil {
+		return x.Interval
+	}
+	return 0
+}
+
+type EpisodeWithPodcast struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Uuid             string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Podcast          string                 `protobuf:"bytes,2,opt,name=podcast,proto3" json:"podcast,omitempty"`
+	IncludeBookmarks bool                   `protobuf:"varint,3,opt,name=include_bookmarks,json=includeBookmarks,proto3" json:"include_bookmarks,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *EpisodeWithPodcast) Reset() {
+	*x = EpisodeWithPodcast{}
+	mi := &file_api_proto_msgTypes[100]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EpisodeWithPodcast) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EpisodeWithPodcast) ProtoMessage() {}
+
+func (x *EpisodeWithPodcast) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[100]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EpisodeWithPodcast.ProtoReflect.Descriptor instead.
+func (*EpisodeWithPodcast) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{100}
+}
+
+func (x *EpisodeWithPodcast) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *EpisodeWithPodcast) GetPodcast() string {
+	if x != nil {
+		return x.Podcast
+	}
+	return ""
+}
+
+func (x *EpisodeWithPodcast) GetIncludeBookmarks() bool {
+	if x != nil {
+		return x.IncludeBookmarks
+	}
+	return false
+}
+
+type Features struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	RemoveBannerAds   bool                   `protobuf:"varint,1,opt,name=remove_banner_ads,json=removeBannerAds,proto3" json:"remove_banner_ads,omitempty"`
+	RemoveDiscoverAds bool                   `protobuf:"varint,2,opt,name=remove_discover_ads,json=removeDiscoverAds,proto3" json:"remove_discover_ads,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *Features) Reset() {
+	*x = Features{}
+	mi := &file_api_proto_msgTypes[101]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Features) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Features) ProtoMessage() {}
+
+func (x *Features) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[101]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Features.ProtoReflect.Descriptor instead.
+func (*Features) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{101}
+}
+
+func (x *Features) GetRemoveBannerAds() bool {
+	if x != nil {
+		return x.RemoveBannerAds
+	}
+	return false
+}
+
+func (x *Features) GetRemoveDiscoverAds() bool {
+	if x != nil {
+		return x.RemoveDiscoverAds
+	}
+	return false
+}
+
+type FindUserEpisodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	V             string                 `protobuf:"bytes,2,opt,name=v,proto3" json:"v,omitempty"`
+	M             string                 `protobuf:"bytes,3,opt,name=m,proto3" json:"m,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FindUserEpisodeRequest) Reset() {
+	*x = FindUserEpisodeRequest{}
+	mi := &file_api_proto_msgTypes[102]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindUserEpisodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindUserEpisodeRequest) ProtoMessage() {}
+
+func (x *FindUserEpisodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[102]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindUserEpisodeRequest.ProtoReflect.Descriptor instead.
+func (*FindUserEpisodeRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{102}
+}
+
+func (x *FindUserEpisodeRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *FindUserEpisodeRequest) GetV() string {
+	if x != nil {
+		return x.V
+	}
+	return ""
+}
+
+func (x *FindUserEpisodeRequest) GetM() string {
+	if x != nil {
+		return x.M
+	}
+	return ""
+}
+
+type FindUserEpisodesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PodcastUuid   string                 `protobuf:"bytes,1,opt,name=podcast_uuid,json=podcastUuid,proto3" json:"podcast_uuid,omitempty"`
+	Page          int32                  `protobuf:"varint,2,opt,name=page,proto3" json:"page,omitempty"`
+	Sort          int32                  `protobuf:"varint,3,opt,name=sort,proto3" json:"sort,omitempty"`
+	V             string                 `protobuf:"bytes,4,opt,name=v,proto3" json:"v,omitempty"`
+	M             string                 `protobuf:"bytes,5,opt,name=m,proto3" json:"m,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FindUserEpisodesRequest) Reset() {
+	*x = FindUserEpisodesRequest{}
+	mi := &file_api_proto_msgTypes[103]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindUserEpisodesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindUserEpisodesRequest) ProtoMessage() {}
+
+func (x *FindUserEpisodesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[103]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindUserEpisodesRequest.ProtoReflect.Descriptor instead.
+func (*FindUserEpisodesRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{103}
+}
+
+func (x *FindUserEpisodesRequest) GetPodcastUuid() string {
+	if x != nil {
+		return x.PodcastUuid
+	}
+	return ""
+}
+
+func (x *FindUserEpisodesRequest) GetPage() int32 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *FindUserEpisodesRequest) GetSort() int32 {
+	if x != nil {
+		return x.Sort
+	}
+	return 0
+}
+
+func (x *FindUserEpisodesRequest) GetV() string {
+	if x != nil {
+		return x.V
+	}
+	return ""
+}
+
+func (x *FindUserEpisodesRequest) GetM() string {
+	if x != nil {
+		return x.M
+	}
+	return ""
+}
+
+type HealthResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Messages      []string               `protobuf:"bytes,2,rep,name=messages,proto3" json:"messages,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HealthResponse) Reset() {
+	*x = HealthResponse{}
+	mi := &file_api_proto_msgTypes[104]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HealthResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HealthResponse) ProtoMessage() {}
+
+func (x *HealthResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[104]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
+func (*HealthResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{104}
+}
+
+func (x *HealthResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *HealthResponse) GetMessages() []string {
+	if x != nil {
+		return x.Messages
+	}
+	return nil
+}
+
+type KeywordRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	V             string                 `protobuf:"bytes,1,opt,name=v,proto3" json:"v,omitempty"`
+	M             string                 `protobuf:"bytes,2,opt,name=m,proto3" json:"m,omitempty"`
+	Keyword       string                 `protobuf:"bytes,3,opt,name=keyword,proto3" json:"keyword,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KeywordRequest) Reset() {
+	*x = KeywordRequest{}
+	mi := &file_api_proto_msgTypes[105]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KeywordRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KeywordRequest) ProtoMessage() {}
+
+func (x *KeywordRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[105]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KeywordRequest.ProtoReflect.Descriptor instead.
+func (*KeywordRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{105}
+}
+
+func (x *KeywordRequest) GetV() string {
+	if x != nil {
+		return x.V
+	}
+	return ""
+}
+
+func (x *KeywordRequest) GetM() string {
+	if x != nil {
+		return x.M
+	}
+	return ""
+}
+
+func (x *KeywordRequest) GetKeyword() string {
+	if x != nil {
+		return x.Keyword
+	}
+	return ""
+}
+
+type LegacyRecord struct {
+	state                      protoimpl.MessageState  `protogen:"open.v1"`
+	Uuid                       *wrapperspb.StringValue `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	UserPodcastUuid            *wrapperspb.StringValue `protobuf:"bytes,2,opt,name=user_podcast_uuid,json=userPodcastUuid,proto3" json:"user_podcast_uuid,omitempty"`
+	EpisodeUuid                *wrapperspb.StringValue `protobuf:"bytes,3,opt,name=episode_uuid,json=episodeUuid,proto3" json:"episode_uuid,omitempty"`
+	PodcastUuid                *wrapperspb.StringValue `protobuf:"bytes,4,opt,name=podcast_uuid,json=podcastUuid,proto3" json:"podcast_uuid,omitempty"`
+	IsDeleted                  *wrapperspb.StringValue `protobuf:"bytes,5,opt,name=is_deleted,json=isDeleted,proto3" json:"is_deleted,omitempty"`
+	IsDeletedModified          *wrapperspb.Int64Value  `protobuf:"bytes,6,opt,name=is_deleted_modified,json=isDeletedModified,proto3" json:"is_deleted_modified,omitempty"`
+	Duration                   *wrapperspb.DoubleValue `protobuf:"bytes,7,opt,name=duration,proto3" json:"duration,omitempty"`
+	DurationModified           *wrapperspb.Int64Value  `protobuf:"bytes,8,opt,name=duration_modified,json=durationModified,proto3" json:"duration_modified,omitempty"`
+	PlayingStatus              *wrapperspb.Int32Value  `protobuf:"bytes,9,opt,name=playing_status,json=playingStatus,proto3" json:"playing_status,omitempty"`
+	PlayingStatusModified      *wrapperspb.Int64Value  `protobuf:"bytes,10,opt,name=playing_status_modified,json=playingStatusModified,proto3" json:"playing_status_modified,omitempty"`
+	PlayedUpTo                 *wrapperspb.DoubleValue `protobuf:"bytes,11,opt,name=played_up_to,json=playedUpTo,proto3" json:"played_up_to,omitempty"`
+	PlayedUpToModified         *wrapperspb.Int64Value  `protobuf:"bytes,12,opt,name=played_up_to_modified,json=playedUpToModified,proto3" json:"played_up_to_modified,omitempty"`
+	Starred                    *wrapperspb.StringValue `protobuf:"bytes,13,opt,name=starred,proto3" json:"starred,omitempty"`
+	StarredModified            *wrapperspb.Int64Value  `protobuf:"bytes,14,opt,name=starred_modified,json=starredModified,proto3" json:"starred_modified,omitempty"`
+	TimesStartedAt             *wrapperspb.DoubleValue `protobuf:"bytes,15,opt,name=times_started_at,json=timesStartedAt,proto3" json:"times_started_at,omitempty"`
+	TimeSilenceRemoval         *wrapperspb.DoubleValue `protobuf:"bytes,16,opt,name=time_silence_removal,json=timeSilenceRemoval,proto3" json:"time_silence_removal,omitempty"`
+	TimeVariableSpeed          *wrapperspb.DoubleValue `protobuf:"bytes,17,opt,name=time_variable_speed,json=timeVariableSpeed,proto3" json:"time_variable_speed,omitempty"`
+	TimeIntroSkipping          *wrapperspb.DoubleValue `protobuf:"bytes,18,opt,name=time_intro_skipping,json=timeIntroSkipping,proto3" json:"time_intro_skipping,omitempty"`
+	TimeSkipping               *wrapperspb.DoubleValue `protobuf:"bytes,19,opt,name=time_skipping,json=timeSkipping,proto3" json:"time_skipping,omitempty"`
+	TimeListened               *wrapperspb.DoubleValue `protobuf:"bytes,20,opt,name=time_listened,json=timeListened,proto3" json:"time_listened,omitempty"`
+	AutoStartFrom              *wrapperspb.Int32Value  `protobuf:"bytes,21,opt,name=auto_start_from,json=autoStartFrom,proto3" json:"auto_start_from,omitempty"`
+	Subscribed                 *wrapperspb.StringValue `protobuf:"bytes,22,opt,name=subscribed,proto3" json:"subscribed,omitempty"`
+	Title                      *wrapperspb.StringValue `protobuf:"bytes,23,opt,name=title,proto3" json:"title,omitempty"`
+	AllPodcasts                *wrapperspb.StringValue `protobuf:"bytes,24,opt,name=all_podcasts,json=allPodcasts,proto3" json:"all_podcasts,omitempty"`
+	PodcastUuids               *wrapperspb.StringValue `protobuf:"bytes,25,opt,name=podcast_uuids,json=podcastUuids,proto3" json:"podcast_uuids,omitempty"`
+	EpisodeUuids               *wrapperspb.StringValue `protobuf:"bytes,26,opt,name=episode_uuids,json=episodeUuids,proto3" json:"episode_uuids,omitempty"`
+	AudioVideo                 *wrapperspb.Int32Value  `protobuf:"bytes,27,opt,name=audio_video,json=audioVideo,proto3" json:"audio_video,omitempty"`
+	NotDownloaded              *wrapperspb.StringValue `protobuf:"bytes,28,opt,name=not_downloaded,json=notDownloaded,proto3" json:"not_downloaded,omitempty"`
+	Downloaded                 *wrapperspb.StringValue `protobuf:"bytes,29,opt,name=downloaded,proto3" json:"downloaded,omitempty"`
+	Downloading                *wrapperspb.StringValue `protobuf:"bytes,30,opt,name=downloading,proto3" json:"downloading,omitempty"`
+	Finished                   *wrapperspb.StringValue `protobuf:"bytes,31,opt,name=finished,proto3" json:"finished,omitempty"`
+	PartiallyPlayed            *wrapperspb.StringValue `protobuf:"bytes,32,opt,name=partially_played,json=partiallyPlayed,proto3" json:"partially_played,omitempty"`
+	Unplayed                   *wrapperspb.StringValue `protobuf:"bytes,33,opt,name=unplayed,proto3" json:"unplayed,omitempty"`
+	Manual                     *wrapperspb.StringValue `protobuf:"bytes,34,opt,name=manual,proto3" json:"manual,omitempty"`
+	SortPosition               *wrapperspb.Int32Value  `protobuf:"bytes,35,opt,name=sort_position,json=sortPosition,proto3" json:"sort_position,omitempty"`
+	SortType                   *wrapperspb.Int32Value  `protobuf:"bytes,36,opt,name=sort_type,json=sortType,proto3" json:"sort_type,omitempty"`
+	IconId                     *wrapperspb.Int32Value  `protobuf:"bytes,37,opt,name=icon_id,json=iconId,proto3" json:"icon_id,omitempty"`
+	FilterHours                *wrapperspb.Int32Value  `protobuf:"bytes,38,opt,name=filter_hours,json=filterHours,proto3" json:"filter_hours,omitempty"`
+	AutoSkipLast               *wrapperspb.Int32Value  `protobuf:"bytes,39,opt,name=auto_skip_last,json=autoSkipLast,proto3" json:"auto_skip_last,omitempty"`
+	FilterDuration             *wrapperspb.BoolValue   `protobuf:"bytes,40,opt,name=filter_duration,json=filterDuration,proto3" json:"filter_duration,omitempty"`
+	LongerThan                 *wrapperspb.Int32Value  `protobuf:"bytes,41,opt,name=longer_than,json=longerThan,proto3" json:"longer_than,omitempty"`
+	ShorterThan                *wrapperspb.Int32Value  `protobuf:"bytes,42,opt,name=shorter_than,json=shorterThan,proto3" json:"shorter_than,omitempty"`
+	FolderUuid                 *wrapperspb.StringValue `protobuf:"bytes,43,opt,name=folder_uuid,json=folderUuid,proto3" json:"folder_uuid,omitempty"`
+	Name                       *wrapperspb.StringValue `protobuf:"bytes,44,opt,name=name,proto3" json:"name,omitempty"`
+	Color                      *wrapperspb.Int32Value  `protobuf:"bytes,45,opt,name=color,proto3" json:"color,omitempty"`
+	PodcastsSortType           *wrapperspb.Int32Value  `protobuf:"bytes,46,opt,name=podcasts_sort_type,json=podcastsSortType,proto3" json:"podcasts_sort_type,omitempty"`
+	DateAdded                  *timestamppb.Timestamp  `protobuf:"bytes,47,opt,name=date_added,json=dateAdded,proto3" json:"date_added,omitempty"`
+	BookmarkUuid               *wrapperspb.StringValue `protobuf:"bytes,48,opt,name=bookmark_uuid,json=bookmarkUuid,proto3" json:"bookmark_uuid,omitempty"`
+	Time                       *wrapperspb.Int32Value  `protobuf:"bytes,49,opt,name=time,proto3" json:"time,omitempty"`
+	TitleModified              *wrapperspb.Int64Value  `protobuf:"bytes,50,opt,name=title_modified,json=titleModified,proto3" json:"title_modified,omitempty"`
+	CreatedAt                  *timestamppb.Timestamp  `protobuf:"bytes,51,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	DeselectedChapters         *wrapperspb.StringValue `protobuf:"bytes,52,opt,name=deselected_chapters,json=deselectedChapters,proto3" json:"deselected_chapters,omitempty"`
+	DeselectedChaptersModified *wrapperspb.Int64Value  `protobuf:"bytes,53,opt,name=deselected_chapters_modified,json=deselectedChaptersModified,proto3" json:"deselected_chapters_modified,omitempty"`
+	EpisodeOrder               []string                `protobuf:"bytes,54,rep,name=episode_order,json=episodeOrder,proto3" json:"episode_order,omitempty"`
+	Episodes                   []*SyncPlaylistEpisode  `protobuf:"bytes,55,rep,name=episodes,proto3" json:"episodes,omitempty"`
+	ShowArchived               *wrapperspb.BoolValue   `protobuf:"bytes,56,opt,name=show_archived,json=showArchived,proto3" json:"show_archived,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
+func (x *LegacyRecord) Reset() {
+	*x = LegacyRecord{}
+	mi := &file_api_proto_msgTypes[106]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacyRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacyRecord) ProtoMessage() {}
+
+func (x *LegacyRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[106]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacyRecord.ProtoReflect.Descriptor instead.
+func (*LegacyRecord) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{106}
+}
+
+func (x *LegacyRecord) GetUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Uuid
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetUserPodcastUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.UserPodcastUuid
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetEpisodeUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.EpisodeUuid
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetPodcastUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.PodcastUuid
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetIsDeleted() *wrapperspb.StringValue {
+	if x != nil {
+		return x.IsDeleted
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetIsDeletedModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.IsDeletedModified
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetDuration() *wrapperspb.DoubleValue {
+	if x != nil {
+		return x.Duration
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetDurationModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.DurationModified
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetPlayingStatus() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.PlayingStatus
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetPlayingStatusModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.PlayingStatusModified
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetPlayedUpTo() *wrapperspb.DoubleValue {
+	if x != nil {
+		return x.PlayedUpTo
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetPlayedUpToModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.PlayedUpToModified
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetStarred() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Starred
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetStarredModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.StarredModified
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetTimesStartedAt() *wrapperspb.DoubleValue {
+	if x != nil {
+		return x.TimesStartedAt
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetTimeSilenceRemoval() *wrapperspb.DoubleValue {
+	if x != nil {
+		return x.TimeSilenceRemoval
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetTimeVariableSpeed() *wrapperspb.DoubleValue {
+	if x != nil {
+		return x.TimeVariableSpeed
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetTimeIntroSkipping() *wrapperspb.DoubleValue {
+	if x != nil {
+		return x.TimeIntroSkipping
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetTimeSkipping() *wrapperspb.DoubleValue {
+	if x != nil {
+		return x.TimeSkipping
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetTimeListened() *wrapperspb.DoubleValue {
+	if x != nil {
+		return x.TimeListened
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetAutoStartFrom() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.AutoStartFrom
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetSubscribed() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Subscribed
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetTitle() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Title
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetAllPodcasts() *wrapperspb.StringValue {
+	if x != nil {
+		return x.AllPodcasts
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetPodcastUuids() *wrapperspb.StringValue {
+	if x != nil {
+		return x.PodcastUuids
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetEpisodeUuids() *wrapperspb.StringValue {
+	if x != nil {
+		return x.EpisodeUuids
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetAudioVideo() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.AudioVideo
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetNotDownloaded() *wrapperspb.StringValue {
+	if x != nil {
+		return x.NotDownloaded
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetDownloaded() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Downloaded
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetDownloading() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Downloading
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetFinished() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Finished
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetPartiallyPlayed() *wrapperspb.StringValue {
+	if x != nil {
+		return x.PartiallyPlayed
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetUnplayed() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Unplayed
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetManual() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Manual
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetSortPosition() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.SortPosition
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetSortType() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.SortType
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetIconId() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.IconId
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetFilterHours() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.FilterHours
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetAutoSkipLast() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.AutoSkipLast
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetFilterDuration() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.FilterDuration
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetLongerThan() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.LongerThan
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetShorterThan() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.ShorterThan
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetFolderUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.FolderUuid
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetName() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Name
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetColor() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.Color
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetPodcastsSortType() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.PodcastsSortType
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetDateAdded() *timestamppb.Timestamp {
+	if x != nil {
+		return x.DateAdded
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetBookmarkUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.BookmarkUuid
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetTime() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.Time
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetTitleModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.TitleModified
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetDeselectedChapters() *wrapperspb.StringValue {
+	if x != nil {
+		return x.DeselectedChapters
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetDeselectedChaptersModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.DeselectedChaptersModified
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetEpisodeOrder() []string {
+	if x != nil {
+		return x.EpisodeOrder
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetEpisodes() []*SyncPlaylistEpisode {
+	if x != nil {
+		return x.Episodes
+	}
+	return nil
+}
+
+func (x *LegacyRecord) GetShowArchived() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.ShowArchived
+	}
+	return nil
+}
+
+type LegacyRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Device          *string                `protobuf:"bytes,1,opt,name=device,proto3,oneof" json:"device,omitempty"`
+	Datetime        *string                `protobuf:"bytes,2,opt,name=datetime,proto3,oneof" json:"datetime,omitempty"`
+	V               *string                `protobuf:"bytes,3,opt,name=v,proto3,oneof" json:"v,omitempty"`
+	Av              *string                `protobuf:"bytes,4,opt,name=av,proto3,oneof" json:"av,omitempty"`
+	Ac              *string                `protobuf:"bytes,5,opt,name=ac,proto3,oneof" json:"ac,omitempty"`
+	H               *string                `protobuf:"bytes,6,opt,name=h,proto3,oneof" json:"h,omitempty"`
+	Dt              *string                `protobuf:"bytes,7,opt,name=dt,proto3,oneof" json:"dt,omitempty"`
+	C               *string                `protobuf:"bytes,8,opt,name=c,proto3,oneof" json:"c,omitempty"`
+	L               *string                `protobuf:"bytes,9,opt,name=l,proto3,oneof" json:"l,omitempty"`
+	M               *string                `protobuf:"bytes,10,opt,name=m,proto3,oneof" json:"m,omitempty"`
+	Email           *string                `protobuf:"bytes,11,opt,name=email,proto3,oneof" json:"email,omitempty"`
+	Password        *string                `protobuf:"bytes,12,opt,name=password,proto3,oneof" json:"password,omitempty"`
+	Token           *string                `protobuf:"bytes,13,opt,name=token,proto3,oneof" json:"token,omitempty"`
+	DeviceUtcTimeMs *string                `protobuf:"bytes,14,opt,name=device_utc_time_ms,json=deviceUtcTimeMs,proto3,oneof" json:"device_utc_time_ms,omitempty"`
+	Data            *string                `protobuf:"bytes,15,opt,name=data,proto3,oneof" json:"data,omitempty"`
+	Message         *string                `protobuf:"bytes,16,opt,name=message,proto3,oneof" json:"message,omitempty"`
+	LastModified    *string                `protobuf:"bytes,17,opt,name=last_modified,json=lastModified,proto3,oneof" json:"last_modified,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *LegacyRequest) Reset() {
+	*x = LegacyRequest{}
+	mi := &file_api_proto_msgTypes[107]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacyRequest) ProtoMessage() {}
+
+func (x *LegacyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[107]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacyRequest.ProtoReflect.Descriptor instead.
+func (*LegacyRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{107}
+}
+
+func (x *LegacyRequest) GetDevice() string {
+	if x != nil && x.Device != nil {
+		return *x.Device
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetDatetime() string {
+	if x != nil && x.Datetime != nil {
+		return *x.Datetime
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetV() string {
+	if x != nil && x.V != nil {
+		return *x.V
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetAv() string {
+	if x != nil && x.Av != nil {
+		return *x.Av
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetAc() string {
+	if x != nil && x.Ac != nil {
+		return *x.Ac
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetH() string {
+	if x != nil && x.H != nil {
+		return *x.H
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetDt() string {
+	if x != nil && x.Dt != nil {
+		return *x.Dt
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetC() string {
+	if x != nil && x.C != nil {
+		return *x.C
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetL() string {
+	if x != nil && x.L != nil {
+		return *x.L
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetM() string {
+	if x != nil && x.M != nil {
+		return *x.M
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetEmail() string {
+	if x != nil && x.Email != nil {
+		return *x.Email
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetPassword() string {
+	if x != nil && x.Password != nil {
+		return *x.Password
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetToken() string {
+	if x != nil && x.Token != nil {
+		return *x.Token
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetDeviceUtcTimeMs() string {
+	if x != nil && x.DeviceUtcTimeMs != nil {
+		return *x.DeviceUtcTimeMs
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetData() string {
+	if x != nil && x.Data != nil {
+		return *x.Data
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetMessage() string {
+	if x != nil && x.Message != nil {
+		return *x.Message
+	}
+	return ""
+}
+
+func (x *LegacyRequest) GetLastModified() string {
+	if x != nil && x.LastModified != nil {
+		return *x.LastModified
+	}
+	return ""
+}
+
+type LegacyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Token         string                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	Copyright     string                 `protobuf:"bytes,3,opt,name=copyright,proto3" json:"copyright,omitempty"`
+	Result        string                 `protobuf:"bytes,4,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LegacyResponse) Reset() {
+	*x = LegacyResponse{}
+	mi := &file_api_proto_msgTypes[108]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacyResponse) ProtoMessage() {}
+
+func (x *LegacyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[108]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacyResponse.ProtoReflect.Descriptor instead.
+func (*LegacyResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{108}
+}
+
+func (x *LegacyResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *LegacyResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *LegacyResponse) GetCopyright() string {
+	if x != nil {
+		return x.Copyright
+	}
+	return ""
+}
+
+func (x *LegacyResponse) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+type LegacyResponseRecord struct {
+	state                      protoimpl.MessageState  `protogen:"open.v1"`
+	Uuid                       *wrapperspb.StringValue `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	UserPodcastUuid            *wrapperspb.StringValue `protobuf:"bytes,2,opt,name=user_podcast_uuid,json=userPodcastUuid,proto3" json:"user_podcast_uuid,omitempty"`
+	EpisodeUuid                *wrapperspb.StringValue `protobuf:"bytes,3,opt,name=episode_uuid,json=episodeUuid,proto3" json:"episode_uuid,omitempty"`
+	PodcastUuid                *wrapperspb.StringValue `protobuf:"bytes,4,opt,name=podcast_uuid,json=podcastUuid,proto3" json:"podcast_uuid,omitempty"`
+	IsDeleted                  *wrapperspb.BoolValue   `protobuf:"bytes,5,opt,name=is_deleted,json=isDeleted,proto3" json:"is_deleted,omitempty"`
+	IsDeletedModified          *wrapperspb.Int64Value  `protobuf:"bytes,6,opt,name=is_deleted_modified,json=isDeletedModified,proto3" json:"is_deleted_modified,omitempty"`
+	Duration                   *wrapperspb.DoubleValue `protobuf:"bytes,7,opt,name=duration,proto3" json:"duration,omitempty"`
+	DurationModified           *wrapperspb.Int64Value  `protobuf:"bytes,8,opt,name=duration_modified,json=durationModified,proto3" json:"duration_modified,omitempty"`
+	PlayingStatus              *wrapperspb.Int32Value  `protobuf:"bytes,9,opt,name=playing_status,json=playingStatus,proto3" json:"playing_status,omitempty"`
+	PlayingStatusModified      *wrapperspb.Int64Value  `protobuf:"bytes,10,opt,name=playing_status_modified,json=playingStatusModified,proto3" json:"playing_status_modified,omitempty"`
+	PlayedUpTo                 *wrapperspb.DoubleValue `protobuf:"bytes,11,opt,name=played_up_to,json=playedUpTo,proto3" json:"played_up_to,omitempty"`
+	PlayedUpToModified         *wrapperspb.Int64Value  `protobuf:"bytes,12,opt,name=played_up_to_modified,json=playedUpToModified,proto3" json:"played_up_to_modified,omitempty"`
+	Starred                    *wrapperspb.BoolValue   `protobuf:"bytes,13,opt,name=starred,proto3" json:"starred,omitempty"`
+	StarredModified            *wrapperspb.Int64Value  `protobuf:"bytes,14,opt,name=starred_modified,json=starredModified,proto3" json:"starred_modified,omitempty"`
+	TimesStartedAt             *wrapperspb.Int64Value  `protobuf:"bytes,15,opt,name=times_started_at,json=timesStartedAt,proto3" json:"times_started_at,omitempty"`
+	TimeSilenceRemoval         *wrapperspb.Int64Value  `protobuf:"bytes,16,opt,name=time_silence_removal,json=timeSilenceRemoval,proto3" json:"time_silence_removal,omitempty"`
+	TimeVariableSpeed          *wrapperspb.Int64Value  `protobuf:"bytes,17,opt,name=time_variable_speed,json=timeVariableSpeed,proto3" json:"time_variable_speed,omitempty"`
+	TimeIntroSkipping          *wrapperspb.Int64Value  `protobuf:"bytes,18,opt,name=time_intro_skipping,json=timeIntroSkipping,proto3" json:"time_intro_skipping,omitempty"`
+	TimeSkipping               *wrapperspb.Int64Value  `protobuf:"bytes,19,opt,name=time_skipping,json=timeSkipping,proto3" json:"time_skipping,omitempty"`
+	TimeListened               *wrapperspb.Int64Value  `protobuf:"bytes,20,opt,name=time_listened,json=timeListened,proto3" json:"time_listened,omitempty"`
+	AutoStartFrom              *wrapperspb.Int32Value  `protobuf:"bytes,21,opt,name=auto_start_from,json=autoStartFrom,proto3" json:"auto_start_from,omitempty"`
+	Subscribed                 *wrapperspb.BoolValue   `protobuf:"bytes,22,opt,name=subscribed,proto3" json:"subscribed,omitempty"`
+	Title                      *wrapperspb.StringValue `protobuf:"bytes,23,opt,name=title,proto3" json:"title,omitempty"`
+	AllPodcasts                *wrapperspb.BoolValue   `protobuf:"bytes,24,opt,name=all_podcasts,json=allPodcasts,proto3" json:"all_podcasts,omitempty"`
+	PodcastUuids               *wrapperspb.StringValue `protobuf:"bytes,25,opt,name=podcast_uuids,json=podcastUuids,proto3" json:"podcast_uuids,omitempty"`
+	EpisodeUuids               *wrapperspb.StringValue `protobuf:"bytes,26,opt,name=episode_uuids,json=episodeUuids,proto3" json:"episode_uuids,omitempty"`
+	AudioVideo                 *wrapperspb.Int32Value  `protobuf:"bytes,27,opt,name=audio_video,json=audioVideo,proto3" json:"audio_video,omitempty"`
+	NotDownloaded              *wrapperspb.BoolValue   `protobuf:"bytes,28,opt,name=not_downloaded,json=notDownloaded,proto3" json:"not_downloaded,omitempty"`
+	Downloaded                 *wrapperspb.BoolValue   `protobuf:"bytes,29,opt,name=downloaded,proto3" json:"downloaded,omitempty"`
+	Downloading                *wrapperspb.BoolValue   `protobuf:"bytes,30,opt,name=downloading,proto3" json:"downloading,omitempty"`
+	Finished                   *wrapperspb.BoolValue   `protobuf:"bytes,31,opt,name=finished,proto3" json:"finished,omitempty"`
+	PartiallyPlayed            *wrapperspb.BoolValue   `protobuf:"bytes,32,opt,name=partially_played,json=partiallyPlayed,proto3" json:"partially_played,omitempty"`
+	Unplayed                   *wrapperspb.BoolValue   `protobuf:"bytes,33,opt,name=unplayed,proto3" json:"unplayed,omitempty"`
+	Manual                     *wrapperspb.BoolValue   `protobuf:"bytes,34,opt,name=manual,proto3" json:"manual,omitempty"`
+	SortPosition               *wrapperspb.Int32Value  `protobuf:"bytes,35,opt,name=sort_position,json=sortPosition,proto3" json:"sort_position,omitempty"`
+	SortType                   *wrapperspb.Int32Value  `protobuf:"bytes,36,opt,name=sort_type,json=sortType,proto3" json:"sort_type,omitempty"`
+	IconId                     *wrapperspb.Int32Value  `protobuf:"bytes,37,opt,name=icon_id,json=iconId,proto3" json:"icon_id,omitempty"`
+	FilterHours                *wrapperspb.Int32Value  `protobuf:"bytes,38,opt,name=filter_hours,json=filterHours,proto3" json:"filter_hours,omitempty"`
+	AutoSkipLast               *wrapperspb.Int32Value  `protobuf:"bytes,39,opt,name=auto_skip_last,json=autoSkipLast,proto3" json:"auto_skip_last,omitempty"`
+	FilterDuration             *wrapperspb.BoolValue   `protobuf:"bytes,40,opt,name=filter_duration,json=filterDuration,proto3" json:"filter_duration,omitempty"`
+	LongerThan                 *wrapperspb.Int32Value  `protobuf:"bytes,41,opt,name=longer_than,json=longerThan,proto3" json:"longer_than,omitempty"`
+	ShorterThan                *wrapperspb.Int32Value  `protobuf:"bytes,42,opt,name=shorter_than,json=shorterThan,proto3" json:"shorter_than,omitempty"`
+	FolderUuid                 *wrapperspb.StringValue `protobuf:"bytes,43,opt,name=folder_uuid,json=folderUuid,proto3" json:"folder_uuid,omitempty"`
+	Name                       *wrapperspb.StringValue `protobuf:"bytes,44,opt,name=name,proto3" json:"name,omitempty"`
+	Color                      *wrapperspb.Int32Value  `protobuf:"bytes,45,opt,name=color,proto3" json:"color,omitempty"`
+	PodcastsSortType           *wrapperspb.Int32Value  `protobuf:"bytes,46,opt,name=podcasts_sort_type,json=podcastsSortType,proto3" json:"podcasts_sort_type,omitempty"`
+	DateAdded                  *timestamppb.Timestamp  `protobuf:"bytes,47,opt,name=date_added,json=dateAdded,proto3" json:"date_added,omitempty"`
+	BookmarkUuid               *wrapperspb.StringValue `protobuf:"bytes,48,opt,name=bookmark_uuid,json=bookmarkUuid,proto3" json:"bookmark_uuid,omitempty"`
+	Time                       *wrapperspb.Int32Value  `protobuf:"bytes,49,opt,name=time,proto3" json:"time,omitempty"`
+	TitleModified              *wrapperspb.Int64Value  `protobuf:"bytes,50,opt,name=title_modified,json=titleModified,proto3" json:"title_modified,omitempty"`
+	CreatedAt                  *timestamppb.Timestamp  `protobuf:"bytes,51,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	DeselectedChapters         *wrapperspb.StringValue `protobuf:"bytes,52,opt,name=deselected_chapters,json=deselectedChapters,proto3" json:"deselected_chapters,omitempty"`
+	DeselectedChaptersModified *wrapperspb.Int64Value  `protobuf:"bytes,53,opt,name=deselected_chapters_modified,json=deselectedChaptersModified,proto3" json:"deselected_chapters_modified,omitempty"`
+	EpisodeOrder               []string                `protobuf:"bytes,54,rep,name=episode_order,json=episodeOrder,proto3" json:"episode_order,omitempty"`
+	Episodes                   []*SyncPlaylistEpisode  `protobuf:"bytes,55,rep,name=episodes,proto3" json:"episodes,omitempty"`
+	ShowArchived               *wrapperspb.BoolValue   `protobuf:"bytes,56,opt,name=show_archived,json=showArchived,proto3" json:"show_archived,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
+func (x *LegacyResponseRecord) Reset() {
+	*x = LegacyResponseRecord{}
+	mi := &file_api_proto_msgTypes[109]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacyResponseRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacyResponseRecord) ProtoMessage() {}
+
+func (x *LegacyResponseRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[109]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacyResponseRecord.ProtoReflect.Descriptor instead.
+func (*LegacyResponseRecord) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{109}
+}
+
+func (x *LegacyResponseRecord) GetUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Uuid
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetUserPodcastUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.UserPodcastUuid
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetEpisodeUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.EpisodeUuid
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetPodcastUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.PodcastUuid
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetIsDeleted() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.IsDeleted
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetIsDeletedModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.IsDeletedModified
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetDuration() *wrapperspb.DoubleValue {
+	if x != nil {
+		return x.Duration
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetDurationModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.DurationModified
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetPlayingStatus() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.PlayingStatus
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetPlayingStatusModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.PlayingStatusModified
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetPlayedUpTo() *wrapperspb.DoubleValue {
+	if x != nil {
+		return x.PlayedUpTo
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetPlayedUpToModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.PlayedUpToModified
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetStarred() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.Starred
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetStarredModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.StarredModified
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetTimesStartedAt() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.TimesStartedAt
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetTimeSilenceRemoval() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.TimeSilenceRemoval
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetTimeVariableSpeed() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.TimeVariableSpeed
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetTimeIntroSkipping() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.TimeIntroSkipping
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetTimeSkipping() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.TimeSkipping
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetTimeListened() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.TimeListened
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetAutoStartFrom() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.AutoStartFrom
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetSubscribed() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.Subscribed
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetTitle() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Title
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetAllPodcasts() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.AllPodcasts
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetPodcastUuids() *wrapperspb.StringValue {
+	if x != nil {
+		return x.PodcastUuids
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetEpisodeUuids() *wrapperspb.StringValue {
+	if x != nil {
+		return x.EpisodeUuids
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetAudioVideo() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.AudioVideo
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetNotDownloaded() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.NotDownloaded
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetDownloaded() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.Downloaded
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetDownloading() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.Downloading
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetFinished() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.Finished
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetPartiallyPlayed() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.PartiallyPlayed
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetUnplayed() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.Unplayed
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetManual() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.Manual
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetSortPosition() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.SortPosition
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetSortType() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.SortType
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetIconId() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.IconId
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetFilterHours() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.FilterHours
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetAutoSkipLast() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.AutoSkipLast
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetFilterDuration() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.FilterDuration
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetLongerThan() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.LongerThan
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetShorterThan() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.ShorterThan
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetFolderUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.FolderUuid
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetName() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Name
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetColor() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.Color
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetPodcastsSortType() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.PodcastsSortType
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetDateAdded() *timestamppb.Timestamp {
+	if x != nil {
+		return x.DateAdded
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetBookmarkUuid() *wrapperspb.StringValue {
+	if x != nil {
+		return x.BookmarkUuid
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetTime() *wrapperspb.Int32Value {
+	if x != nil {
+		return x.Time
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetTitleModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.TitleModified
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetDeselectedChapters() *wrapperspb.StringValue {
+	if x != nil {
+		return x.DeselectedChapters
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetDeselectedChaptersModified() *wrapperspb.Int64Value {
+	if x != nil {
+		return x.DeselectedChaptersModified
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetEpisodeOrder() []string {
+	if x != nil {
+		return x.EpisodeOrder
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetEpisodes() []*SyncPlaylistEpisode {
+	if x != nil {
+		return x.Episodes
+	}
+	return nil
+}
+
+func (x *LegacyResponseRecord) GetShowArchived() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.ShowArchived
+	}
+	return nil
+}
+
+type LegacyStatsResponse struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	TimesStartedAt     int32                  `protobuf:"varint,1,opt,name=times_started_at,json=timesStartedAt,proto3" json:"times_started_at,omitempty"`
+	TimeSilenceRemoval int32                  `protobuf:"varint,2,opt,name=time_silence_removal,json=timeSilenceRemoval,proto3" json:"time_silence_removal,omitempty"`
+	TimeVariableSpeed  int32                  `protobuf:"varint,3,opt,name=time_variable_speed,json=timeVariableSpeed,proto3" json:"time_variable_speed,omitempty"`
+	TimeIntroSkipping  int32                  `protobuf:"varint,4,opt,name=time_intro_skipping,json=timeIntroSkipping,proto3" json:"time_intro_skipping,omitempty"`
+	TimeSkipping       int32                  `protobuf:"varint,5,opt,name=time_skipping,json=timeSkipping,proto3" json:"time_skipping,omitempty"`
+	TimeListened       int32                  `protobuf:"varint,6,opt,name=time_listened,json=timeListened,proto3" json:"time_listened,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *LegacyStatsResponse) Reset() {
+	*x = LegacyStatsResponse{}
+	mi := &file_api_proto_msgTypes[110]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacyStatsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacyStatsResponse) ProtoMessage() {}
+
+func (x *LegacyStatsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[110]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacyStatsResponse.ProtoReflect.Descriptor instead.
+func (*LegacyStatsResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{110}
+}
+
+func (x *LegacyStatsResponse) GetTimesStartedAt() int32 {
+	if x != nil {
+		return x.TimesStartedAt
+	}
+	return 0
+}
+
+func (x *LegacyStatsResponse) GetTimeSilenceRemoval() int32 {
+	if x != nil {
+		return x.TimeSilenceRemoval
+	}
+	return 0
+}
+
+func (x *LegacyStatsResponse) GetTimeVariableSpeed() int32 {
+	if x != nil {
+		return x.TimeVariableSpeed
+	}
+	return 0
+}
+
+func (x *LegacyStatsResponse) GetTimeIntroSkipping() int32 {
+	if x != nil {
+		return x.TimeIntroSkipping
+	}
+	return 0
+}
+
+func (x *LegacyStatsResponse) GetTimeSkipping() int32 {
+	if x != nil {
+		return x.TimeSkipping
+	}
+	return 0
+}
+
+func (x *LegacyStatsResponse) GetTimeListened() int32 {
+	if x != nil {
+		return x.TimeListened
+	}
+	return 0
+}
+
+type LegacySyncData struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Records       []*LegacySyncRecord    `protobuf:"bytes,4,rep,name=records,proto3" json:"records,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LegacySyncData) Reset() {
+	*x = LegacySyncData{}
+	mi := &file_api_proto_msgTypes[111]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacySyncData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacySyncData) ProtoMessage() {}
+
+func (x *LegacySyncData) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[111]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacySyncData.ProtoReflect.Descriptor instead.
+func (*LegacySyncData) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{111}
+}
+
+func (x *LegacySyncData) GetRecords() []*LegacySyncRecord {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+type LegacySyncRecord struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	Fields        *LegacyRecord          `protobuf:"bytes,2,opt,name=fields,proto3" json:"fields,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LegacySyncRecord) Reset() {
+	*x = LegacySyncRecord{}
+	mi := &file_api_proto_msgTypes[112]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacySyncRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacySyncRecord) ProtoMessage() {}
+
+func (x *LegacySyncRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[112]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacySyncRecord.ProtoReflect.Descriptor instead.
+func (*LegacySyncRecord) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{112}
+}
+
+func (x *LegacySyncRecord) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *LegacySyncRecord) GetFields() *LegacyRecord {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+type LegacySyncResponse struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	LastModified  string                      `protobuf:"bytes,1,opt,name=last_modified,json=lastModified,proto3" json:"last_modified,omitempty"`
+	Changes       []*LegacySyncResponseRecord `protobuf:"bytes,2,rep,name=changes,proto3" json:"changes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LegacySyncResponse) Reset() {
+	*x = LegacySyncResponse{}
+	mi := &file_api_proto_msgTypes[113]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacySyncResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacySyncResponse) ProtoMessage() {}
+
+func (x *LegacySyncResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[113]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacySyncResponse.ProtoReflect.Descriptor instead.
+func (*LegacySyncResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{113}
+}
+
+func (x *LegacySyncResponse) GetLastModified() string {
+	if x != nil {
+		return x.LastModified
+	}
+	return ""
+}
+
+func (x *LegacySyncResponse) GetChanges() []*LegacySyncResponseRecord {
+	if x != nil {
+		return x.Changes
+	}
+	return nil
+}
+
+type LegacySyncResponseRecord struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	Fields        *LegacyResponseRecord  `protobuf:"bytes,2,opt,name=fields,proto3" json:"fields,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LegacySyncResponseRecord) Reset() {
+	*x = LegacySyncResponseRecord{}
+	mi := &file_api_proto_msgTypes[114]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacySyncResponseRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacySyncResponseRecord) ProtoMessage() {}
+
+func (x *LegacySyncResponseRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[114]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacySyncResponseRecord.ProtoReflect.Descriptor instead.
+func (*LegacySyncResponseRecord) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{114}
+}
+
+func (x *LegacySyncResponseRecord) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *LegacySyncResponseRecord) GetFields() *LegacyResponseRecord {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+type PaymentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PaymentDate   string                 `protobuf:"bytes,1,opt,name=payment_date,json=paymentDate,proto3" json:"payment_date,omitempty"`
+	Amount        float64                `protobuf:"fixed64,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	Currency      string                 `protobuf:"bytes,3,opt,name=currency,proto3" json:"currency,omitempty"`
+	Date          *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=date,proto3" json:"date,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PaymentResponse) Reset() {
+	*x = PaymentResponse{}
+	mi := &file_api_proto_msgTypes[115]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PaymentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PaymentResponse) ProtoMessage() {}
+
+func (x *PaymentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[115]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PaymentResponse.ProtoReflect.Descriptor instead.
+func (*PaymentResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{115}
+}
+
+func (x *PaymentResponse) GetPaymentDate() string {
+	if x != nil {
+		return x.PaymentDate
+	}
+	return ""
+}
+
+func (x *PaymentResponse) GetAmount() float64 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
+func (x *PaymentResponse) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *PaymentResponse) GetDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Date
+	}
+	return nil
+}
+
+type PlaylistCreateRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Playlist      *SyncUserPlaylist      `protobuf:"bytes,1,opt,name=playlist,proto3" json:"playlist,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlaylistCreateRequest) Reset() {
+	*x = PlaylistCreateRequest{}
+	mi := &file_api_proto_msgTypes[116]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlaylistCreateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlaylistCreateRequest) ProtoMessage() {}
+
+func (x *PlaylistCreateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[116]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlaylistCreateRequest.ProtoReflect.Descriptor instead.
+func (*PlaylistCreateRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{116}
+}
+
+func (x *PlaylistCreateRequest) GetPlaylist() *SyncUserPlaylist {
+	if x != nil {
+		return x.Playlist
+	}
+	return nil
+}
+
+type PlaylistReorderRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PlaylistUuids []string               `protobuf:"bytes,1,rep,name=playlist_uuids,json=playlistUuids,proto3" json:"playlist_uuids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlaylistReorderRequest) Reset() {
+	*x = PlaylistReorderRequest{}
+	mi := &file_api_proto_msgTypes[117]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlaylistReorderRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlaylistReorderRequest) ProtoMessage() {}
+
+func (x *PlaylistReorderRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[117]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlaylistReorderRequest.ProtoReflect.Descriptor instead.
+func (*PlaylistReorderRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{117}
+}
+
+func (x *PlaylistReorderRequest) GetPlaylistUuids() []string {
+	if x != nil {
+		return x.PlaylistUuids
+	}
+	return nil
+}
+
+type PodcastFolderRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Model         string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	Folder        *PodcastFolder         `protobuf:"bytes,3,opt,name=folder,proto3" json:"folder,omitempty"`
+	Podcasts      []string               `protobuf:"bytes,4,rep,name=podcasts,proto3" json:"podcasts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PodcastFolderRequest) Reset() {
+	*x = PodcastFolderRequest{}
+	mi := &file_api_proto_msgTypes[118]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PodcastFolderRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PodcastFolderRequest) ProtoMessage() {}
+
+func (x *PodcastFolderRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[118]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PodcastFolderRequest.ProtoReflect.Descriptor instead.
+func (*PodcastFolderRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{118}
+}
+
+func (x *PodcastFolderRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *PodcastFolderRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *PodcastFolderRequest) GetFolder() *PodcastFolder {
+	if x != nil {
+		return x.Folder
+	}
+	return nil
+}
+
+func (x *PodcastFolderRequest) GetPodcasts() []string {
+	if x != nil {
+		return x.Podcasts
+	}
+	return nil
+}
+
+type PodcastFolderSortRequest struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Version       string                  `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Model         string                  `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	Podcasts      []*PodcastFolderSorting `protobuf:"bytes,3,rep,name=podcasts,proto3" json:"podcasts,omitempty"`
+	Folders       []*PodcastFolderSorting `protobuf:"bytes,4,rep,name=folders,proto3" json:"folders,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PodcastFolderSortRequest) Reset() {
+	*x = PodcastFolderSortRequest{}
+	mi := &file_api_proto_msgTypes[119]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PodcastFolderSortRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PodcastFolderSortRequest) ProtoMessage() {}
+
+func (x *PodcastFolderSortRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[119]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PodcastFolderSortRequest.ProtoReflect.Descriptor instead.
+func (*PodcastFolderSortRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{119}
+}
+
+func (x *PodcastFolderSortRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *PodcastFolderSortRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *PodcastFolderSortRequest) GetPodcasts() []*PodcastFolderSorting {
+	if x != nil {
+		return x.Podcasts
+	}
+	return nil
+}
+
+func (x *PodcastFolderSortRequest) GetFolders() []*PodcastFolderSorting {
+	if x != nil {
+		return x.Folders
+	}
+	return nil
+}
+
+type PodcastFolderSorting struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Position      int32                  `protobuf:"varint,2,opt,name=position,proto3" json:"position,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PodcastFolderSorting) Reset() {
+	*x = PodcastFolderSorting{}
+	mi := &file_api_proto_msgTypes[120]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PodcastFolderSorting) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PodcastFolderSorting) ProtoMessage() {}
+
+func (x *PodcastFolderSorting) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[120]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PodcastFolderSorting.ProtoReflect.Descriptor instead.
+func (*PodcastFolderSorting) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{120}
+}
+
+func (x *PodcastFolderSorting) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *PodcastFolderSorting) GetPosition() int32 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+type PodcastPair struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	MasterPodcastUuid string                 `protobuf:"bytes,1,opt,name=master_podcast_uuid,json=masterPodcastUuid,proto3" json:"master_podcast_uuid,omitempty"`
+	UserPodcastUuid   string                 `protobuf:"bytes,2,opt,name=user_podcast_uuid,json=userPodcastUuid,proto3" json:"user_podcast_uuid,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *PodcastPair) Reset() {
+	*x = PodcastPair{}
+	mi := &file_api_proto_msgTypes[121]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PodcastPair) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PodcastPair) ProtoMessage() {}
+
+func (x *PodcastPair) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[121]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PodcastPair.ProtoReflect.Descriptor instead.
+func (*PodcastPair) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{121}
+}
+
+func (x *PodcastPair) GetMasterPodcastUuid() string {
+	if x != nil {
+		return x.MasterPodcastUuid
+	}
+	return ""
+}
+
+func (x *PodcastPair) GetUserPodcastUuid() string {
+	if x != nil {
+		return x.UserPodcastUuid
+	}
+	return ""
+}
+
+type PodcastRatingAggregateResponse struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	PodcastUuid         string                 `protobuf:"bytes,1,opt,name=podcast_uuid,json=podcastUuid,proto3" json:"podcast_uuid,omitempty"`
+	PodcastRatingsCount uint64                 `protobuf:"varint,2,opt,name=podcast_ratings_count,json=podcastRatingsCount,proto3" json:"podcast_ratings_count,omitempty"`
+	PodcastRatingsTotal uint64                 `protobuf:"varint,3,opt,name=podcast_ratings_total,json=podcastRatingsTotal,proto3" json:"podcast_ratings_total,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *PodcastRatingAggregateResponse) Reset() {
+	*x = PodcastRatingAggregateResponse{}
+	mi := &file_api_proto_msgTypes[122]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PodcastRatingAggregateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PodcastRatingAggregateResponse) ProtoMessage() {}
+
+func (x *PodcastRatingAggregateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[122]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PodcastRatingAggregateResponse.ProtoReflect.Descriptor instead.
+func (*PodcastRatingAggregateResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{122}
+}
+
+func (x *PodcastRatingAggregateResponse) GetPodcastUuid() string {
+	if x != nil {
+		return x.PodcastUuid
+	}
+	return ""
+}
+
+func (x *PodcastRatingAggregateResponse) GetPodcastRatingsCount() uint64 {
+	if x != nil {
+		return x.PodcastRatingsCount
+	}
+	return 0
+}
+
+func (x *PodcastRatingAggregateResponse) GetPodcastRatingsTotal() uint64 {
+	if x != nil {
+		return x.PodcastRatingsTotal
+	}
+	return 0
+}
+
+type PodcastRatingUpdateRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PodcastRating uint32                 `protobuf:"varint,1,opt,name=podcast_rating,json=podcastRating,proto3" json:"podcast_rating,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PodcastRatingUpdateRequest) Reset() {
+	*x = PodcastRatingUpdateRequest{}
+	mi := &file_api_proto_msgTypes[123]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PodcastRatingUpdateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PodcastRatingUpdateRequest) ProtoMessage() {}
+
+func (x *PodcastRatingUpdateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[123]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PodcastRatingUpdateRequest.ProtoReflect.Descriptor instead.
+func (*PodcastRatingUpdateRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{123}
+}
+
+func (x *PodcastRatingUpdateRequest) GetPodcastRating() uint32 {
+	if x != nil {
+		return x.PodcastRating
+	}
+	return 0
+}
+
+type PodcastSubscriptionCheckRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserUuid      string                 `protobuf:"bytes,1,opt,name=user_uuid,json=userUuid,proto3" json:"user_uuid,omitempty"`
+	PodcastUuid   string                 `protobuf:"bytes,2,opt,name=podcast_uuid,json=podcastUuid,proto3" json:"podcast_uuid,omitempty"`
+	Platform      int32                  `protobuf:"varint,3,opt,name=platform,proto3" json:"platform,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PodcastSubscriptionCheckRequest) Reset() {
+	*x = PodcastSubscriptionCheckRequest{}
+	mi := &file_api_proto_msgTypes[124]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PodcastSubscriptionCheckRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PodcastSubscriptionCheckRequest) ProtoMessage() {}
+
+func (x *PodcastSubscriptionCheckRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[124]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PodcastSubscriptionCheckRequest.ProtoReflect.Descriptor instead.
+func (*PodcastSubscriptionCheckRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{124}
+}
+
+func (x *PodcastSubscriptionCheckRequest) GetUserUuid() string {
+	if x != nil {
+		return x.UserUuid
+	}
+	return ""
+}
+
+func (x *PodcastSubscriptionCheckRequest) GetPodcastUuid() string {
+	if x != nil {
+		return x.PodcastUuid
+	}
+	return ""
+}
+
+func (x *PodcastSubscriptionCheckRequest) GetPlatform() int32 {
+	if x != nil {
+		return x.Platform
+	}
+	return 0
+}
+
+type PodcastSubscriptionCheckResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Paid          bool                   `protobuf:"varint,1,opt,name=paid,proto3" json:"paid,omitempty"`
+	UserExists    bool                   `protobuf:"varint,2,opt,name=user_exists,json=userExists,proto3" json:"user_exists,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PodcastSubscriptionCheckResponse) Reset() {
+	*x = PodcastSubscriptionCheckResponse{}
+	mi := &file_api_proto_msgTypes[125]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PodcastSubscriptionCheckResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PodcastSubscriptionCheckResponse) ProtoMessage() {}
+
+func (x *PodcastSubscriptionCheckResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[125]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PodcastSubscriptionCheckResponse.ProtoReflect.Descriptor instead.
+func (*PodcastSubscriptionCheckResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{125}
+}
+
+func (x *PodcastSubscriptionCheckResponse) GetPaid() bool {
+	if x != nil {
+		return x.Paid
+	}
+	return false
+}
+
+func (x *PodcastSubscriptionCheckResponse) GetUserExists() bool {
+	if x != nil {
+		return x.UserExists
+	}
+	return false
+}
+
+type Promotion struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"` // Swift renames to description_p (NSObject collision)
+	StartsAt      string                 `protobuf:"bytes,3,opt,name=starts_at,json=startsAt,proto3" json:"starts_at,omitempty"`
+	EndsAt        string                 `protobuf:"bytes,4,opt,name=ends_at,json=endsAt,proto3" json:"ends_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Promotion) Reset() {
+	*x = Promotion{}
+	mi := &file_api_proto_msgTypes[126]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Promotion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Promotion) ProtoMessage() {}
+
+func (x *Promotion) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[126]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Promotion.ProtoReflect.Descriptor instead.
+func (*Promotion) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{126}
+}
+
+func (x *Promotion) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *Promotion) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *Promotion) GetStartsAt() string {
+	if x != nil {
+		return x.StartsAt
+	}
+	return ""
+}
+
+func (x *Promotion) GetEndsAt() string {
+	if x != nil {
+		return x.EndsAt
+	}
+	return ""
+}
+
+type PromotionCode struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PromotionCode) Reset() {
+	*x = PromotionCode{}
+	mi := &file_api_proto_msgTypes[127]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PromotionCode) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PromotionCode) ProtoMessage() {}
+
+func (x *PromotionCode) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[127]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PromotionCode.ProtoReflect.Descriptor instead.
+func (*PromotionCode) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{127}
+}
+
+func (x *PromotionCode) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+type ReferralCode struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReferralCode) Reset() {
+	*x = ReferralCode{}
+	mi := &file_api_proto_msgTypes[128]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReferralCode) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReferralCode) ProtoMessage() {}
+
+func (x *ReferralCode) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[128]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReferralCode.ProtoReflect.Descriptor instead.
+func (*ReferralCode) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{128}
+}
+
+func (x *ReferralCode) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *ReferralCode) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+type ReferralRedemption struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReferralRedemption) Reset() {
+	*x = ReferralRedemption{}
+	mi := &file_api_proto_msgTypes[129]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReferralRedemption) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReferralRedemption) ProtoMessage() {}
+
+func (x *ReferralRedemption) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[129]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReferralRedemption.ProtoReflect.Descriptor instead.
+func (*ReferralRedemption) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{129}
+}
+
+func (x *ReferralRedemption) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+type SearchPodcastsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Term          string                 `protobuf:"bytes,1,opt,name=term,proto3" json:"term,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchPodcastsRequest) Reset() {
+	*x = SearchPodcastsRequest{}
+	mi := &file_api_proto_msgTypes[130]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchPodcastsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchPodcastsRequest) ProtoMessage() {}
+
+func (x *SearchPodcastsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[130]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchPodcastsRequest.ProtoReflect.Descriptor instead.
+func (*SearchPodcastsRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{130}
+}
+
+func (x *SearchPodcastsRequest) GetTerm() string {
+	if x != nil {
+		return x.Term
+	}
+	return ""
+}
+
+type SubscriptionResponse struct {
+	state         protoimpl.MessageState          `protogen:"open.v1"`
+	Platform      *int32                          `protobuf:"varint,1,opt,name=platform,proto3,oneof" json:"platform,omitempty"`
+	Type          *int32                          `protobuf:"varint,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
+	Frequency     *int32                          `protobuf:"varint,3,opt,name=frequency,proto3,oneof" json:"frequency,omitempty"`
+	AutoRenewing  *bool                           `protobuf:"varint,4,opt,name=auto_renewing,json=autoRenewing,proto3,oneof" json:"auto_renewing,omitempty"`
+	ExpiryDate    *timestamppb.Timestamp          `protobuf:"bytes,5,opt,name=expiry_date,json=expiryDate,proto3" json:"expiry_date,omitempty"`
+	CancelUrl     *string                         `protobuf:"bytes,7,opt,name=cancel_url,json=cancelUrl,proto3,oneof" json:"cancel_url,omitempty"`
+	UpdateUrl     *string                         `protobuf:"bytes,8,opt,name=update_url,json=updateUrl,proto3,oneof" json:"update_url,omitempty"`
+	Web           *SubscriptionsWebStatusResponse `protobuf:"bytes,9,opt,name=web,proto3" json:"web,omitempty"`
+	Plan          *string                         `protobuf:"bytes,10,opt,name=plan,proto3,oneof" json:"plan,omitempty"`
+	Index         *int32                          `protobuf:"varint,11,opt,name=index,proto3,oneof" json:"index,omitempty"`
+	GiftDays      *int32                          `protobuf:"varint,12,opt,name=gift_days,json=giftDays,proto3,oneof" json:"gift_days,omitempty"`
+	Paid          *int32                          `protobuf:"varint,13,opt,name=paid,proto3,oneof" json:"paid,omitempty"`
+	WebStatus     *int32                          `protobuf:"varint,14,opt,name=web_status,json=webStatus,proto3,oneof" json:"web_status,omitempty"`
+	BundleUuid    *string                         `protobuf:"bytes,15,opt,name=bundle_uuid,json=bundleUuid,proto3,oneof" json:"bundle_uuid,omitempty"`
+	Podcasts      []*PodcastPair                  `protobuf:"bytes,16,rep,name=podcasts,proto3" json:"podcasts,omitempty"`
+	Eligible      *bool                           `protobuf:"varint,17,opt,name=eligible,proto3,oneof" json:"eligible,omitempty"`
+	NextPayment   *PaymentResponse                `protobuf:"bytes,18,opt,name=next_payment,json=nextPayment,proto3" json:"next_payment,omitempty"`
+	Tier          *string                         `protobuf:"bytes,19,opt,name=tier,proto3,oneof" json:"tier,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscriptionResponse) Reset() {
+	*x = SubscriptionResponse{}
+	mi := &file_api_proto_msgTypes[131]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscriptionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscriptionResponse) ProtoMessage() {}
+
+func (x *SubscriptionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[131]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscriptionResponse.ProtoReflect.Descriptor instead.
+func (*SubscriptionResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{131}
+}
+
+func (x *SubscriptionResponse) GetPlatform() int32 {
+	if x != nil && x.Platform != nil {
+		return *x.Platform
+	}
+	return 0
+}
+
+func (x *SubscriptionResponse) GetType() int32 {
+	if x != nil && x.Type != nil {
+		return *x.Type
+	}
+	return 0
+}
+
+func (x *SubscriptionResponse) GetFrequency() int32 {
+	if x != nil && x.Frequency != nil {
+		return *x.Frequency
+	}
+	return 0
+}
+
+func (x *SubscriptionResponse) GetAutoRenewing() bool {
+	if x != nil && x.AutoRenewing != nil {
+		return *x.AutoRenewing
+	}
+	return false
+}
+
+func (x *SubscriptionResponse) GetExpiryDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiryDate
+	}
+	return nil
+}
+
+func (x *SubscriptionResponse) GetCancelUrl() string {
+	if x != nil && x.CancelUrl != nil {
+		return *x.CancelUrl
+	}
+	return ""
+}
+
+func (x *SubscriptionResponse) GetUpdateUrl() string {
+	if x != nil && x.UpdateUrl != nil {
+		return *x.UpdateUrl
+	}
+	return ""
+}
+
+func (x *SubscriptionResponse) GetWeb() *SubscriptionsWebStatusResponse {
+	if x != nil {
+		return x.Web
+	}
+	return nil
+}
+
+func (x *SubscriptionResponse) GetPlan() string {
+	if x != nil && x.Plan != nil {
+		return *x.Plan
+	}
+	return ""
+}
+
+func (x *SubscriptionResponse) GetIndex() int32 {
+	if x != nil && x.Index != nil {
+		return *x.Index
+	}
+	return 0
+}
+
+func (x *SubscriptionResponse) GetGiftDays() int32 {
+	if x != nil && x.GiftDays != nil {
+		return *x.GiftDays
+	}
+	return 0
+}
+
+func (x *SubscriptionResponse) GetPaid() int32 {
+	if x != nil && x.Paid != nil {
+		return *x.Paid
+	}
+	return 0
+}
+
+func (x *SubscriptionResponse) GetWebStatus() int32 {
+	if x != nil && x.WebStatus != nil {
+		return *x.WebStatus
+	}
+	return 0
+}
+
+func (x *SubscriptionResponse) GetBundleUuid() string {
+	if x != nil && x.BundleUuid != nil {
+		return *x.BundleUuid
+	}
+	return ""
+}
+
+func (x *SubscriptionResponse) GetPodcasts() []*PodcastPair {
+	if x != nil {
+		return x.Podcasts
+	}
+	return nil
+}
+
+func (x *SubscriptionResponse) GetEligible() bool {
+	if x != nil && x.Eligible != nil {
+		return *x.Eligible
+	}
+	return false
+}
+
+func (x *SubscriptionResponse) GetNextPayment() *PaymentResponse {
+	if x != nil {
+		return x.NextPayment
+	}
+	return nil
+}
+
+func (x *SubscriptionResponse) GetTier() string {
+	if x != nil && x.Tier != nil {
+		return *x.Tier
+	}
+	return ""
+}
+
+type SubscriptionsPurchaseAndroidRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	PurchaseToken   string                 `protobuf:"bytes,1,opt,name=purchase_token,json=purchaseToken,proto3" json:"purchase_token,omitempty"`
+	Sku             string                 `protobuf:"bytes,2,opt,name=sku,proto3" json:"sku,omitempty"`
+	NewsletterOptIn bool                   `protobuf:"varint,3,opt,name=newsletter_opt_in,json=newsletterOptIn,proto3" json:"newsletter_opt_in,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SubscriptionsPurchaseAndroidRequest) Reset() {
+	*x = SubscriptionsPurchaseAndroidRequest{}
+	mi := &file_api_proto_msgTypes[132]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscriptionsPurchaseAndroidRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscriptionsPurchaseAndroidRequest) ProtoMessage() {}
+
+func (x *SubscriptionsPurchaseAndroidRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[132]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscriptionsPurchaseAndroidRequest.ProtoReflect.Descriptor instead.
+func (*SubscriptionsPurchaseAndroidRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{132}
+}
+
+func (x *SubscriptionsPurchaseAndroidRequest) GetPurchaseToken() string {
+	if x != nil {
+		return x.PurchaseToken
+	}
+	return ""
+}
+
+func (x *SubscriptionsPurchaseAndroidRequest) GetSku() string {
+	if x != nil {
+		return x.Sku
+	}
+	return ""
+}
+
+func (x *SubscriptionsPurchaseAndroidRequest) GetNewsletterOptIn() bool {
+	if x != nil {
+		return x.NewsletterOptIn
+	}
+	return false
+}
+
+type SubscriptionsPurchaseAppleRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Receipt         string                 `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	NewsletterOptIn bool                   `protobuf:"varint,2,opt,name=newsletter_opt_in,json=newsletterOptIn,proto3" json:"newsletter_opt_in,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SubscriptionsPurchaseAppleRequest) Reset() {
+	*x = SubscriptionsPurchaseAppleRequest{}
+	mi := &file_api_proto_msgTypes[133]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscriptionsPurchaseAppleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscriptionsPurchaseAppleRequest) ProtoMessage() {}
+
+func (x *SubscriptionsPurchaseAppleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[133]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscriptionsPurchaseAppleRequest.ProtoReflect.Descriptor instead.
+func (*SubscriptionsPurchaseAppleRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{133}
+}
+
+func (x *SubscriptionsPurchaseAppleRequest) GetReceipt() string {
+	if x != nil {
+		return x.Receipt
+	}
+	return ""
+}
+
+func (x *SubscriptionsPurchaseAppleRequest) GetNewsletterOptIn() bool {
+	if x != nil {
+		return x.NewsletterOptIn
+	}
+	return false
+}
+
+type SubscriptionsPurchaseWebRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	TransactionId   string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	Email           string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	PaddleUserId    int64                  `protobuf:"varint,3,opt,name=paddle_user_id,json=paddleUserId,proto3" json:"paddle_user_id,omitempty"`
+	ProductId       string                 `protobuf:"bytes,4,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
+	NewsletterOptIn bool                   `protobuf:"varint,5,opt,name=newsletter_opt_in,json=newsletterOptIn,proto3" json:"newsletter_opt_in,omitempty"`
+	SubscriptionId  int64                  `protobuf:"varint,6,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SubscriptionsPurchaseWebRequest) Reset() {
+	*x = SubscriptionsPurchaseWebRequest{}
+	mi := &file_api_proto_msgTypes[134]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscriptionsPurchaseWebRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscriptionsPurchaseWebRequest) ProtoMessage() {}
+
+func (x *SubscriptionsPurchaseWebRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[134]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscriptionsPurchaseWebRequest.ProtoReflect.Descriptor instead.
+func (*SubscriptionsPurchaseWebRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{134}
+}
+
+func (x *SubscriptionsPurchaseWebRequest) GetTransactionId() string {
+	if x != nil {
+		return x.TransactionId
+	}
+	return ""
+}
+
+func (x *SubscriptionsPurchaseWebRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *SubscriptionsPurchaseWebRequest) GetPaddleUserId() int64 {
+	if x != nil {
+		return x.PaddleUserId
+	}
+	return 0
+}
+
+func (x *SubscriptionsPurchaseWebRequest) GetProductId() string {
+	if x != nil {
+		return x.ProductId
+	}
+	return ""
+}
+
+func (x *SubscriptionsPurchaseWebRequest) GetNewsletterOptIn() bool {
+	if x != nil {
+		return x.NewsletterOptIn
+	}
+	return false
+}
+
+func (x *SubscriptionsPurchaseWebRequest) GetSubscriptionId() int64 {
+	if x != nil {
+		return x.SubscriptionId
+	}
+	return 0
+}
+
+type SubscriptionsStatusResponse struct {
+	state            protoimpl.MessageState          `protogen:"open.v1"`
+	Paid             *int32                          `protobuf:"varint,1,opt,name=paid,proto3,oneof" json:"paid,omitempty"`
+	Platform         *int32                          `protobuf:"varint,2,opt,name=platform,proto3,oneof" json:"platform,omitempty"`
+	ExpiryDate       *timestamppb.Timestamp          `protobuf:"bytes,3,opt,name=expiry_date,json=expiryDate,proto3" json:"expiry_date,omitempty"`
+	AutoRenewing     *bool                           `protobuf:"varint,4,opt,name=auto_renewing,json=autoRenewing,proto3,oneof" json:"auto_renewing,omitempty"`
+	GiftDays         *int32                          `protobuf:"varint,5,opt,name=gift_days,json=giftDays,proto3,oneof" json:"gift_days,omitempty"`
+	CancelUrl        *string                         `protobuf:"bytes,6,opt,name=cancel_url,json=cancelUrl,proto3,oneof" json:"cancel_url,omitempty"`
+	UpdateUrl        *string                         `protobuf:"bytes,7,opt,name=update_url,json=updateUrl,proto3,oneof" json:"update_url,omitempty"`
+	Frequency        *int32                          `protobuf:"varint,8,opt,name=frequency,proto3,oneof" json:"frequency,omitempty"`
+	Web              *SubscriptionsWebStatusResponse `protobuf:"bytes,9,opt,name=web,proto3" json:"web,omitempty"`
+	Subscriptions    []*SubscriptionResponse         `protobuf:"bytes,10,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"`
+	Type             *int32                          `protobuf:"varint,11,opt,name=type,proto3,oneof" json:"type,omitempty"`
+	Index            *int32                          `protobuf:"varint,12,opt,name=index,proto3,oneof" json:"index,omitempty"`
+	WebStatus        *int32                          `protobuf:"varint,13,opt,name=web_status,json=webStatus,proto3,oneof" json:"web_status,omitempty"`
+	Tier             *string                         `protobuf:"bytes,14,opt,name=tier,proto3,oneof" json:"tier,omitempty"`
+	Features         *Features                       `protobuf:"bytes,15,opt,name=features,proto3" json:"features,omitempty"`
+	CreatedAt        *timestamppb.Timestamp          `protobuf:"bytes,16,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	InstallmentBased *bool                           `protobuf:"varint,17,opt,name=installment_based,json=installmentBased,proto3,oneof" json:"installment_based,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SubscriptionsStatusResponse) Reset() {
+	*x = SubscriptionsStatusResponse{}
+	mi := &file_api_proto_msgTypes[135]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscriptionsStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscriptionsStatusResponse) ProtoMessage() {}
+
+func (x *SubscriptionsStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[135]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscriptionsStatusResponse.ProtoReflect.Descriptor instead.
+func (*SubscriptionsStatusResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{135}
+}
+
+func (x *SubscriptionsStatusResponse) GetPaid() int32 {
+	if x != nil && x.Paid != nil {
+		return *x.Paid
+	}
+	return 0
+}
+
+func (x *SubscriptionsStatusResponse) GetPlatform() int32 {
+	if x != nil && x.Platform != nil {
+		return *x.Platform
+	}
+	return 0
+}
+
+func (x *SubscriptionsStatusResponse) GetExpiryDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiryDate
+	}
+	return nil
+}
+
+func (x *SubscriptionsStatusResponse) GetAutoRenewing() bool {
+	if x != nil && x.AutoRenewing != nil {
+		return *x.AutoRenewing
+	}
+	return false
+}
+
+func (x *SubscriptionsStatusResponse) GetGiftDays() int32 {
+	if x != nil && x.GiftDays != nil {
+		return *x.GiftDays
+	}
+	return 0
+}
+
+func (x *SubscriptionsStatusResponse) GetCancelUrl() string {
+	if x != nil && x.CancelUrl != nil {
+		return *x.CancelUrl
+	}
+	return ""
+}
+
+func (x *SubscriptionsStatusResponse) GetUpdateUrl() string {
+	if x != nil && x.UpdateUrl != nil {
+		return *x.UpdateUrl
+	}
+	return ""
+}
+
+func (x *SubscriptionsStatusResponse) GetFrequency() int32 {
+	if x != nil && x.Frequency != nil {
+		return *x.Frequency
+	}
+	return 0
+}
+
+func (x *SubscriptionsStatusResponse) GetWeb() *SubscriptionsWebStatusResponse {
+	if x != nil {
+		return x.Web
+	}
+	return nil
+}
+
+func (x *SubscriptionsStatusResponse) GetSubscriptions() []*SubscriptionResponse {
+	if x != nil {
+		return x.Subscriptions
+	}
+	return nil
+}
+
+func (x *SubscriptionsStatusResponse) GetType() int32 {
+	if x != nil && x.Type != nil {
+		return *x.Type
+	}
+	return 0
+}
+
+func (x *SubscriptionsStatusResponse) GetIndex() int32 {
+	if x != nil && x.Index != nil {
+		return *x.Index
+	}
+	return 0
+}
+
+func (x *SubscriptionsStatusResponse) GetWebStatus() int32 {
+	if x != nil && x.WebStatus != nil {
+		return *x.WebStatus
+	}
+	return 0
+}
+
+func (x *SubscriptionsStatusResponse) GetTier() string {
+	if x != nil && x.Tier != nil {
+		return *x.Tier
+	}
+	return ""
+}
+
+func (x *SubscriptionsStatusResponse) GetFeatures() *Features {
+	if x != nil {
+		return x.Features
+	}
+	return nil
+}
+
+func (x *SubscriptionsStatusResponse) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *SubscriptionsStatusResponse) GetInstallmentBased() bool {
+	if x != nil && x.InstallmentBased != nil {
+		return *x.InstallmentBased
+	}
+	return false
+}
+
+type SubscriptionsWebProduct struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Monthly       int32                  `protobuf:"varint,1,opt,name=monthly,proto3" json:"monthly,omitempty"`
+	Yearly        int32                  `protobuf:"varint,2,opt,name=yearly,proto3" json:"yearly,omitempty"`
+	TrialDays     int32                  `protobuf:"varint,3,opt,name=trial_days,json=trialDays,proto3" json:"trial_days,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscriptionsWebProduct) Reset() {
+	*x = SubscriptionsWebProduct{}
+	mi := &file_api_proto_msgTypes[136]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscriptionsWebProduct) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscriptionsWebProduct) ProtoMessage() {}
+
+func (x *SubscriptionsWebProduct) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[136]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscriptionsWebProduct.ProtoReflect.Descriptor instead.
+func (*SubscriptionsWebProduct) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{136}
+}
+
+func (x *SubscriptionsWebProduct) GetMonthly() int32 {
+	if x != nil {
+		return x.Monthly
+	}
+	return 0
+}
+
+func (x *SubscriptionsWebProduct) GetYearly() int32 {
+	if x != nil {
+		return x.Yearly
+	}
+	return 0
+}
+
+func (x *SubscriptionsWebProduct) GetTrialDays() int32 {
+	if x != nil {
+		return x.TrialDays
+	}
+	return 0
+}
+
+type SubscriptionsWebStatusResponse struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Monthly       int32                    `protobuf:"varint,1,opt,name=monthly,proto3" json:"monthly,omitempty"`
+	Yearly        int32                    `protobuf:"varint,2,opt,name=yearly,proto3" json:"yearly,omitempty"`
+	Trial         int32                    `protobuf:"varint,3,opt,name=trial,proto3" json:"trial,omitempty"`
+	WebStatus     int32                    `protobuf:"varint,4,opt,name=web_status,json=webStatus,proto3" json:"web_status,omitempty"`
+	Plus          *SubscriptionsWebProduct `protobuf:"bytes,5,opt,name=plus,proto3" json:"plus,omitempty"`
+	Patron        *SubscriptionsWebProduct `protobuf:"bytes,6,opt,name=patron,proto3" json:"patron,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscriptionsWebStatusResponse) Reset() {
+	*x = SubscriptionsWebStatusResponse{}
+	mi := &file_api_proto_msgTypes[137]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscriptionsWebStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscriptionsWebStatusResponse) ProtoMessage() {}
+
+func (x *SubscriptionsWebStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[137]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscriptionsWebStatusResponse.ProtoReflect.Descriptor instead.
+func (*SubscriptionsWebStatusResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{137}
+}
+
+func (x *SubscriptionsWebStatusResponse) GetMonthly() int32 {
+	if x != nil {
+		return x.Monthly
+	}
+	return 0
+}
+
+func (x *SubscriptionsWebStatusResponse) GetYearly() int32 {
+	if x != nil {
+		return x.Yearly
+	}
+	return 0
+}
+
+func (x *SubscriptionsWebStatusResponse) GetTrial() int32 {
+	if x != nil {
+		return x.Trial
+	}
+	return 0
+}
+
+func (x *SubscriptionsWebStatusResponse) GetWebStatus() int32 {
+	if x != nil {
+		return x.WebStatus
+	}
+	return 0
+}
+
+func (x *SubscriptionsWebStatusResponse) GetPlus() *SubscriptionsWebProduct {
+	if x != nil {
+		return x.Plus
+	}
+	return nil
+}
+
+func (x *SubscriptionsWebStatusResponse) GetPatron() *SubscriptionsWebProduct {
+	if x != nil {
+		return x.Patron
+	}
+	return nil
+}
+
+type SuggestedFolder struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	PodcastUuids  []string               `protobuf:"bytes,2,rep,name=podcast_uuids,json=podcastUuids,proto3" json:"podcast_uuids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SuggestedFolder) Reset() {
+	*x = SuggestedFolder{}
+	mi := &file_api_proto_msgTypes[138]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SuggestedFolder) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SuggestedFolder) ProtoMessage() {}
+
+func (x *SuggestedFolder) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[138]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SuggestedFolder.ProtoReflect.Descriptor instead.
+func (*SuggestedFolder) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{138}
+}
+
+func (x *SuggestedFolder) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SuggestedFolder) GetPodcastUuids() []string {
+	if x != nil {
+		return x.PodcastUuids
+	}
+	return nil
+}
+
+type SuggestedFoldersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Folders       []*SuggestedFolder     `protobuf:"bytes,1,rep,name=folders,proto3" json:"folders,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SuggestedFoldersRequest) Reset() {
+	*x = SuggestedFoldersRequest{}
+	mi := &file_api_proto_msgTypes[139]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SuggestedFoldersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SuggestedFoldersRequest) ProtoMessage() {}
+
+func (x *SuggestedFoldersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[139]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SuggestedFoldersRequest.ProtoReflect.Descriptor instead.
+func (*SuggestedFoldersRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{139}
+}
+
+func (x *SuggestedFoldersRequest) GetFolders() []*SuggestedFolder {
+	if x != nil {
+		return x.Folders
+	}
+	return nil
+}
+
+type TokenErrorResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Error            string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
+	ErrorDescription string                 `protobuf:"bytes,2,opt,name=error_description,json=errorDescription,proto3" json:"error_description,omitempty"`
+	ErrorUri         string                 `protobuf:"bytes,3,opt,name=error_uri,json=errorUri,proto3" json:"error_uri,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *TokenErrorResponse) Reset() {
+	*x = TokenErrorResponse{}
+	mi := &file_api_proto_msgTypes[140]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TokenErrorResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TokenErrorResponse) ProtoMessage() {}
+
+func (x *TokenErrorResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[140]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TokenErrorResponse.ProtoReflect.Descriptor instead.
+func (*TokenErrorResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{140}
+}
+
+func (x *TokenErrorResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *TokenErrorResponse) GetErrorDescription() string {
+	if x != nil {
+		return x.ErrorDescription
+	}
+	return ""
+}
+
+func (x *TokenErrorResponse) GetErrorUri() string {
+	if x != nil {
+		return x.ErrorUri
+	}
+	return ""
+}
+
+type TokenLoginRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IdToken       string                 `protobuf:"bytes,1,opt,name=id_token,json=idToken,proto3" json:"id_token,omitempty"`
+	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	Password      string                 `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
+	Scope         string                 `protobuf:"bytes,4,opt,name=scope,proto3" json:"scope,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TokenLoginRequest) Reset() {
+	*x = TokenLoginRequest{}
+	mi := &file_api_proto_msgTypes[141]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TokenLoginRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TokenLoginRequest) ProtoMessage() {}
+
+func (x *TokenLoginRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[141]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TokenLoginRequest.ProtoReflect.Descriptor instead.
+func (*TokenLoginRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{141}
+}
+
+func (x *TokenLoginRequest) GetIdToken() string {
+	if x != nil {
+		return x.IdToken
+	}
+	return ""
+}
+
+func (x *TokenLoginRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *TokenLoginRequest) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+func (x *TokenLoginRequest) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+type UpNextListRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Limit          int32                  `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	Version        string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	Model          string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	ServerModified int64                  `protobuf:"varint,4,opt,name=server_modified,json=serverModified,proto3" json:"server_modified,omitempty"`
+	ShowPlayStatus bool                   `protobuf:"varint,5,opt,name=show_play_status,json=showPlayStatus,proto3" json:"show_play_status,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *UpNextListRequest) Reset() {
+	*x = UpNextListRequest{}
+	mi := &file_api_proto_msgTypes[142]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpNextListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpNextListRequest) ProtoMessage() {}
+
+func (x *UpNextListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[142]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpNextListRequest.ProtoReflect.Descriptor instead.
+func (*UpNextListRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{142}
+}
+
+func (x *UpNextListRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *UpNextListRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *UpNextListRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *UpNextListRequest) GetServerModified() int64 {
+	if x != nil {
+		return x.ServerModified
+	}
+	return 0
+}
+
+func (x *UpNextListRequest) GetShowPlayStatus() bool {
+	if x != nil {
+		return x.ShowPlayStatus
+	}
+	return false
+}
+
+type UpNextPlayRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Model         string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	Episode       *UpNextEpisodeRequest  `protobuf:"bytes,3,opt,name=episode,proto3" json:"episode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpNextPlayRequest) Reset() {
+	*x = UpNextPlayRequest{}
+	mi := &file_api_proto_msgTypes[143]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpNextPlayRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpNextPlayRequest) ProtoMessage() {}
+
+func (x *UpNextPlayRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[143]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpNextPlayRequest.ProtoReflect.Descriptor instead.
+func (*UpNextPlayRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{143}
+}
+
+func (x *UpNextPlayRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *UpNextPlayRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *UpNextPlayRequest) GetEpisode() *UpNextEpisodeRequest {
+	if x != nil {
+		return x.Episode
+	}
+	return nil
+}
+
+type UpNextRemoveRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuids         []string               `protobuf:"bytes,1,rep,name=uuids,proto3" json:"uuids,omitempty"`
+	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpNextRemoveRequest) Reset() {
+	*x = UpNextRemoveRequest{}
+	mi := &file_api_proto_msgTypes[144]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpNextRemoveRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpNextRemoveRequest) ProtoMessage() {}
+
+func (x *UpNextRemoveRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[144]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpNextRemoveRequest.ProtoReflect.Descriptor instead.
+func (*UpNextRemoveRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{144}
+}
+
+func (x *UpNextRemoveRequest) GetUuids() []string {
+	if x != nil {
+		return x.Uuids
+	}
+	return nil
+}
+
+func (x *UpNextRemoveRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+type UpdateEpisodeDeselectChaptersRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Uuid               string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Podcast            string                 `protobuf:"bytes,2,opt,name=podcast,proto3" json:"podcast,omitempty"`
+	DeselectedChapters string                 `protobuf:"bytes,3,opt,name=deselected_chapters,json=deselectedChapters,proto3" json:"deselected_chapters,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *UpdateEpisodeDeselectChaptersRequest) Reset() {
+	*x = UpdateEpisodeDeselectChaptersRequest{}
+	mi := &file_api_proto_msgTypes[145]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateEpisodeDeselectChaptersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateEpisodeDeselectChaptersRequest) ProtoMessage() {}
+
+func (x *UpdateEpisodeDeselectChaptersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[145]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateEpisodeDeselectChaptersRequest.ProtoReflect.Descriptor instead.
+func (*UpdateEpisodeDeselectChaptersRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{145}
+}
+
+func (x *UpdateEpisodeDeselectChaptersRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *UpdateEpisodeDeselectChaptersRequest) GetPodcast() string {
+	if x != nil {
+		return x.Podcast
+	}
+	return ""
+}
+
+func (x *UpdateEpisodeDeselectChaptersRequest) GetDeselectedChapters() string {
+	if x != nil {
+		return x.DeselectedChapters
+	}
+	return ""
+}
+
+type UpdateEpisodeDeselectChaptersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateEpisodeDeselectChaptersResponse) Reset() {
+	*x = UpdateEpisodeDeselectChaptersResponse{}
+	mi := &file_api_proto_msgTypes[146]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateEpisodeDeselectChaptersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateEpisodeDeselectChaptersResponse) ProtoMessage() {}
+
+func (x *UpdateEpisodeDeselectChaptersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[146]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateEpisodeDeselectChaptersResponse.ProtoReflect.Descriptor instead.
+func (*UpdateEpisodeDeselectChaptersResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{146}
+}
+
+type UpdateEpisodesArchiveRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Archive       bool                   `protobuf:"varint,1,opt,name=archive,proto3" json:"archive,omitempty"`
+	Episodes      []*EpisodeWithPodcast  `protobuf:"bytes,2,rep,name=episodes,proto3" json:"episodes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateEpisodesArchiveRequest) Reset() {
+	*x = UpdateEpisodesArchiveRequest{}
+	mi := &file_api_proto_msgTypes[147]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateEpisodesArchiveRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateEpisodesArchiveRequest) ProtoMessage() {}
+
+func (x *UpdateEpisodesArchiveRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[147]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateEpisodesArchiveRequest.ProtoReflect.Descriptor instead.
+func (*UpdateEpisodesArchiveRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{147}
+}
+
+func (x *UpdateEpisodesArchiveRequest) GetArchive() bool {
+	if x != nil {
+		return x.Archive
+	}
+	return false
+}
+
+func (x *UpdateEpisodesArchiveRequest) GetEpisodes() []*EpisodeWithPodcast {
+	if x != nil {
+		return x.Episodes
+	}
+	return nil
+}
+
+type UpdatePlanRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PlanId        int64                  `protobuf:"varint,1,opt,name=plan_id,json=planId,proto3" json:"plan_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdatePlanRequest) Reset() {
+	*x = UpdatePlanRequest{}
+	mi := &file_api_proto_msgTypes[148]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdatePlanRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdatePlanRequest) ProtoMessage() {}
+
+func (x *UpdatePlanRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[148]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdatePlanRequest.ProtoReflect.Descriptor instead.
+func (*UpdatePlanRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{148}
+}
+
+func (x *UpdatePlanRequest) GetPlanId() int64 {
+	if x != nil {
+		return x.PlanId
+	}
+	return 0
+}
+
+type UpdatePlanResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExpiryDate    int64                  `protobuf:"varint,1,opt,name=expiry_date,json=expiryDate,proto3" json:"expiry_date,omitempty"`
+	AutoRenewing  bool                   `protobuf:"varint,2,opt,name=auto_renewing,json=autoRenewing,proto3" json:"auto_renewing,omitempty"`
+	Frequency     int32                  `protobuf:"varint,3,opt,name=frequency,proto3" json:"frequency,omitempty"`
+	PlanId        int64                  `protobuf:"varint,4,opt,name=plan_id,json=planId,proto3" json:"plan_id,omitempty"`
+	Tier          int32                  `protobuf:"varint,5,opt,name=tier,proto3" json:"tier,omitempty"`
+	ErrorMessage  string                 `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdatePlanResponse) Reset() {
+	*x = UpdatePlanResponse{}
+	mi := &file_api_proto_msgTypes[149]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdatePlanResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdatePlanResponse) ProtoMessage() {}
+
+func (x *UpdatePlanResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[149]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdatePlanResponse.ProtoReflect.Descriptor instead.
+func (*UpdatePlanResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{149}
+}
+
+func (x *UpdatePlanResponse) GetExpiryDate() int64 {
+	if x != nil {
+		return x.ExpiryDate
+	}
+	return 0
+}
+
+func (x *UpdatePlanResponse) GetAutoRenewing() bool {
+	if x != nil {
+		return x.AutoRenewing
+	}
+	return false
+}
+
+func (x *UpdatePlanResponse) GetFrequency() int32 {
+	if x != nil {
+		return x.Frequency
+	}
+	return 0
+}
+
+func (x *UpdatePlanResponse) GetPlanId() int64 {
+	if x != nil {
+		return x.PlanId
+	}
+	return 0
+}
+
+func (x *UpdatePlanResponse) GetTier() int32 {
+	if x != nil {
+		return x.Tier
+	}
+	return 0
+}
+
+func (x *UpdatePlanResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+type UserAuthorizeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	Password      string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	ResponseType  string                 `protobuf:"bytes,3,opt,name=response_type,json=responseType,proto3" json:"response_type,omitempty"`
+	ClientId      string                 `protobuf:"bytes,4,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	RedirectUri   string                 `protobuf:"bytes,5,opt,name=redirect_uri,json=redirectUri,proto3" json:"redirect_uri,omitempty"`
+	Scope         string                 `protobuf:"bytes,6,opt,name=scope,proto3" json:"scope,omitempty"`
+	State         string                 `protobuf:"bytes,7,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserAuthorizeRequest) Reset() {
+	*x = UserAuthorizeRequest{}
+	mi := &file_api_proto_msgTypes[150]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserAuthorizeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserAuthorizeRequest) ProtoMessage() {}
+
+func (x *UserAuthorizeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[150]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserAuthorizeRequest.ProtoReflect.Descriptor instead.
+func (*UserAuthorizeRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{150}
+}
+
+func (x *UserAuthorizeRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *UserAuthorizeRequest) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+func (x *UserAuthorizeRequest) GetResponseType() string {
+	if x != nil {
+		return x.ResponseType
+	}
+	return ""
+}
+
+func (x *UserAuthorizeRequest) GetClientId() string {
+	if x != nil {
+		return x.ClientId
+	}
+	return ""
+}
+
+func (x *UserAuthorizeRequest) GetRedirectUri() string {
+	if x != nil {
+		return x.RedirectUri
+	}
+	return ""
+}
+
+func (x *UserAuthorizeRequest) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+func (x *UserAuthorizeRequest) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+type UserAuthorizeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Code          string                 `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
+	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	State         string                 `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserAuthorizeResponse) Reset() {
+	*x = UserAuthorizeResponse{}
+	mi := &file_api_proto_msgTypes[151]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserAuthorizeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserAuthorizeResponse) ProtoMessage() {}
+
+func (x *UserAuthorizeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[151]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserAuthorizeResponse.ProtoReflect.Descriptor instead.
+func (*UserAuthorizeResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{151}
+}
+
+func (x *UserAuthorizeResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *UserAuthorizeResponse) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *UserAuthorizeResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *UserAuthorizeResponse) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+type UserIdResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserIdResponse) Reset() {
+	*x = UserIdResponse{}
+	mi := &file_api_proto_msgTypes[152]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserIdResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserIdResponse) ProtoMessage() {}
+
+func (x *UserIdResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[152]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserIdResponse.ProtoReflect.Descriptor instead.
+func (*UserIdResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{152}
+}
+
+func (x *UserIdResponse) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type UserPlaylistEpisodesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	V             string                 `protobuf:"bytes,1,opt,name=v,proto3" json:"v,omitempty"`
+	M             string                 `protobuf:"bytes,2,opt,name=m,proto3" json:"m,omitempty"`
+	Uuid          string                 `protobuf:"bytes,3,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserPlaylistEpisodesRequest) Reset() {
+	*x = UserPlaylistEpisodesRequest{}
+	mi := &file_api_proto_msgTypes[153]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserPlaylistEpisodesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserPlaylistEpisodesRequest) ProtoMessage() {}
+
+func (x *UserPlaylistEpisodesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[153]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserPlaylistEpisodesRequest.ProtoReflect.Descriptor instead.
+func (*UserPlaylistEpisodesRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{153}
+}
+
+func (x *UserPlaylistEpisodesRequest) GetV() string {
+	if x != nil {
+		return x.V
+	}
+	return ""
+}
+
+func (x *UserPlaylistEpisodesRequest) GetM() string {
+	if x != nil {
+		return x.M
+	}
+	return ""
+}
+
+func (x *UserPlaylistEpisodesRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+type UserResetPasswordRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	ResetPasswordToken string                 `protobuf:"bytes,1,opt,name=reset_password_token,json=resetPasswordToken,proto3" json:"reset_password_token,omitempty"`
+	Password           string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	Scope              string                 `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *UserResetPasswordRequest) Reset() {
+	*x = UserResetPasswordRequest{}
+	mi := &file_api_proto_msgTypes[154]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserResetPasswordRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserResetPasswordRequest) ProtoMessage() {}
+
+func (x *UserResetPasswordRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[154]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserResetPasswordRequest.ProtoReflect.Descriptor instead.
+func (*UserResetPasswordRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{154}
+}
+
+func (x *UserResetPasswordRequest) GetResetPasswordToken() string {
+	if x != nil {
+		return x.ResetPasswordToken
+	}
+	return ""
+}
+
+func (x *UserResetPasswordRequest) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+func (x *UserResetPasswordRequest) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+type UserRevokeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RefreshToken  string                 `protobuf:"bytes,1,opt,name=refresh_token,json=refreshToken,proto3" json:"refresh_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserRevokeRequest) Reset() {
+	*x = UserRevokeRequest{}
+	mi := &file_api_proto_msgTypes[155]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserRevokeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserRevokeRequest) ProtoMessage() {}
+
+func (x *UserRevokeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[155]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserRevokeRequest.ProtoReflect.Descriptor instead.
+func (*UserRevokeRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{155}
+}
+
+func (x *UserRevokeRequest) GetRefreshToken() string {
+	if x != nil {
+		return x.RefreshToken
+	}
+	return ""
+}
+
+type UserSubscriptionSurveyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	Other         string                 `protobuf:"bytes,2,opt,name=other,proto3" json:"other,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserSubscriptionSurveyRequest) Reset() {
+	*x = UserSubscriptionSurveyRequest{}
+	mi := &file_api_proto_msgTypes[156]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserSubscriptionSurveyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserSubscriptionSurveyRequest) ProtoMessage() {}
+
+func (x *UserSubscriptionSurveyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[156]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserSubscriptionSurveyRequest.ProtoReflect.Descriptor instead.
+func (*UserSubscriptionSurveyRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{156}
+}
+
+func (x *UserSubscriptionSurveyRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *UserSubscriptionSurveyRequest) GetOther() string {
+	if x != nil {
+		return x.Other
+	}
+	return ""
+}
+
+type UserTokenResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	AccessToken   string                  `protobuf:"bytes,1,opt,name=access_token,json=accessToken,proto3" json:"access_token,omitempty"`
+	TokenType     string                  `protobuf:"bytes,2,opt,name=token_type,json=tokenType,proto3" json:"token_type,omitempty"`
+	ExpiresIn     int32                   `protobuf:"varint,3,opt,name=expires_in,json=expiresIn,proto3" json:"expires_in,omitempty"`
+	RefreshToken  *wrapperspb.StringValue `protobuf:"bytes,4,opt,name=refresh_token,json=refreshToken,proto3" json:"refresh_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserTokenResponse) Reset() {
+	*x = UserTokenResponse{}
+	mi := &file_api_proto_msgTypes[157]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserTokenResponse) ProtoMessage() {}
+
+func (x *UserTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[157]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserTokenResponse.ProtoReflect.Descriptor instead.
+func (*UserTokenResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{157}
+}
+
+func (x *UserTokenResponse) GetAccessToken() string {
+	if x != nil {
+		return x.AccessToken
+	}
+	return ""
+}
+
+func (x *UserTokenResponse) GetTokenType() string {
+	if x != nil {
+		return x.TokenType
+	}
+	return ""
+}
+
+func (x *UserTokenResponse) GetExpiresIn() int32 {
+	if x != nil {
+		return x.ExpiresIn
+	}
+	return 0
+}
+
+func (x *UserTokenResponse) GetRefreshToken() *wrapperspb.StringValue {
+	if x != nil {
+		return x.RefreshToken
+	}
+	return nil
+}
+
+type UuidListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuids         []string               `protobuf:"bytes,1,rep,name=uuids,proto3" json:"uuids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UuidListResponse) Reset() {
+	*x = UuidListResponse{}
+	mi := &file_api_proto_msgTypes[158]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UuidListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UuidListResponse) ProtoMessage() {}
+
+func (x *UuidListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[158]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UuidListResponse.ProtoReflect.Descriptor instead.
+func (*UuidListResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{158}
+}
+
+func (x *UuidListResponse) GetUuids() []string {
+	if x != nil {
+		return x.Uuids
+	}
+	return nil
+}
+
+type VerifyEmailRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	VerifyEmailToken string                 `protobuf:"bytes,1,opt,name=verify_email_token,json=verifyEmailToken,proto3" json:"verify_email_token,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *VerifyEmailRequest) Reset() {
+	*x = VerifyEmailRequest{}
+	mi := &file_api_proto_msgTypes[159]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyEmailRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyEmailRequest) ProtoMessage() {}
+
+func (x *VerifyEmailRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[159]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyEmailRequest.ProtoReflect.Descriptor instead.
+func (*VerifyEmailRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{159}
+}
+
+func (x *VerifyEmailRequest) GetVerifyEmailToken() string {
+	if x != nil {
+		return x.VerifyEmailToken
+	}
+	return ""
+}
+
+type WinbackEligibilityResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Eligible      bool                   `protobuf:"varint,1,opt,name=eligible,proto3" json:"eligible,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WinbackEligibilityResponse) Reset() {
+	*x = WinbackEligibilityResponse{}
+	mi := &file_api_proto_msgTypes[160]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WinbackEligibilityResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WinbackEligibilityResponse) ProtoMessage() {}
+
+func (x *WinbackEligibilityResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[160]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WinbackEligibilityResponse.ProtoReflect.Descriptor instead.
+func (*WinbackEligibilityResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{160}
+}
+
+func (x *WinbackEligibilityResponse) GetEligible() bool {
+	if x != nil {
+		return x.Eligible
+	}
+	return false
+}
+
+func (x *WinbackEligibilityResponse) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type YearHistoryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	Count         bool                   `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
+	Year          int32                  `protobuf:"varint,4,opt,name=year,proto3" json:"year,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *YearHistoryRequest) Reset() {
+	*x = YearHistoryRequest{}
+	mi := &file_api_proto_msgTypes[161]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *YearHistoryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*YearHistoryRequest) ProtoMessage() {}
+
+func (x *YearHistoryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[161]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use YearHistoryRequest.ProtoReflect.Descriptor instead.
+func (*YearHistoryRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{161}
+}
+
+func (x *YearHistoryRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *YearHistoryRequest) GetCount() bool {
+	if x != nil {
+		return x.Count
+	}
+	return false
+}
+
+func (x *YearHistoryRequest) GetYear() int32 {
+	if x != nil {
+		return x.Year
+	}
+	return 0
+}
+
+type YearHistoryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *YearHistoryResponse) Reset() {
+	*x = YearHistoryResponse{}
+	mi := &file_api_proto_msgTypes[162]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *YearHistoryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*YearHistoryResponse) ProtoMessage() {}
+
+func (x *YearHistoryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[162]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use YearHistoryResponse.ProtoReflect.Descriptor instead.
+func (*YearHistoryResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{162}
+}
+
 type UpNextChanges_Change struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
 	Uuid          string                  `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
@@ -9445,7 +14884,7 @@ type UpNextChanges_Change struct {
 
 func (x *UpNextChanges_Change) Reset() {
 	*x = UpNextChanges_Change{}
-	mi := &file_api_proto_msgTypes[89]
+	mi := &file_api_proto_msgTypes[163]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9457,7 +14896,7 @@ func (x *UpNextChanges_Change) String() string {
 func (*UpNextChanges_Change) ProtoMessage() {}
 
 func (x *UpNextChanges_Change) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[89]
+	mi := &file_api_proto_msgTypes[163]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9542,7 +14981,7 @@ type UpNextResponse_EpisodeResponse struct {
 
 func (x *UpNextResponse_EpisodeResponse) Reset() {
 	*x = UpNextResponse_EpisodeResponse{}
-	mi := &file_api_proto_msgTypes[90]
+	mi := &file_api_proto_msgTypes[164]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9554,7 +14993,7 @@ func (x *UpNextResponse_EpisodeResponse) String() string {
 func (*UpNextResponse_EpisodeResponse) ProtoMessage() {}
 
 func (x *UpNextResponse_EpisodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[90]
+	mi := &file_api_proto_msgTypes[164]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9616,7 +15055,7 @@ type UpNextResponse_EpisodeSyncResponse struct {
 
 func (x *UpNextResponse_EpisodeSyncResponse) Reset() {
 	*x = UpNextResponse_EpisodeSyncResponse{}
-	mi := &file_api_proto_msgTypes[91]
+	mi := &file_api_proto_msgTypes[165]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9628,7 +15067,7 @@ func (x *UpNextResponse_EpisodeSyncResponse) String() string {
 func (*UpNextResponse_EpisodeSyncResponse) ProtoMessage() {}
 
 func (x *UpNextResponse_EpisodeSyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[91]
+	mi := &file_api_proto_msgTypes[165]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9724,12 +15163,11 @@ const file_api_proto_rawDesc = "" +
 	"\x19UserChangePasswordRequest\x12!\n" +
 	"\fold_password\x18\x01 \x01(\tR\voldPassword\x12!\n" +
 	"\fnew_password\x18\x02 \x01(\tR\vnewPassword\x12\x14\n" +
-	"\x05scope\x18\x04 \x01(\tR\x05scope\"\x83\x01\n" +
+	"\x05scope\x18\x04 \x01(\tR\x05scope\"\x82\x01\n" +
 	"\x12UserChangeResponse\x124\n" +
 	"\asuccess\x18\x01 \x01(\v2\x1a.google.protobuf.BoolValueR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1d\n" +
-	"\n" +
-	"message_id\x18\x03 \x01(\tR\tmessageId\"*\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1c\n" +
+	"\tmessageId\x18\x03 \x01(\tR\tmessageId\"*\n" +
 	"\fBasicRequest\x12\f\n" +
 	"\x01v\x18\x01 \x01(\tR\x01v\x12\f\n" +
 	"\x01m\x18\x02 \x01(\tR\x01m\"\x0e\n" +
@@ -10564,7 +16002,7 @@ const file_api_proto_rawDesc = "" +
 	"\x04code\x18\x01 \x01(\tR\x04code\"q\n" +
 	"\x0fWinbackResponse\x12\x14\n" +
 	"\x05offer\x18\x01 \x01(\tR\x05offer\x12\x1a\n" +
-	"\bplatform\x18\x02 \x01(\tR\bplatform\x12\x18\n" +
+	"\bplatform\x18\x02 \x01(\x05R\bplatform\x12\x18\n" +
 	"\adetails\x18\x03 \x01(\tR\adetails\x12\x12\n" +
 	"\x04code\x18\x04 \x01(\tR\x04code\"c\n" +
 	"\x14WebFeedCreateRequest\x12\x10\n" +
@@ -10631,7 +16069,523 @@ const file_api_proto_rawDesc = "" +
 	"\fepisode_uuid\x18\x01 \x01(\tR\vepisodeUuid\x12!\n" +
 	"\fpodcast_uuid\x18\x02 \x01(\tR\vpodcastUuid\x121\n" +
 	"\bchapters\x18\x03 \x03(\v2\x15.api.GeneratedChapterR\bchapters\x12\x16\n" +
-	"\x06origin\x18\x04 \x01(\tR\x06originB4Z2github.com/hbmartin/podcast-backend/protos/api;apib\x06proto3"
+	"\x06origin\x18\x04 \x01(\tR\x06origin\"M\n" +
+	"\x16ApiPodcastListResponse\x123\n" +
+	"\bpodcasts\x18\x01 \x03(\v2\x17.api.ApiPodcastResponseR\bpodcasts\"K\n" +
+	"\x18AuthorizeCallbackRequest\x12\x19\n" +
+	"\bid_token\x18\x01 \x01(\tR\aidToken\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\"J\n" +
+	"\x11BundleUserRequest\x12\x1b\n" +
+	"\tuser_uuid\x18\x01 \x01(\tR\buserUuid\x12\x18\n" +
+	"\abundles\x18\x02 \x03(\tR\abundles\"I\n" +
+	"\x12BundleUserResponse\x12\x1f\n" +
+	"\vuser_exists\x18\x01 \x01(\bR\n" +
+	"userExists\x12\x12\n" +
+	"\x04paid\x18\x02 \x01(\bR\x04paid\"@\n" +
+	"\x1dCancelUserSubscriptionRequest\x12\x1f\n" +
+	"\vbundle_uuid\x18\x01 \x01(\tR\n" +
+	"bundleUuid\"\xe7\x01\n" +
+	"\x14CheckEligibleRequest\x12D\n" +
+	"\aandroid\x18\x01 \x01(\v2(.api.SubscriptionsPurchaseAndroidRequestH\x00R\aandroid\x12>\n" +
+	"\x05apple\x18\x02 \x01(\v2&.api.SubscriptionsPurchaseAppleRequestH\x00R\x05apple\x128\n" +
+	"\x03web\x18\x03 \x01(\v2$.api.SubscriptionsPurchaseWebRequestH\x00R\x03webB\x0f\n" +
+	"\rstore_receipt\"O\n" +
+	"\x15CheckEligibleResponse\x12\x1a\n" +
+	"\bplatform\x18\x01 \x01(\x05R\bplatform\x12\x1a\n" +
+	"\beligible\x18\x02 \x01(\bR\beligible\"-\n" +
+	"\x15CreateBetaUserRequest\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\"G\n" +
+	"\x14DeviceApproveRequest\x12\x1b\n" +
+	"\tuser_code\x18\x01 \x01(\tR\buserCode\x12\x12\n" +
+	"\x04deny\x18\x02 \x01(\bR\x04deny\".\n" +
+	"\x16DeviceAuthorizeRequest\x12\x14\n" +
+	"\x05scope\x18\x01 \x01(\tR\x05scope\"\xf9\x01\n" +
+	"\x17DeviceAuthorizeResponse\x12\x1f\n" +
+	"\vdevice_code\x18\x01 \x01(\tR\n" +
+	"deviceCode\x12\x1b\n" +
+	"\tuser_code\x18\x02 \x01(\tR\buserCode\x12)\n" +
+	"\x10verification_uri\x18\x03 \x01(\tR\x0fverificationUri\x12:\n" +
+	"\x19verification_uri_complete\x18\x04 \x01(\tR\x17verificationUriComplete\x12\x1d\n" +
+	"\n" +
+	"expires_in\x18\x05 \x01(\x05R\texpiresIn\x12\x1a\n" +
+	"\binterval\x18\x06 \x01(\x05R\binterval\"o\n" +
+	"\x12EpisodeWithPodcast\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x18\n" +
+	"\apodcast\x18\x02 \x01(\tR\apodcast\x12+\n" +
+	"\x11include_bookmarks\x18\x03 \x01(\bR\x10includeBookmarks\"f\n" +
+	"\bFeatures\x12*\n" +
+	"\x11remove_banner_ads\x18\x01 \x01(\bR\x0fremoveBannerAds\x12.\n" +
+	"\x13remove_discover_ads\x18\x02 \x01(\bR\x11removeDiscoverAds\"H\n" +
+	"\x16FindUserEpisodeRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\f\n" +
+	"\x01v\x18\x02 \x01(\tR\x01v\x12\f\n" +
+	"\x01m\x18\x03 \x01(\tR\x01m\"\x80\x01\n" +
+	"\x17FindUserEpisodesRequest\x12!\n" +
+	"\fpodcast_uuid\x18\x01 \x01(\tR\vpodcastUuid\x12\x12\n" +
+	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x12\n" +
+	"\x04sort\x18\x03 \x01(\x05R\x04sort\x12\f\n" +
+	"\x01v\x18\x04 \x01(\tR\x01v\x12\f\n" +
+	"\x01m\x18\x05 \x01(\tR\x01m\"<\n" +
+	"\x0eHealthResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x1a\n" +
+	"\bmessages\x18\x02 \x03(\tR\bmessages\"F\n" +
+	"\x0eKeywordRequest\x12\f\n" +
+	"\x01v\x18\x01 \x01(\tR\x01v\x12\f\n" +
+	"\x01m\x18\x02 \x01(\tR\x01m\x12\x18\n" +
+	"\akeyword\x18\x03 \x01(\tR\akeyword\"\xce\x1c\n" +
+	"\fLegacyRecord\x120\n" +
+	"\x04uuid\x18\x01 \x01(\v2\x1c.google.protobuf.StringValueR\x04uuid\x12H\n" +
+	"\x11user_podcast_uuid\x18\x02 \x01(\v2\x1c.google.protobuf.StringValueR\x0fuserPodcastUuid\x12?\n" +
+	"\fepisode_uuid\x18\x03 \x01(\v2\x1c.google.protobuf.StringValueR\vepisodeUuid\x12?\n" +
+	"\fpodcast_uuid\x18\x04 \x01(\v2\x1c.google.protobuf.StringValueR\vpodcastUuid\x12;\n" +
+	"\n" +
+	"is_deleted\x18\x05 \x01(\v2\x1c.google.protobuf.StringValueR\tisDeleted\x12K\n" +
+	"\x13is_deleted_modified\x18\x06 \x01(\v2\x1b.google.protobuf.Int64ValueR\x11isDeletedModified\x128\n" +
+	"\bduration\x18\a \x01(\v2\x1c.google.protobuf.DoubleValueR\bduration\x12H\n" +
+	"\x11duration_modified\x18\b \x01(\v2\x1b.google.protobuf.Int64ValueR\x10durationModified\x12B\n" +
+	"\x0eplaying_status\x18\t \x01(\v2\x1b.google.protobuf.Int32ValueR\rplayingStatus\x12S\n" +
+	"\x17playing_status_modified\x18\n" +
+	" \x01(\v2\x1b.google.protobuf.Int64ValueR\x15playingStatusModified\x12>\n" +
+	"\fplayed_up_to\x18\v \x01(\v2\x1c.google.protobuf.DoubleValueR\n" +
+	"playedUpTo\x12N\n" +
+	"\x15played_up_to_modified\x18\f \x01(\v2\x1b.google.protobuf.Int64ValueR\x12playedUpToModified\x126\n" +
+	"\astarred\x18\r \x01(\v2\x1c.google.protobuf.StringValueR\astarred\x12F\n" +
+	"\x10starred_modified\x18\x0e \x01(\v2\x1b.google.protobuf.Int64ValueR\x0fstarredModified\x12F\n" +
+	"\x10times_started_at\x18\x0f \x01(\v2\x1c.google.protobuf.DoubleValueR\x0etimesStartedAt\x12N\n" +
+	"\x14time_silence_removal\x18\x10 \x01(\v2\x1c.google.protobuf.DoubleValueR\x12timeSilenceRemoval\x12L\n" +
+	"\x13time_variable_speed\x18\x11 \x01(\v2\x1c.google.protobuf.DoubleValueR\x11timeVariableSpeed\x12L\n" +
+	"\x13time_intro_skipping\x18\x12 \x01(\v2\x1c.google.protobuf.DoubleValueR\x11timeIntroSkipping\x12A\n" +
+	"\rtime_skipping\x18\x13 \x01(\v2\x1c.google.protobuf.DoubleValueR\ftimeSkipping\x12A\n" +
+	"\rtime_listened\x18\x14 \x01(\v2\x1c.google.protobuf.DoubleValueR\ftimeListened\x12C\n" +
+	"\x0fauto_start_from\x18\x15 \x01(\v2\x1b.google.protobuf.Int32ValueR\rautoStartFrom\x12<\n" +
+	"\n" +
+	"subscribed\x18\x16 \x01(\v2\x1c.google.protobuf.StringValueR\n" +
+	"subscribed\x122\n" +
+	"\x05title\x18\x17 \x01(\v2\x1c.google.protobuf.StringValueR\x05title\x12?\n" +
+	"\fall_podcasts\x18\x18 \x01(\v2\x1c.google.protobuf.StringValueR\vallPodcasts\x12A\n" +
+	"\rpodcast_uuids\x18\x19 \x01(\v2\x1c.google.protobuf.StringValueR\fpodcastUuids\x12A\n" +
+	"\repisode_uuids\x18\x1a \x01(\v2\x1c.google.protobuf.StringValueR\fepisodeUuids\x12<\n" +
+	"\vaudio_video\x18\x1b \x01(\v2\x1b.google.protobuf.Int32ValueR\n" +
+	"audioVideo\x12C\n" +
+	"\x0enot_downloaded\x18\x1c \x01(\v2\x1c.google.protobuf.StringValueR\rnotDownloaded\x12<\n" +
+	"\n" +
+	"downloaded\x18\x1d \x01(\v2\x1c.google.protobuf.StringValueR\n" +
+	"downloaded\x12>\n" +
+	"\vdownloading\x18\x1e \x01(\v2\x1c.google.protobuf.StringValueR\vdownloading\x128\n" +
+	"\bfinished\x18\x1f \x01(\v2\x1c.google.protobuf.StringValueR\bfinished\x12G\n" +
+	"\x10partially_played\x18  \x01(\v2\x1c.google.protobuf.StringValueR\x0fpartiallyPlayed\x128\n" +
+	"\bunplayed\x18! \x01(\v2\x1c.google.protobuf.StringValueR\bunplayed\x124\n" +
+	"\x06manual\x18\" \x01(\v2\x1c.google.protobuf.StringValueR\x06manual\x12@\n" +
+	"\rsort_position\x18# \x01(\v2\x1b.google.protobuf.Int32ValueR\fsortPosition\x128\n" +
+	"\tsort_type\x18$ \x01(\v2\x1b.google.protobuf.Int32ValueR\bsortType\x124\n" +
+	"\aicon_id\x18% \x01(\v2\x1b.google.protobuf.Int32ValueR\x06iconId\x12>\n" +
+	"\ffilter_hours\x18& \x01(\v2\x1b.google.protobuf.Int32ValueR\vfilterHours\x12A\n" +
+	"\x0eauto_skip_last\x18' \x01(\v2\x1b.google.protobuf.Int32ValueR\fautoSkipLast\x12C\n" +
+	"\x0ffilter_duration\x18( \x01(\v2\x1a.google.protobuf.BoolValueR\x0efilterDuration\x12<\n" +
+	"\vlonger_than\x18) \x01(\v2\x1b.google.protobuf.Int32ValueR\n" +
+	"longerThan\x12>\n" +
+	"\fshorter_than\x18* \x01(\v2\x1b.google.protobuf.Int32ValueR\vshorterThan\x12=\n" +
+	"\vfolder_uuid\x18+ \x01(\v2\x1c.google.protobuf.StringValueR\n" +
+	"folderUuid\x120\n" +
+	"\x04name\x18, \x01(\v2\x1c.google.protobuf.StringValueR\x04name\x121\n" +
+	"\x05color\x18- \x01(\v2\x1b.google.protobuf.Int32ValueR\x05color\x12I\n" +
+	"\x12podcasts_sort_type\x18. \x01(\v2\x1b.google.protobuf.Int32ValueR\x10podcastsSortType\x129\n" +
+	"\n" +
+	"date_added\x18/ \x01(\v2\x1a.google.protobuf.TimestampR\tdateAdded\x12A\n" +
+	"\rbookmark_uuid\x180 \x01(\v2\x1c.google.protobuf.StringValueR\fbookmarkUuid\x12/\n" +
+	"\x04time\x181 \x01(\v2\x1b.google.protobuf.Int32ValueR\x04time\x12B\n" +
+	"\x0etitle_modified\x182 \x01(\v2\x1b.google.protobuf.Int64ValueR\rtitleModified\x129\n" +
+	"\n" +
+	"created_at\x183 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12M\n" +
+	"\x13deselected_chapters\x184 \x01(\v2\x1c.google.protobuf.StringValueR\x12deselectedChapters\x12]\n" +
+	"\x1cdeselected_chapters_modified\x185 \x01(\v2\x1b.google.protobuf.Int64ValueR\x1adeselectedChaptersModified\x12#\n" +
+	"\repisode_order\x186 \x03(\tR\fepisodeOrder\x124\n" +
+	"\bepisodes\x187 \x03(\v2\x18.api.SyncPlaylistEpisodeR\bepisodes\x12?\n" +
+	"\rshow_archived\x188 \x01(\v2\x1a.google.protobuf.BoolValueR\fshowArchived\"\x80\x05\n" +
+	"\rLegacyRequest\x12\x1b\n" +
+	"\x06device\x18\x01 \x01(\tH\x00R\x06device\x88\x01\x01\x12\x1f\n" +
+	"\bdatetime\x18\x02 \x01(\tH\x01R\bdatetime\x88\x01\x01\x12\x11\n" +
+	"\x01v\x18\x03 \x01(\tH\x02R\x01v\x88\x01\x01\x12\x13\n" +
+	"\x02av\x18\x04 \x01(\tH\x03R\x02av\x88\x01\x01\x12\x13\n" +
+	"\x02ac\x18\x05 \x01(\tH\x04R\x02ac\x88\x01\x01\x12\x11\n" +
+	"\x01h\x18\x06 \x01(\tH\x05R\x01h\x88\x01\x01\x12\x13\n" +
+	"\x02dt\x18\a \x01(\tH\x06R\x02dt\x88\x01\x01\x12\x11\n" +
+	"\x01c\x18\b \x01(\tH\aR\x01c\x88\x01\x01\x12\x11\n" +
+	"\x01l\x18\t \x01(\tH\bR\x01l\x88\x01\x01\x12\x11\n" +
+	"\x01m\x18\n" +
+	" \x01(\tH\tR\x01m\x88\x01\x01\x12\x19\n" +
+	"\x05email\x18\v \x01(\tH\n" +
+	"R\x05email\x88\x01\x01\x12\x1f\n" +
+	"\bpassword\x18\f \x01(\tH\vR\bpassword\x88\x01\x01\x12\x19\n" +
+	"\x05token\x18\r \x01(\tH\fR\x05token\x88\x01\x01\x120\n" +
+	"\x12device_utc_time_ms\x18\x0e \x01(\tH\rR\x0fdeviceUtcTimeMs\x88\x01\x01\x12\x17\n" +
+	"\x04data\x18\x0f \x01(\tH\x0eR\x04data\x88\x01\x01\x12\x1d\n" +
+	"\amessage\x18\x10 \x01(\tH\x0fR\amessage\x88\x01\x01\x12(\n" +
+	"\rlast_modified\x18\x11 \x01(\tH\x10R\flastModified\x88\x01\x01B\t\n" +
+	"\a_deviceB\v\n" +
+	"\t_datetimeB\x04\n" +
+	"\x02_vB\x05\n" +
+	"\x03_avB\x05\n" +
+	"\x03_acB\x04\n" +
+	"\x02_hB\x05\n" +
+	"\x03_dtB\x04\n" +
+	"\x02_cB\x04\n" +
+	"\x02_lB\x04\n" +
+	"\x02_mB\b\n" +
+	"\x06_emailB\v\n" +
+	"\t_passwordB\b\n" +
+	"\x06_tokenB\x15\n" +
+	"\x13_device_utc_time_msB\a\n" +
+	"\x05_dataB\n" +
+	"\n" +
+	"\b_messageB\x10\n" +
+	"\x0e_last_modified\"t\n" +
+	"\x0eLegacyResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\x12\x1c\n" +
+	"\tcopyright\x18\x03 \x01(\tR\tcopyright\x12\x16\n" +
+	"\x06result\x18\x04 \x01(\tR\x06result\"\xba\x1c\n" +
+	"\x14LegacyResponseRecord\x120\n" +
+	"\x04uuid\x18\x01 \x01(\v2\x1c.google.protobuf.StringValueR\x04uuid\x12H\n" +
+	"\x11user_podcast_uuid\x18\x02 \x01(\v2\x1c.google.protobuf.StringValueR\x0fuserPodcastUuid\x12?\n" +
+	"\fepisode_uuid\x18\x03 \x01(\v2\x1c.google.protobuf.StringValueR\vepisodeUuid\x12?\n" +
+	"\fpodcast_uuid\x18\x04 \x01(\v2\x1c.google.protobuf.StringValueR\vpodcastUuid\x129\n" +
+	"\n" +
+	"is_deleted\x18\x05 \x01(\v2\x1a.google.protobuf.BoolValueR\tisDeleted\x12K\n" +
+	"\x13is_deleted_modified\x18\x06 \x01(\v2\x1b.google.protobuf.Int64ValueR\x11isDeletedModified\x128\n" +
+	"\bduration\x18\a \x01(\v2\x1c.google.protobuf.DoubleValueR\bduration\x12H\n" +
+	"\x11duration_modified\x18\b \x01(\v2\x1b.google.protobuf.Int64ValueR\x10durationModified\x12B\n" +
+	"\x0eplaying_status\x18\t \x01(\v2\x1b.google.protobuf.Int32ValueR\rplayingStatus\x12S\n" +
+	"\x17playing_status_modified\x18\n" +
+	" \x01(\v2\x1b.google.protobuf.Int64ValueR\x15playingStatusModified\x12>\n" +
+	"\fplayed_up_to\x18\v \x01(\v2\x1c.google.protobuf.DoubleValueR\n" +
+	"playedUpTo\x12N\n" +
+	"\x15played_up_to_modified\x18\f \x01(\v2\x1b.google.protobuf.Int64ValueR\x12playedUpToModified\x124\n" +
+	"\astarred\x18\r \x01(\v2\x1a.google.protobuf.BoolValueR\astarred\x12F\n" +
+	"\x10starred_modified\x18\x0e \x01(\v2\x1b.google.protobuf.Int64ValueR\x0fstarredModified\x12E\n" +
+	"\x10times_started_at\x18\x0f \x01(\v2\x1b.google.protobuf.Int64ValueR\x0etimesStartedAt\x12M\n" +
+	"\x14time_silence_removal\x18\x10 \x01(\v2\x1b.google.protobuf.Int64ValueR\x12timeSilenceRemoval\x12K\n" +
+	"\x13time_variable_speed\x18\x11 \x01(\v2\x1b.google.protobuf.Int64ValueR\x11timeVariableSpeed\x12K\n" +
+	"\x13time_intro_skipping\x18\x12 \x01(\v2\x1b.google.protobuf.Int64ValueR\x11timeIntroSkipping\x12@\n" +
+	"\rtime_skipping\x18\x13 \x01(\v2\x1b.google.protobuf.Int64ValueR\ftimeSkipping\x12@\n" +
+	"\rtime_listened\x18\x14 \x01(\v2\x1b.google.protobuf.Int64ValueR\ftimeListened\x12C\n" +
+	"\x0fauto_start_from\x18\x15 \x01(\v2\x1b.google.protobuf.Int32ValueR\rautoStartFrom\x12:\n" +
+	"\n" +
+	"subscribed\x18\x16 \x01(\v2\x1a.google.protobuf.BoolValueR\n" +
+	"subscribed\x122\n" +
+	"\x05title\x18\x17 \x01(\v2\x1c.google.protobuf.StringValueR\x05title\x12=\n" +
+	"\fall_podcasts\x18\x18 \x01(\v2\x1a.google.protobuf.BoolValueR\vallPodcasts\x12A\n" +
+	"\rpodcast_uuids\x18\x19 \x01(\v2\x1c.google.protobuf.StringValueR\fpodcastUuids\x12A\n" +
+	"\repisode_uuids\x18\x1a \x01(\v2\x1c.google.protobuf.StringValueR\fepisodeUuids\x12<\n" +
+	"\vaudio_video\x18\x1b \x01(\v2\x1b.google.protobuf.Int32ValueR\n" +
+	"audioVideo\x12A\n" +
+	"\x0enot_downloaded\x18\x1c \x01(\v2\x1a.google.protobuf.BoolValueR\rnotDownloaded\x12:\n" +
+	"\n" +
+	"downloaded\x18\x1d \x01(\v2\x1a.google.protobuf.BoolValueR\n" +
+	"downloaded\x12<\n" +
+	"\vdownloading\x18\x1e \x01(\v2\x1a.google.protobuf.BoolValueR\vdownloading\x126\n" +
+	"\bfinished\x18\x1f \x01(\v2\x1a.google.protobuf.BoolValueR\bfinished\x12E\n" +
+	"\x10partially_played\x18  \x01(\v2\x1a.google.protobuf.BoolValueR\x0fpartiallyPlayed\x126\n" +
+	"\bunplayed\x18! \x01(\v2\x1a.google.protobuf.BoolValueR\bunplayed\x122\n" +
+	"\x06manual\x18\" \x01(\v2\x1a.google.protobuf.BoolValueR\x06manual\x12@\n" +
+	"\rsort_position\x18# \x01(\v2\x1b.google.protobuf.Int32ValueR\fsortPosition\x128\n" +
+	"\tsort_type\x18$ \x01(\v2\x1b.google.protobuf.Int32ValueR\bsortType\x124\n" +
+	"\aicon_id\x18% \x01(\v2\x1b.google.protobuf.Int32ValueR\x06iconId\x12>\n" +
+	"\ffilter_hours\x18& \x01(\v2\x1b.google.protobuf.Int32ValueR\vfilterHours\x12A\n" +
+	"\x0eauto_skip_last\x18' \x01(\v2\x1b.google.protobuf.Int32ValueR\fautoSkipLast\x12C\n" +
+	"\x0ffilter_duration\x18( \x01(\v2\x1a.google.protobuf.BoolValueR\x0efilterDuration\x12<\n" +
+	"\vlonger_than\x18) \x01(\v2\x1b.google.protobuf.Int32ValueR\n" +
+	"longerThan\x12>\n" +
+	"\fshorter_than\x18* \x01(\v2\x1b.google.protobuf.Int32ValueR\vshorterThan\x12=\n" +
+	"\vfolder_uuid\x18+ \x01(\v2\x1c.google.protobuf.StringValueR\n" +
+	"folderUuid\x120\n" +
+	"\x04name\x18, \x01(\v2\x1c.google.protobuf.StringValueR\x04name\x121\n" +
+	"\x05color\x18- \x01(\v2\x1b.google.protobuf.Int32ValueR\x05color\x12I\n" +
+	"\x12podcasts_sort_type\x18. \x01(\v2\x1b.google.protobuf.Int32ValueR\x10podcastsSortType\x129\n" +
+	"\n" +
+	"date_added\x18/ \x01(\v2\x1a.google.protobuf.TimestampR\tdateAdded\x12A\n" +
+	"\rbookmark_uuid\x180 \x01(\v2\x1c.google.protobuf.StringValueR\fbookmarkUuid\x12/\n" +
+	"\x04time\x181 \x01(\v2\x1b.google.protobuf.Int32ValueR\x04time\x12B\n" +
+	"\x0etitle_modified\x182 \x01(\v2\x1b.google.protobuf.Int64ValueR\rtitleModified\x129\n" +
+	"\n" +
+	"created_at\x183 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12M\n" +
+	"\x13deselected_chapters\x184 \x01(\v2\x1c.google.protobuf.StringValueR\x12deselectedChapters\x12]\n" +
+	"\x1cdeselected_chapters_modified\x185 \x01(\v2\x1b.google.protobuf.Int64ValueR\x1adeselectedChaptersModified\x12#\n" +
+	"\repisode_order\x186 \x03(\tR\fepisodeOrder\x124\n" +
+	"\bepisodes\x187 \x03(\v2\x18.api.SyncPlaylistEpisodeR\bepisodes\x12?\n" +
+	"\rshow_archived\x188 \x01(\v2\x1a.google.protobuf.BoolValueR\fshowArchived\"\x9b\x02\n" +
+	"\x13LegacyStatsResponse\x12(\n" +
+	"\x10times_started_at\x18\x01 \x01(\x05R\x0etimesStartedAt\x120\n" +
+	"\x14time_silence_removal\x18\x02 \x01(\x05R\x12timeSilenceRemoval\x12.\n" +
+	"\x13time_variable_speed\x18\x03 \x01(\x05R\x11timeVariableSpeed\x12.\n" +
+	"\x13time_intro_skipping\x18\x04 \x01(\x05R\x11timeIntroSkipping\x12#\n" +
+	"\rtime_skipping\x18\x05 \x01(\x05R\ftimeSkipping\x12#\n" +
+	"\rtime_listened\x18\x06 \x01(\x05R\ftimeListened\"A\n" +
+	"\x0eLegacySyncData\x12/\n" +
+	"\arecords\x18\x04 \x03(\v2\x15.api.LegacySyncRecordR\arecords\"Q\n" +
+	"\x10LegacySyncRecord\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x12)\n" +
+	"\x06fields\x18\x02 \x01(\v2\x11.api.LegacyRecordR\x06fields\"r\n" +
+	"\x12LegacySyncResponse\x12#\n" +
+	"\rlast_modified\x18\x01 \x01(\tR\flastModified\x127\n" +
+	"\achanges\x18\x02 \x03(\v2\x1d.api.LegacySyncResponseRecordR\achanges\"a\n" +
+	"\x18LegacySyncResponseRecord\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x121\n" +
+	"\x06fields\x18\x02 \x01(\v2\x19.api.LegacyResponseRecordR\x06fields\"\x98\x01\n" +
+	"\x0fPaymentResponse\x12!\n" +
+	"\fpayment_date\x18\x01 \x01(\tR\vpaymentDate\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\x01R\x06amount\x12\x1a\n" +
+	"\bcurrency\x18\x03 \x01(\tR\bcurrency\x12.\n" +
+	"\x04date\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x04date\"J\n" +
+	"\x15PlaylistCreateRequest\x121\n" +
+	"\bplaylist\x18\x01 \x01(\v2\x15.api.SyncUserPlaylistR\bplaylist\"?\n" +
+	"\x16PlaylistReorderRequest\x12%\n" +
+	"\x0eplaylist_uuids\x18\x01 \x03(\tR\rplaylistUuids\"\x8e\x01\n" +
+	"\x14PodcastFolderRequest\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x12*\n" +
+	"\x06folder\x18\x03 \x01(\v2\x12.api.PodcastFolderR\x06folder\x12\x1a\n" +
+	"\bpodcasts\x18\x04 \x03(\tR\bpodcasts\"\xb6\x01\n" +
+	"\x18PodcastFolderSortRequest\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x125\n" +
+	"\bpodcasts\x18\x03 \x03(\v2\x19.api.PodcastFolderSortingR\bpodcasts\x123\n" +
+	"\afolders\x18\x04 \x03(\v2\x19.api.PodcastFolderSortingR\afolders\"F\n" +
+	"\x14PodcastFolderSorting\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1a\n" +
+	"\bposition\x18\x02 \x01(\x05R\bposition\"i\n" +
+	"\vPodcastPair\x12.\n" +
+	"\x13master_podcast_uuid\x18\x01 \x01(\tR\x11masterPodcastUuid\x12*\n" +
+	"\x11user_podcast_uuid\x18\x02 \x01(\tR\x0fuserPodcastUuid\"\xab\x01\n" +
+	"\x1ePodcastRatingAggregateResponse\x12!\n" +
+	"\fpodcast_uuid\x18\x01 \x01(\tR\vpodcastUuid\x122\n" +
+	"\x15podcast_ratings_count\x18\x02 \x01(\x04R\x13podcastRatingsCount\x122\n" +
+	"\x15podcast_ratings_total\x18\x03 \x01(\x04R\x13podcastRatingsTotal\"C\n" +
+	"\x1aPodcastRatingUpdateRequest\x12%\n" +
+	"\x0epodcast_rating\x18\x01 \x01(\rR\rpodcastRating\"}\n" +
+	"\x1fPodcastSubscriptionCheckRequest\x12\x1b\n" +
+	"\tuser_uuid\x18\x01 \x01(\tR\buserUuid\x12!\n" +
+	"\fpodcast_uuid\x18\x02 \x01(\tR\vpodcastUuid\x12\x1a\n" +
+	"\bplatform\x18\x03 \x01(\x05R\bplatform\"W\n" +
+	" PodcastSubscriptionCheckResponse\x12\x12\n" +
+	"\x04paid\x18\x01 \x01(\bR\x04paid\x12\x1f\n" +
+	"\vuser_exists\x18\x02 \x01(\bR\n" +
+	"userExists\"w\n" +
+	"\tPromotion\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x1b\n" +
+	"\tstarts_at\x18\x03 \x01(\tR\bstartsAt\x12\x17\n" +
+	"\aends_at\x18\x04 \x01(\tR\x06endsAt\"#\n" +
+	"\rPromotionCode\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\"4\n" +
+	"\fReferralCode\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\"(\n" +
+	"\x12ReferralRedemption\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\"+\n" +
+	"\x15SearchPodcastsRequest\x12\x12\n" +
+	"\x04term\x18\x01 \x01(\tR\x04term\"\xe6\x06\n" +
+	"\x14SubscriptionResponse\x12\x1f\n" +
+	"\bplatform\x18\x01 \x01(\x05H\x00R\bplatform\x88\x01\x01\x12\x17\n" +
+	"\x04type\x18\x02 \x01(\x05H\x01R\x04type\x88\x01\x01\x12!\n" +
+	"\tfrequency\x18\x03 \x01(\x05H\x02R\tfrequency\x88\x01\x01\x12(\n" +
+	"\rauto_renewing\x18\x04 \x01(\bH\x03R\fautoRenewing\x88\x01\x01\x12;\n" +
+	"\vexpiry_date\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"expiryDate\x12\"\n" +
+	"\n" +
+	"cancel_url\x18\a \x01(\tH\x04R\tcancelUrl\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"update_url\x18\b \x01(\tH\x05R\tupdateUrl\x88\x01\x01\x125\n" +
+	"\x03web\x18\t \x01(\v2#.api.SubscriptionsWebStatusResponseR\x03web\x12\x17\n" +
+	"\x04plan\x18\n" +
+	" \x01(\tH\x06R\x04plan\x88\x01\x01\x12\x19\n" +
+	"\x05index\x18\v \x01(\x05H\aR\x05index\x88\x01\x01\x12 \n" +
+	"\tgift_days\x18\f \x01(\x05H\bR\bgiftDays\x88\x01\x01\x12\x17\n" +
+	"\x04paid\x18\r \x01(\x05H\tR\x04paid\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"web_status\x18\x0e \x01(\x05H\n" +
+	"R\twebStatus\x88\x01\x01\x12$\n" +
+	"\vbundle_uuid\x18\x0f \x01(\tH\vR\n" +
+	"bundleUuid\x88\x01\x01\x12,\n" +
+	"\bpodcasts\x18\x10 \x03(\v2\x10.api.PodcastPairR\bpodcasts\x12\x1f\n" +
+	"\beligible\x18\x11 \x01(\bH\fR\beligible\x88\x01\x01\x127\n" +
+	"\fnext_payment\x18\x12 \x01(\v2\x14.api.PaymentResponseR\vnextPayment\x12\x17\n" +
+	"\x04tier\x18\x13 \x01(\tH\rR\x04tier\x88\x01\x01B\v\n" +
+	"\t_platformB\a\n" +
+	"\x05_typeB\f\n" +
+	"\n" +
+	"_frequencyB\x10\n" +
+	"\x0e_auto_renewingB\r\n" +
+	"\v_cancel_urlB\r\n" +
+	"\v_update_urlB\a\n" +
+	"\x05_planB\b\n" +
+	"\x06_indexB\f\n" +
+	"\n" +
+	"_gift_daysB\a\n" +
+	"\x05_paidB\r\n" +
+	"\v_web_statusB\x0e\n" +
+	"\f_bundle_uuidB\v\n" +
+	"\t_eligibleB\a\n" +
+	"\x05_tier\"\x8a\x01\n" +
+	"#SubscriptionsPurchaseAndroidRequest\x12%\n" +
+	"\x0epurchase_token\x18\x01 \x01(\tR\rpurchaseToken\x12\x10\n" +
+	"\x03sku\x18\x02 \x01(\tR\x03sku\x12*\n" +
+	"\x11newsletter_opt_in\x18\x03 \x01(\bR\x0fnewsletterOptIn\"i\n" +
+	"!SubscriptionsPurchaseAppleRequest\x12\x18\n" +
+	"\areceipt\x18\x01 \x01(\tR\areceipt\x12*\n" +
+	"\x11newsletter_opt_in\x18\x02 \x01(\bR\x0fnewsletterOptIn\"\xf8\x01\n" +
+	"\x1fSubscriptionsPurchaseWebRequest\x12%\n" +
+	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x14\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\x12$\n" +
+	"\x0epaddle_user_id\x18\x03 \x01(\x03R\fpaddleUserId\x12\x1d\n" +
+	"\n" +
+	"product_id\x18\x04 \x01(\tR\tproductId\x12*\n" +
+	"\x11newsletter_opt_in\x18\x05 \x01(\bR\x0fnewsletterOptIn\x12'\n" +
+	"\x0fsubscription_id\x18\x06 \x01(\x03R\x0esubscriptionId\"\xef\x06\n" +
+	"\x1bSubscriptionsStatusResponse\x12\x17\n" +
+	"\x04paid\x18\x01 \x01(\x05H\x00R\x04paid\x88\x01\x01\x12\x1f\n" +
+	"\bplatform\x18\x02 \x01(\x05H\x01R\bplatform\x88\x01\x01\x12;\n" +
+	"\vexpiry_date\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"expiryDate\x12(\n" +
+	"\rauto_renewing\x18\x04 \x01(\bH\x02R\fautoRenewing\x88\x01\x01\x12 \n" +
+	"\tgift_days\x18\x05 \x01(\x05H\x03R\bgiftDays\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"cancel_url\x18\x06 \x01(\tH\x04R\tcancelUrl\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"update_url\x18\a \x01(\tH\x05R\tupdateUrl\x88\x01\x01\x12!\n" +
+	"\tfrequency\x18\b \x01(\x05H\x06R\tfrequency\x88\x01\x01\x125\n" +
+	"\x03web\x18\t \x01(\v2#.api.SubscriptionsWebStatusResponseR\x03web\x12?\n" +
+	"\rsubscriptions\x18\n" +
+	" \x03(\v2\x19.api.SubscriptionResponseR\rsubscriptions\x12\x17\n" +
+	"\x04type\x18\v \x01(\x05H\aR\x04type\x88\x01\x01\x12\x19\n" +
+	"\x05index\x18\f \x01(\x05H\bR\x05index\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"web_status\x18\r \x01(\x05H\tR\twebStatus\x88\x01\x01\x12\x17\n" +
+	"\x04tier\x18\x0e \x01(\tH\n" +
+	"R\x04tier\x88\x01\x01\x12)\n" +
+	"\bfeatures\x18\x0f \x01(\v2\r.api.FeaturesR\bfeatures\x129\n" +
+	"\n" +
+	"created_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x120\n" +
+	"\x11installment_based\x18\x11 \x01(\bH\vR\x10installmentBased\x88\x01\x01B\a\n" +
+	"\x05_paidB\v\n" +
+	"\t_platformB\x10\n" +
+	"\x0e_auto_renewingB\f\n" +
+	"\n" +
+	"_gift_daysB\r\n" +
+	"\v_cancel_urlB\r\n" +
+	"\v_update_urlB\f\n" +
+	"\n" +
+	"_frequencyB\a\n" +
+	"\x05_typeB\b\n" +
+	"\x06_indexB\r\n" +
+	"\v_web_statusB\a\n" +
+	"\x05_tierB\x14\n" +
+	"\x12_installment_based\"j\n" +
+	"\x17SubscriptionsWebProduct\x12\x18\n" +
+	"\amonthly\x18\x01 \x01(\x05R\amonthly\x12\x16\n" +
+	"\x06yearly\x18\x02 \x01(\x05R\x06yearly\x12\x1d\n" +
+	"\n" +
+	"trial_days\x18\x03 \x01(\x05R\ttrialDays\"\xef\x01\n" +
+	"\x1eSubscriptionsWebStatusResponse\x12\x18\n" +
+	"\amonthly\x18\x01 \x01(\x05R\amonthly\x12\x16\n" +
+	"\x06yearly\x18\x02 \x01(\x05R\x06yearly\x12\x14\n" +
+	"\x05trial\x18\x03 \x01(\x05R\x05trial\x12\x1d\n" +
+	"\n" +
+	"web_status\x18\x04 \x01(\x05R\twebStatus\x120\n" +
+	"\x04plus\x18\x05 \x01(\v2\x1c.api.SubscriptionsWebProductR\x04plus\x124\n" +
+	"\x06patron\x18\x06 \x01(\v2\x1c.api.SubscriptionsWebProductR\x06patron\"J\n" +
+	"\x0fSuggestedFolder\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
+	"\rpodcast_uuids\x18\x02 \x03(\tR\fpodcastUuids\"I\n" +
+	"\x17SuggestedFoldersRequest\x12.\n" +
+	"\afolders\x18\x01 \x03(\v2\x14.api.SuggestedFolderR\afolders\"t\n" +
+	"\x12TokenErrorResponse\x12\x14\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\x12+\n" +
+	"\x11error_description\x18\x02 \x01(\tR\x10errorDescription\x12\x1b\n" +
+	"\terror_uri\x18\x03 \x01(\tR\berrorUri\"v\n" +
+	"\x11TokenLoginRequest\x12\x19\n" +
+	"\bid_token\x18\x01 \x01(\tR\aidToken\x12\x14\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1a\n" +
+	"\bpassword\x18\x03 \x01(\tR\bpassword\x12\x14\n" +
+	"\x05scope\x18\x04 \x01(\tR\x05scope\"\xac\x01\n" +
+	"\x11UpNextListRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\x05R\x05limit\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12'\n" +
+	"\x0fserver_modified\x18\x04 \x01(\x03R\x0eserverModified\x12(\n" +
+	"\x10show_play_status\x18\x05 \x01(\bR\x0eshowPlayStatus\"x\n" +
+	"\x11UpNextPlayRequest\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x123\n" +
+	"\aepisode\x18\x03 \x01(\v2\x19.api.UpNextEpisodeRequestR\aepisode\"E\n" +
+	"\x13UpNextRemoveRequest\x12\x14\n" +
+	"\x05uuids\x18\x01 \x03(\tR\x05uuids\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"\x85\x01\n" +
+	"$UpdateEpisodeDeselectChaptersRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x18\n" +
+	"\apodcast\x18\x02 \x01(\tR\apodcast\x12/\n" +
+	"\x13deselected_chapters\x18\x03 \x01(\tR\x12deselectedChapters\"'\n" +
+	"%UpdateEpisodeDeselectChaptersResponse\"m\n" +
+	"\x1cUpdateEpisodesArchiveRequest\x12\x18\n" +
+	"\aarchive\x18\x01 \x01(\bR\aarchive\x123\n" +
+	"\bepisodes\x18\x02 \x03(\v2\x17.api.EpisodeWithPodcastR\bepisodes\",\n" +
+	"\x11UpdatePlanRequest\x12\x17\n" +
+	"\aplan_id\x18\x01 \x01(\x03R\x06planId\"\xca\x01\n" +
+	"\x12UpdatePlanResponse\x12\x1f\n" +
+	"\vexpiry_date\x18\x01 \x01(\x03R\n" +
+	"expiryDate\x12#\n" +
+	"\rauto_renewing\x18\x02 \x01(\bR\fautoRenewing\x12\x1c\n" +
+	"\tfrequency\x18\x03 \x01(\x05R\tfrequency\x12\x17\n" +
+	"\aplan_id\x18\x04 \x01(\x03R\x06planId\x12\x12\n" +
+	"\x04tier\x18\x05 \x01(\x05R\x04tier\x12#\n" +
+	"\rerror_message\x18\x06 \x01(\tR\ferrorMessage\"\xd9\x01\n" +
+	"\x14UserAuthorizeRequest\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\x12\x1a\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\x12#\n" +
+	"\rresponse_type\x18\x03 \x01(\tR\fresponseType\x12\x1b\n" +
+	"\tclient_id\x18\x04 \x01(\tR\bclientId\x12!\n" +
+	"\fredirect_uri\x18\x05 \x01(\tR\vredirectUri\x12\x14\n" +
+	"\x05scope\x18\x06 \x01(\tR\x05scope\x12\x14\n" +
+	"\x05state\x18\a \x01(\tR\x05state\"q\n" +
+	"\x15UserAuthorizeResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\tR\x04code\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\x12\x14\n" +
+	"\x05state\x18\x04 \x01(\tR\x05state\" \n" +
+	"\x0eUserIdResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"M\n" +
+	"\x1bUserPlaylistEpisodesRequest\x12\f\n" +
+	"\x01v\x18\x01 \x01(\tR\x01v\x12\f\n" +
+	"\x01m\x18\x02 \x01(\tR\x01m\x12\x12\n" +
+	"\x04uuid\x18\x03 \x01(\tR\x04uuid\"~\n" +
+	"\x18UserResetPasswordRequest\x120\n" +
+	"\x14reset_password_token\x18\x01 \x01(\tR\x12resetPasswordToken\x12\x1a\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x14\n" +
+	"\x05scope\x18\x03 \x01(\tR\x05scope\"8\n" +
+	"\x11UserRevokeRequest\x12#\n" +
+	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"M\n" +
+	"\x1dUserSubscriptionSurveyRequest\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x14\n" +
+	"\x05other\x18\x02 \x01(\tR\x05other\"\xb7\x01\n" +
+	"\x11UserTokenResponse\x12!\n" +
+	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12\x1d\n" +
+	"\n" +
+	"token_type\x18\x02 \x01(\tR\ttokenType\x12\x1d\n" +
+	"\n" +
+	"expires_in\x18\x03 \x01(\x05R\texpiresIn\x12A\n" +
+	"\rrefresh_token\x18\x04 \x01(\v2\x1c.google.protobuf.StringValueR\frefreshToken\"(\n" +
+	"\x10UuidListResponse\x12\x14\n" +
+	"\x05uuids\x18\x01 \x03(\tR\x05uuids\"B\n" +
+	"\x12VerifyEmailRequest\x12,\n" +
+	"\x12verify_email_token\x18\x01 \x01(\tR\x10verifyEmailToken\"P\n" +
+	"\x1aWinbackEligibilityResponse\x12\x1a\n" +
+	"\beligible\x18\x01 \x01(\bR\beligible\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"X\n" +
+	"\x12YearHistoryRequest\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12\x14\n" +
+	"\x05count\x18\x03 \x01(\bR\x05count\x12\x12\n" +
+	"\x04year\x18\x04 \x01(\x05R\x04year\"\x15\n" +
+	"\x13YearHistoryResponseB4Z2github.com/hbmartin/podcast-backend/protos/api;apib\x06proto3"
 
 var (
 	file_api_proto_rawDescOnce sync.Once
@@ -10645,112 +16599,186 @@ func file_api_proto_rawDescGZIP() []byte {
 	return file_api_proto_rawDescData
 }
 
-var file_api_proto_msgTypes = make([]protoimpl.MessageInfo, 92)
+var file_api_proto_msgTypes = make([]protoimpl.MessageInfo, 166)
 var file_api_proto_goTypes = []any{
-	(*UserLoginRequest)(nil),                   // 0: api.UserLoginRequest
-	(*UserLoginResponse)(nil),                  // 1: api.UserLoginResponse
-	(*RegisterRequest)(nil),                    // 2: api.RegisterRequest
-	(*RegisterResponse)(nil),                   // 3: api.RegisterResponse
-	(*UserTokenRequest)(nil),                   // 4: api.UserTokenRequest
-	(*TokenLoginResponse)(nil),                 // 5: api.TokenLoginResponse
-	(*EmailRequest)(nil),                       // 6: api.EmailRequest
-	(*UserChangeEmailRequest)(nil),             // 7: api.UserChangeEmailRequest
-	(*UserChangePasswordRequest)(nil),          // 8: api.UserChangePasswordRequest
-	(*UserChangeResponse)(nil),                 // 9: api.UserChangeResponse
-	(*BasicRequest)(nil),                       // 10: api.BasicRequest
-	(*EmptyRequest)(nil),                       // 11: api.EmptyRequest
-	(*EmptyResponse)(nil),                      // 12: api.EmptyResponse
-	(*UserLastSyncAtResponse)(nil),             // 13: api.UserLastSyncAtResponse
-	(*UuidRequest)(nil),                        // 14: api.UuidRequest
-	(*SyncUpdateRequest)(nil),                  // 15: api.SyncUpdateRequest
-	(*SyncUpdateResponse)(nil),                 // 16: api.SyncUpdateResponse
-	(*Record)(nil),                             // 17: api.Record
-	(*SyncUserPodcast)(nil),                    // 18: api.SyncUserPodcast
-	(*SyncUserEpisode)(nil),                    // 19: api.SyncUserEpisode
-	(*SyncUserPlaylist)(nil),                   // 20: api.SyncUserPlaylist
-	(*SyncUserFolder)(nil),                     // 21: api.SyncUserFolder
-	(*SyncUserDevice)(nil),                     // 22: api.SyncUserDevice
-	(*SyncUserBookmark)(nil),                   // 23: api.SyncUserBookmark
-	(*PodcastSettings)(nil),                    // 24: api.PodcastSettings
-	(*BoolSetting)(nil),                        // 25: api.BoolSetting
-	(*Int32Setting)(nil),                       // 26: api.Int32Setting
-	(*DoubleSetting)(nil),                      // 27: api.DoubleSetting
-	(*StringSetting)(nil),                      // 28: api.StringSetting
-	(*SyncPlaylistEpisode)(nil),                // 29: api.SyncPlaylistEpisode
-	(*UserPodcastListRequest)(nil),             // 30: api.UserPodcastListRequest
-	(*UserPodcastListResponse)(nil),            // 31: api.UserPodcastListResponse
-	(*UserPodcastResponse)(nil),                // 32: api.UserPodcastResponse
-	(*PodcastFolder)(nil),                      // 33: api.PodcastFolder
-	(*SyncEpisodesResponse)(nil),               // 34: api.SyncEpisodesResponse
-	(*EpisodeSyncResponse)(nil),                // 35: api.EpisodeSyncResponse
-	(*BookmarksRequest)(nil),                   // 36: api.BookmarksRequest
-	(*BookmarkRequest)(nil),                    // 37: api.BookmarkRequest
-	(*BookmarksResponse)(nil),                  // 38: api.BookmarksResponse
-	(*BookmarkResponse)(nil),                   // 39: api.BookmarkResponse
-	(*StarredEpisodesResponse)(nil),            // 40: api.StarredEpisodesResponse
-	(*StarredEpisode)(nil),                     // 41: api.StarredEpisode
-	(*UserPlaylistListRequest)(nil),            // 42: api.UserPlaylistListRequest
-	(*UserPlaylistListResponse)(nil),           // 43: api.UserPlaylistListResponse
-	(*PlaylistSyncResponse)(nil),               // 44: api.PlaylistSyncResponse
-	(*UpNextSyncRequest)(nil),                  // 45: api.UpNextSyncRequest
-	(*UpNextChanges)(nil),                      // 46: api.UpNextChanges
-	(*UpNextEpisodeRequest)(nil),               // 47: api.UpNextEpisodeRequest
-	(*UpNextResponse)(nil),                     // 48: api.UpNextResponse
-	(*EpisodeResponse)(nil),                    // 49: api.EpisodeResponse
-	(*HistorySyncRequest)(nil),                 // 50: api.HistorySyncRequest
-	(*HistoryChange)(nil),                      // 51: api.HistoryChange
-	(*HistoryResponse)(nil),                    // 52: api.HistoryResponse
-	(*UpdateEpisodeRequest)(nil),               // 53: api.UpdateEpisodeRequest
-	(*UpdateEpisodeResponse)(nil),              // 54: api.UpdateEpisodeResponse
-	(*SyncUpdateEpisodeResponse)(nil),          // 55: api.SyncUpdateEpisodeResponse
-	(*UpdateEpisodeStarRequest)(nil),           // 56: api.UpdateEpisodeStarRequest
-	(*UpdateEpisodeStarResponse)(nil),          // 57: api.UpdateEpisodeStarResponse
-	(*StatsRequest)(nil),                       // 58: api.StatsRequest
-	(*NamedSettingsRequest)(nil),               // 59: api.NamedSettingsRequest
-	(*NamedSettings)(nil),                      // 60: api.NamedSettings
-	(*ChangeableSettings)(nil),                 // 61: api.ChangeableSettings
-	(*NamedSettingsResponse)(nil),              // 62: api.NamedSettingsResponse
-	(*PodcastRatingAddRequest)(nil),            // 63: api.PodcastRatingAddRequest
-	(*PodcastRatingShowRequest)(nil),           // 64: api.PodcastRatingShowRequest
-	(*SupportFeedbackRequest)(nil),             // 65: api.SupportFeedbackRequest
-	(*PodcastRating)(nil),                      // 66: api.PodcastRating
-	(*PodcastRatingsResponse)(nil),             // 67: api.PodcastRatingsResponse
-	(*StatsResponse)(nil),                      // 68: api.StatsResponse
-	(*PodcastsEpisodesRequest)(nil),            // 69: api.PodcastsEpisodesRequest
-	(*EpisodesResponse)(nil),                   // 70: api.EpisodesResponse
-	(*ApiPodcastResponse)(nil),                 // 71: api.ApiPodcastResponse
-	(*PodcastRatingResponse)(nil),              // 72: api.PodcastRatingResponse
-	(*ReferralCodeResponse)(nil),               // 73: api.ReferralCodeResponse
-	(*ReferralValidationResponse)(nil),         // 74: api.ReferralValidationResponse
-	(*ReferralRedemptionRequest)(nil),          // 75: api.ReferralRedemptionRequest
-	(*ReferralRedemptionResponse)(nil),         // 76: api.ReferralRedemptionResponse
-	(*WinbackResponse)(nil),                    // 77: api.WinbackResponse
-	(*WebFeedCreateRequest)(nil),               // 78: api.WebFeedCreateRequest
-	(*WebFeedCreateResponse)(nil),              // 79: api.WebFeedCreateResponse
-	(*TranscriptMetadata)(nil),                 // 80: api.TranscriptMetadata
-	(*TranscriptionRecord)(nil),                // 81: api.TranscriptionRecord
-	(*TranscriptCue)(nil),                      // 82: api.TranscriptCue
-	(*EpisodeTranscript)(nil),                  // 83: api.EpisodeTranscript
-	(*TranscriptUploadRequest)(nil),            // 84: api.TranscriptUploadRequest
-	(*TranscriptUploadResponse)(nil),           // 85: api.TranscriptUploadResponse
-	(*TranscriptShowRequest)(nil),              // 86: api.TranscriptShowRequest
-	(*GeneratedChapter)(nil),                   // 87: api.GeneratedChapter
-	(*EpisodeGeneratedChapters)(nil),           // 88: api.EpisodeGeneratedChapters
-	(*UpNextChanges_Change)(nil),               // 89: api.UpNextChanges.Change
-	(*UpNextResponse_EpisodeResponse)(nil),     // 90: api.UpNextResponse.EpisodeResponse
-	(*UpNextResponse_EpisodeSyncResponse)(nil), // 91: api.UpNextResponse.EpisodeSyncResponse
-	(*wrapperspb.BoolValue)(nil),               // 92: google.protobuf.BoolValue
-	(*wrapperspb.Int32Value)(nil),              // 93: google.protobuf.Int32Value
-	(*wrapperspb.StringValue)(nil),             // 94: google.protobuf.StringValue
-	(*timestamppb.Timestamp)(nil),              // 95: google.protobuf.Timestamp
-	(*wrapperspb.Int64Value)(nil),              // 96: google.protobuf.Int64Value
-	(*wrapperspb.DoubleValue)(nil),             // 97: google.protobuf.DoubleValue
+	(*UserLoginRequest)(nil),                      // 0: api.UserLoginRequest
+	(*UserLoginResponse)(nil),                     // 1: api.UserLoginResponse
+	(*RegisterRequest)(nil),                       // 2: api.RegisterRequest
+	(*RegisterResponse)(nil),                      // 3: api.RegisterResponse
+	(*UserTokenRequest)(nil),                      // 4: api.UserTokenRequest
+	(*TokenLoginResponse)(nil),                    // 5: api.TokenLoginResponse
+	(*EmailRequest)(nil),                          // 6: api.EmailRequest
+	(*UserChangeEmailRequest)(nil),                // 7: api.UserChangeEmailRequest
+	(*UserChangePasswordRequest)(nil),             // 8: api.UserChangePasswordRequest
+	(*UserChangeResponse)(nil),                    // 9: api.UserChangeResponse
+	(*BasicRequest)(nil),                          // 10: api.BasicRequest
+	(*EmptyRequest)(nil),                          // 11: api.EmptyRequest
+	(*EmptyResponse)(nil),                         // 12: api.EmptyResponse
+	(*UserLastSyncAtResponse)(nil),                // 13: api.UserLastSyncAtResponse
+	(*UuidRequest)(nil),                           // 14: api.UuidRequest
+	(*SyncUpdateRequest)(nil),                     // 15: api.SyncUpdateRequest
+	(*SyncUpdateResponse)(nil),                    // 16: api.SyncUpdateResponse
+	(*Record)(nil),                                // 17: api.Record
+	(*SyncUserPodcast)(nil),                       // 18: api.SyncUserPodcast
+	(*SyncUserEpisode)(nil),                       // 19: api.SyncUserEpisode
+	(*SyncUserPlaylist)(nil),                      // 20: api.SyncUserPlaylist
+	(*SyncUserFolder)(nil),                        // 21: api.SyncUserFolder
+	(*SyncUserDevice)(nil),                        // 22: api.SyncUserDevice
+	(*SyncUserBookmark)(nil),                      // 23: api.SyncUserBookmark
+	(*PodcastSettings)(nil),                       // 24: api.PodcastSettings
+	(*BoolSetting)(nil),                           // 25: api.BoolSetting
+	(*Int32Setting)(nil),                          // 26: api.Int32Setting
+	(*DoubleSetting)(nil),                         // 27: api.DoubleSetting
+	(*StringSetting)(nil),                         // 28: api.StringSetting
+	(*SyncPlaylistEpisode)(nil),                   // 29: api.SyncPlaylistEpisode
+	(*UserPodcastListRequest)(nil),                // 30: api.UserPodcastListRequest
+	(*UserPodcastListResponse)(nil),               // 31: api.UserPodcastListResponse
+	(*UserPodcastResponse)(nil),                   // 32: api.UserPodcastResponse
+	(*PodcastFolder)(nil),                         // 33: api.PodcastFolder
+	(*SyncEpisodesResponse)(nil),                  // 34: api.SyncEpisodesResponse
+	(*EpisodeSyncResponse)(nil),                   // 35: api.EpisodeSyncResponse
+	(*BookmarksRequest)(nil),                      // 36: api.BookmarksRequest
+	(*BookmarkRequest)(nil),                       // 37: api.BookmarkRequest
+	(*BookmarksResponse)(nil),                     // 38: api.BookmarksResponse
+	(*BookmarkResponse)(nil),                      // 39: api.BookmarkResponse
+	(*StarredEpisodesResponse)(nil),               // 40: api.StarredEpisodesResponse
+	(*StarredEpisode)(nil),                        // 41: api.StarredEpisode
+	(*UserPlaylistListRequest)(nil),               // 42: api.UserPlaylistListRequest
+	(*UserPlaylistListResponse)(nil),              // 43: api.UserPlaylistListResponse
+	(*PlaylistSyncResponse)(nil),                  // 44: api.PlaylistSyncResponse
+	(*UpNextSyncRequest)(nil),                     // 45: api.UpNextSyncRequest
+	(*UpNextChanges)(nil),                         // 46: api.UpNextChanges
+	(*UpNextEpisodeRequest)(nil),                  // 47: api.UpNextEpisodeRequest
+	(*UpNextResponse)(nil),                        // 48: api.UpNextResponse
+	(*EpisodeResponse)(nil),                       // 49: api.EpisodeResponse
+	(*HistorySyncRequest)(nil),                    // 50: api.HistorySyncRequest
+	(*HistoryChange)(nil),                         // 51: api.HistoryChange
+	(*HistoryResponse)(nil),                       // 52: api.HistoryResponse
+	(*UpdateEpisodeRequest)(nil),                  // 53: api.UpdateEpisodeRequest
+	(*UpdateEpisodeResponse)(nil),                 // 54: api.UpdateEpisodeResponse
+	(*SyncUpdateEpisodeResponse)(nil),             // 55: api.SyncUpdateEpisodeResponse
+	(*UpdateEpisodeStarRequest)(nil),              // 56: api.UpdateEpisodeStarRequest
+	(*UpdateEpisodeStarResponse)(nil),             // 57: api.UpdateEpisodeStarResponse
+	(*StatsRequest)(nil),                          // 58: api.StatsRequest
+	(*NamedSettingsRequest)(nil),                  // 59: api.NamedSettingsRequest
+	(*NamedSettings)(nil),                         // 60: api.NamedSettings
+	(*ChangeableSettings)(nil),                    // 61: api.ChangeableSettings
+	(*NamedSettingsResponse)(nil),                 // 62: api.NamedSettingsResponse
+	(*PodcastRatingAddRequest)(nil),               // 63: api.PodcastRatingAddRequest
+	(*PodcastRatingShowRequest)(nil),              // 64: api.PodcastRatingShowRequest
+	(*SupportFeedbackRequest)(nil),                // 65: api.SupportFeedbackRequest
+	(*PodcastRating)(nil),                         // 66: api.PodcastRating
+	(*PodcastRatingsResponse)(nil),                // 67: api.PodcastRatingsResponse
+	(*StatsResponse)(nil),                         // 68: api.StatsResponse
+	(*PodcastsEpisodesRequest)(nil),               // 69: api.PodcastsEpisodesRequest
+	(*EpisodesResponse)(nil),                      // 70: api.EpisodesResponse
+	(*ApiPodcastResponse)(nil),                    // 71: api.ApiPodcastResponse
+	(*PodcastRatingResponse)(nil),                 // 72: api.PodcastRatingResponse
+	(*ReferralCodeResponse)(nil),                  // 73: api.ReferralCodeResponse
+	(*ReferralValidationResponse)(nil),            // 74: api.ReferralValidationResponse
+	(*ReferralRedemptionRequest)(nil),             // 75: api.ReferralRedemptionRequest
+	(*ReferralRedemptionResponse)(nil),            // 76: api.ReferralRedemptionResponse
+	(*WinbackResponse)(nil),                       // 77: api.WinbackResponse
+	(*WebFeedCreateRequest)(nil),                  // 78: api.WebFeedCreateRequest
+	(*WebFeedCreateResponse)(nil),                 // 79: api.WebFeedCreateResponse
+	(*TranscriptMetadata)(nil),                    // 80: api.TranscriptMetadata
+	(*TranscriptionRecord)(nil),                   // 81: api.TranscriptionRecord
+	(*TranscriptCue)(nil),                         // 82: api.TranscriptCue
+	(*EpisodeTranscript)(nil),                     // 83: api.EpisodeTranscript
+	(*TranscriptUploadRequest)(nil),               // 84: api.TranscriptUploadRequest
+	(*TranscriptUploadResponse)(nil),              // 85: api.TranscriptUploadResponse
+	(*TranscriptShowRequest)(nil),                 // 86: api.TranscriptShowRequest
+	(*GeneratedChapter)(nil),                      // 87: api.GeneratedChapter
+	(*EpisodeGeneratedChapters)(nil),              // 88: api.EpisodeGeneratedChapters
+	(*ApiPodcastListResponse)(nil),                // 89: api.ApiPodcastListResponse
+	(*AuthorizeCallbackRequest)(nil),              // 90: api.AuthorizeCallbackRequest
+	(*BundleUserRequest)(nil),                     // 91: api.BundleUserRequest
+	(*BundleUserResponse)(nil),                    // 92: api.BundleUserResponse
+	(*CancelUserSubscriptionRequest)(nil),         // 93: api.CancelUserSubscriptionRequest
+	(*CheckEligibleRequest)(nil),                  // 94: api.CheckEligibleRequest
+	(*CheckEligibleResponse)(nil),                 // 95: api.CheckEligibleResponse
+	(*CreateBetaUserRequest)(nil),                 // 96: api.CreateBetaUserRequest
+	(*DeviceApproveRequest)(nil),                  // 97: api.DeviceApproveRequest
+	(*DeviceAuthorizeRequest)(nil),                // 98: api.DeviceAuthorizeRequest
+	(*DeviceAuthorizeResponse)(nil),               // 99: api.DeviceAuthorizeResponse
+	(*EpisodeWithPodcast)(nil),                    // 100: api.EpisodeWithPodcast
+	(*Features)(nil),                              // 101: api.Features
+	(*FindUserEpisodeRequest)(nil),                // 102: api.FindUserEpisodeRequest
+	(*FindUserEpisodesRequest)(nil),               // 103: api.FindUserEpisodesRequest
+	(*HealthResponse)(nil),                        // 104: api.HealthResponse
+	(*KeywordRequest)(nil),                        // 105: api.KeywordRequest
+	(*LegacyRecord)(nil),                          // 106: api.LegacyRecord
+	(*LegacyRequest)(nil),                         // 107: api.LegacyRequest
+	(*LegacyResponse)(nil),                        // 108: api.LegacyResponse
+	(*LegacyResponseRecord)(nil),                  // 109: api.LegacyResponseRecord
+	(*LegacyStatsResponse)(nil),                   // 110: api.LegacyStatsResponse
+	(*LegacySyncData)(nil),                        // 111: api.LegacySyncData
+	(*LegacySyncRecord)(nil),                      // 112: api.LegacySyncRecord
+	(*LegacySyncResponse)(nil),                    // 113: api.LegacySyncResponse
+	(*LegacySyncResponseRecord)(nil),              // 114: api.LegacySyncResponseRecord
+	(*PaymentResponse)(nil),                       // 115: api.PaymentResponse
+	(*PlaylistCreateRequest)(nil),                 // 116: api.PlaylistCreateRequest
+	(*PlaylistReorderRequest)(nil),                // 117: api.PlaylistReorderRequest
+	(*PodcastFolderRequest)(nil),                  // 118: api.PodcastFolderRequest
+	(*PodcastFolderSortRequest)(nil),              // 119: api.PodcastFolderSortRequest
+	(*PodcastFolderSorting)(nil),                  // 120: api.PodcastFolderSorting
+	(*PodcastPair)(nil),                           // 121: api.PodcastPair
+	(*PodcastRatingAggregateResponse)(nil),        // 122: api.PodcastRatingAggregateResponse
+	(*PodcastRatingUpdateRequest)(nil),            // 123: api.PodcastRatingUpdateRequest
+	(*PodcastSubscriptionCheckRequest)(nil),       // 124: api.PodcastSubscriptionCheckRequest
+	(*PodcastSubscriptionCheckResponse)(nil),      // 125: api.PodcastSubscriptionCheckResponse
+	(*Promotion)(nil),                             // 126: api.Promotion
+	(*PromotionCode)(nil),                         // 127: api.PromotionCode
+	(*ReferralCode)(nil),                          // 128: api.ReferralCode
+	(*ReferralRedemption)(nil),                    // 129: api.ReferralRedemption
+	(*SearchPodcastsRequest)(nil),                 // 130: api.SearchPodcastsRequest
+	(*SubscriptionResponse)(nil),                  // 131: api.SubscriptionResponse
+	(*SubscriptionsPurchaseAndroidRequest)(nil),   // 132: api.SubscriptionsPurchaseAndroidRequest
+	(*SubscriptionsPurchaseAppleRequest)(nil),     // 133: api.SubscriptionsPurchaseAppleRequest
+	(*SubscriptionsPurchaseWebRequest)(nil),       // 134: api.SubscriptionsPurchaseWebRequest
+	(*SubscriptionsStatusResponse)(nil),           // 135: api.SubscriptionsStatusResponse
+	(*SubscriptionsWebProduct)(nil),               // 136: api.SubscriptionsWebProduct
+	(*SubscriptionsWebStatusResponse)(nil),        // 137: api.SubscriptionsWebStatusResponse
+	(*SuggestedFolder)(nil),                       // 138: api.SuggestedFolder
+	(*SuggestedFoldersRequest)(nil),               // 139: api.SuggestedFoldersRequest
+	(*TokenErrorResponse)(nil),                    // 140: api.TokenErrorResponse
+	(*TokenLoginRequest)(nil),                     // 141: api.TokenLoginRequest
+	(*UpNextListRequest)(nil),                     // 142: api.UpNextListRequest
+	(*UpNextPlayRequest)(nil),                     // 143: api.UpNextPlayRequest
+	(*UpNextRemoveRequest)(nil),                   // 144: api.UpNextRemoveRequest
+	(*UpdateEpisodeDeselectChaptersRequest)(nil),  // 145: api.UpdateEpisodeDeselectChaptersRequest
+	(*UpdateEpisodeDeselectChaptersResponse)(nil), // 146: api.UpdateEpisodeDeselectChaptersResponse
+	(*UpdateEpisodesArchiveRequest)(nil),          // 147: api.UpdateEpisodesArchiveRequest
+	(*UpdatePlanRequest)(nil),                     // 148: api.UpdatePlanRequest
+	(*UpdatePlanResponse)(nil),                    // 149: api.UpdatePlanResponse
+	(*UserAuthorizeRequest)(nil),                  // 150: api.UserAuthorizeRequest
+	(*UserAuthorizeResponse)(nil),                 // 151: api.UserAuthorizeResponse
+	(*UserIdResponse)(nil),                        // 152: api.UserIdResponse
+	(*UserPlaylistEpisodesRequest)(nil),           // 153: api.UserPlaylistEpisodesRequest
+	(*UserResetPasswordRequest)(nil),              // 154: api.UserResetPasswordRequest
+	(*UserRevokeRequest)(nil),                     // 155: api.UserRevokeRequest
+	(*UserSubscriptionSurveyRequest)(nil),         // 156: api.UserSubscriptionSurveyRequest
+	(*UserTokenResponse)(nil),                     // 157: api.UserTokenResponse
+	(*UuidListResponse)(nil),                      // 158: api.UuidListResponse
+	(*VerifyEmailRequest)(nil),                    // 159: api.VerifyEmailRequest
+	(*WinbackEligibilityResponse)(nil),            // 160: api.WinbackEligibilityResponse
+	(*YearHistoryRequest)(nil),                    // 161: api.YearHistoryRequest
+	(*YearHistoryResponse)(nil),                   // 162: api.YearHistoryResponse
+	(*UpNextChanges_Change)(nil),                  // 163: api.UpNextChanges.Change
+	(*UpNextResponse_EpisodeResponse)(nil),        // 164: api.UpNextResponse.EpisodeResponse
+	(*UpNextResponse_EpisodeSyncResponse)(nil),    // 165: api.UpNextResponse.EpisodeSyncResponse
+	(*wrapperspb.BoolValue)(nil),                  // 166: google.protobuf.BoolValue
+	(*wrapperspb.Int32Value)(nil),                 // 167: google.protobuf.Int32Value
+	(*wrapperspb.StringValue)(nil),                // 168: google.protobuf.StringValue
+	(*timestamppb.Timestamp)(nil),                 // 169: google.protobuf.Timestamp
+	(*wrapperspb.Int64Value)(nil),                 // 170: google.protobuf.Int64Value
+	(*wrapperspb.DoubleValue)(nil),                // 171: google.protobuf.DoubleValue
 }
 var file_api_proto_depIdxs = []int32{
-	92,  // 0: api.RegisterResponse.success:type_name -> google.protobuf.BoolValue
-	92,  // 1: api.UserChangeResponse.success:type_name -> google.protobuf.BoolValue
+	166, // 0: api.RegisterResponse.success:type_name -> google.protobuf.BoolValue
+	166, // 1: api.UserChangeResponse.success:type_name -> google.protobuf.BoolValue
 	17,  // 2: api.SyncUpdateRequest.records:type_name -> api.Record
-	93,  // 3: api.SyncUpdateRequest.device_type:type_name -> google.protobuf.Int32Value
+	167, // 3: api.SyncUpdateRequest.device_type:type_name -> google.protobuf.Int32Value
 	17,  // 4: api.SyncUpdateResponse.records:type_name -> api.Record
 	18,  // 5: api.Record.podcast:type_name -> api.SyncUserPodcast
 	19,  // 6: api.Record.episode:type_name -> api.SyncUserEpisode
@@ -10758,70 +16786,70 @@ var file_api_proto_depIdxs = []int32{
 	22,  // 8: api.Record.device:type_name -> api.SyncUserDevice
 	21,  // 9: api.Record.folder:type_name -> api.SyncUserFolder
 	23,  // 10: api.Record.bookmark:type_name -> api.SyncUserBookmark
-	92,  // 11: api.SyncUserPodcast.is_deleted:type_name -> google.protobuf.BoolValue
-	92,  // 12: api.SyncUserPodcast.subscribed:type_name -> google.protobuf.BoolValue
-	93,  // 13: api.SyncUserPodcast.auto_start_from:type_name -> google.protobuf.Int32Value
-	93,  // 14: api.SyncUserPodcast.episodes_sort_order:type_name -> google.protobuf.Int32Value
-	93,  // 15: api.SyncUserPodcast.auto_skip_last:type_name -> google.protobuf.Int32Value
-	94,  // 16: api.SyncUserPodcast.folder_uuid:type_name -> google.protobuf.StringValue
-	93,  // 17: api.SyncUserPodcast.sort_position:type_name -> google.protobuf.Int32Value
-	95,  // 18: api.SyncUserPodcast.date_added:type_name -> google.protobuf.Timestamp
+	166, // 11: api.SyncUserPodcast.is_deleted:type_name -> google.protobuf.BoolValue
+	166, // 12: api.SyncUserPodcast.subscribed:type_name -> google.protobuf.BoolValue
+	167, // 13: api.SyncUserPodcast.auto_start_from:type_name -> google.protobuf.Int32Value
+	167, // 14: api.SyncUserPodcast.episodes_sort_order:type_name -> google.protobuf.Int32Value
+	167, // 15: api.SyncUserPodcast.auto_skip_last:type_name -> google.protobuf.Int32Value
+	168, // 16: api.SyncUserPodcast.folder_uuid:type_name -> google.protobuf.StringValue
+	167, // 17: api.SyncUserPodcast.sort_position:type_name -> google.protobuf.Int32Value
+	169, // 18: api.SyncUserPodcast.date_added:type_name -> google.protobuf.Timestamp
 	24,  // 19: api.SyncUserPodcast.settings:type_name -> api.PodcastSettings
-	92,  // 20: api.SyncUserEpisode.is_deleted:type_name -> google.protobuf.BoolValue
-	96,  // 21: api.SyncUserEpisode.is_deleted_modified:type_name -> google.protobuf.Int64Value
-	96,  // 22: api.SyncUserEpisode.duration:type_name -> google.protobuf.Int64Value
-	96,  // 23: api.SyncUserEpisode.duration_modified:type_name -> google.protobuf.Int64Value
-	93,  // 24: api.SyncUserEpisode.playing_status:type_name -> google.protobuf.Int32Value
-	96,  // 25: api.SyncUserEpisode.playing_status_modified:type_name -> google.protobuf.Int64Value
-	96,  // 26: api.SyncUserEpisode.played_up_to:type_name -> google.protobuf.Int64Value
-	96,  // 27: api.SyncUserEpisode.played_up_to_modified:type_name -> google.protobuf.Int64Value
-	92,  // 28: api.SyncUserEpisode.starred:type_name -> google.protobuf.BoolValue
-	96,  // 29: api.SyncUserEpisode.starred_modified:type_name -> google.protobuf.Int64Value
-	96,  // 30: api.SyncUserEpisode.deselected_chapters_modified:type_name -> google.protobuf.Int64Value
-	92,  // 31: api.SyncUserPlaylist.is_deleted:type_name -> google.protobuf.BoolValue
-	94,  // 32: api.SyncUserPlaylist.title:type_name -> google.protobuf.StringValue
-	92,  // 33: api.SyncUserPlaylist.all_podcasts:type_name -> google.protobuf.BoolValue
-	94,  // 34: api.SyncUserPlaylist.podcast_uuids:type_name -> google.protobuf.StringValue
-	94,  // 35: api.SyncUserPlaylist.episode_uuids:type_name -> google.protobuf.StringValue
-	93,  // 36: api.SyncUserPlaylist.audio_video:type_name -> google.protobuf.Int32Value
-	92,  // 37: api.SyncUserPlaylist.not_downloaded:type_name -> google.protobuf.BoolValue
-	92,  // 38: api.SyncUserPlaylist.downloaded:type_name -> google.protobuf.BoolValue
-	92,  // 39: api.SyncUserPlaylist.downloading:type_name -> google.protobuf.BoolValue
-	92,  // 40: api.SyncUserPlaylist.finished:type_name -> google.protobuf.BoolValue
-	92,  // 41: api.SyncUserPlaylist.partially_played:type_name -> google.protobuf.BoolValue
-	92,  // 42: api.SyncUserPlaylist.unplayed:type_name -> google.protobuf.BoolValue
-	92,  // 43: api.SyncUserPlaylist.starred:type_name -> google.protobuf.BoolValue
-	92,  // 44: api.SyncUserPlaylist.manual:type_name -> google.protobuf.BoolValue
-	93,  // 45: api.SyncUserPlaylist.sort_position:type_name -> google.protobuf.Int32Value
-	93,  // 46: api.SyncUserPlaylist.sort_type:type_name -> google.protobuf.Int32Value
-	93,  // 47: api.SyncUserPlaylist.icon_id:type_name -> google.protobuf.Int32Value
-	93,  // 48: api.SyncUserPlaylist.filter_hours:type_name -> google.protobuf.Int32Value
-	92,  // 49: api.SyncUserPlaylist.filter_duration:type_name -> google.protobuf.BoolValue
-	93,  // 50: api.SyncUserPlaylist.longer_than:type_name -> google.protobuf.Int32Value
-	93,  // 51: api.SyncUserPlaylist.shorter_than:type_name -> google.protobuf.Int32Value
+	166, // 20: api.SyncUserEpisode.is_deleted:type_name -> google.protobuf.BoolValue
+	170, // 21: api.SyncUserEpisode.is_deleted_modified:type_name -> google.protobuf.Int64Value
+	170, // 22: api.SyncUserEpisode.duration:type_name -> google.protobuf.Int64Value
+	170, // 23: api.SyncUserEpisode.duration_modified:type_name -> google.protobuf.Int64Value
+	167, // 24: api.SyncUserEpisode.playing_status:type_name -> google.protobuf.Int32Value
+	170, // 25: api.SyncUserEpisode.playing_status_modified:type_name -> google.protobuf.Int64Value
+	170, // 26: api.SyncUserEpisode.played_up_to:type_name -> google.protobuf.Int64Value
+	170, // 27: api.SyncUserEpisode.played_up_to_modified:type_name -> google.protobuf.Int64Value
+	166, // 28: api.SyncUserEpisode.starred:type_name -> google.protobuf.BoolValue
+	170, // 29: api.SyncUserEpisode.starred_modified:type_name -> google.protobuf.Int64Value
+	170, // 30: api.SyncUserEpisode.deselected_chapters_modified:type_name -> google.protobuf.Int64Value
+	166, // 31: api.SyncUserPlaylist.is_deleted:type_name -> google.protobuf.BoolValue
+	168, // 32: api.SyncUserPlaylist.title:type_name -> google.protobuf.StringValue
+	166, // 33: api.SyncUserPlaylist.all_podcasts:type_name -> google.protobuf.BoolValue
+	168, // 34: api.SyncUserPlaylist.podcast_uuids:type_name -> google.protobuf.StringValue
+	168, // 35: api.SyncUserPlaylist.episode_uuids:type_name -> google.protobuf.StringValue
+	167, // 36: api.SyncUserPlaylist.audio_video:type_name -> google.protobuf.Int32Value
+	166, // 37: api.SyncUserPlaylist.not_downloaded:type_name -> google.protobuf.BoolValue
+	166, // 38: api.SyncUserPlaylist.downloaded:type_name -> google.protobuf.BoolValue
+	166, // 39: api.SyncUserPlaylist.downloading:type_name -> google.protobuf.BoolValue
+	166, // 40: api.SyncUserPlaylist.finished:type_name -> google.protobuf.BoolValue
+	166, // 41: api.SyncUserPlaylist.partially_played:type_name -> google.protobuf.BoolValue
+	166, // 42: api.SyncUserPlaylist.unplayed:type_name -> google.protobuf.BoolValue
+	166, // 43: api.SyncUserPlaylist.starred:type_name -> google.protobuf.BoolValue
+	166, // 44: api.SyncUserPlaylist.manual:type_name -> google.protobuf.BoolValue
+	167, // 45: api.SyncUserPlaylist.sort_position:type_name -> google.protobuf.Int32Value
+	167, // 46: api.SyncUserPlaylist.sort_type:type_name -> google.protobuf.Int32Value
+	167, // 47: api.SyncUserPlaylist.icon_id:type_name -> google.protobuf.Int32Value
+	167, // 48: api.SyncUserPlaylist.filter_hours:type_name -> google.protobuf.Int32Value
+	166, // 49: api.SyncUserPlaylist.filter_duration:type_name -> google.protobuf.BoolValue
+	167, // 50: api.SyncUserPlaylist.longer_than:type_name -> google.protobuf.Int32Value
+	167, // 51: api.SyncUserPlaylist.shorter_than:type_name -> google.protobuf.Int32Value
 	29,  // 52: api.SyncUserPlaylist.episodes:type_name -> api.SyncPlaylistEpisode
-	92,  // 53: api.SyncUserPlaylist.show_archived:type_name -> google.protobuf.BoolValue
-	95,  // 54: api.SyncUserFolder.date_added:type_name -> google.protobuf.Timestamp
-	94,  // 55: api.SyncUserDevice.device_id:type_name -> google.protobuf.StringValue
-	93,  // 56: api.SyncUserDevice.device_type:type_name -> google.protobuf.Int32Value
-	96,  // 57: api.SyncUserDevice.times_started_at:type_name -> google.protobuf.Int64Value
-	96,  // 58: api.SyncUserDevice.time_silence_removal:type_name -> google.protobuf.Int64Value
-	96,  // 59: api.SyncUserDevice.time_variable_speed:type_name -> google.protobuf.Int64Value
-	96,  // 60: api.SyncUserDevice.time_intro_skipping:type_name -> google.protobuf.Int64Value
-	96,  // 61: api.SyncUserDevice.time_skipping:type_name -> google.protobuf.Int64Value
-	96,  // 62: api.SyncUserDevice.time_listened:type_name -> google.protobuf.Int64Value
-	95,  // 63: api.SyncUserBookmark.created_at:type_name -> google.protobuf.Timestamp
-	93,  // 64: api.SyncUserBookmark.time:type_name -> google.protobuf.Int32Value
-	94,  // 65: api.SyncUserBookmark.title:type_name -> google.protobuf.StringValue
-	96,  // 66: api.SyncUserBookmark.title_modified:type_name -> google.protobuf.Int64Value
-	92,  // 67: api.SyncUserBookmark.is_deleted:type_name -> google.protobuf.BoolValue
-	96,  // 68: api.SyncUserBookmark.is_deleted_modified:type_name -> google.protobuf.Int64Value
-	94,  // 69: api.SyncUserBookmark.ai_title:type_name -> google.protobuf.StringValue
-	96,  // 70: api.SyncUserBookmark.ai_title_modified:type_name -> google.protobuf.Int64Value
-	94,  // 71: api.SyncUserBookmark.ai_summary:type_name -> google.protobuf.StringValue
-	96,  // 72: api.SyncUserBookmark.ai_summary_modified:type_name -> google.protobuf.Int64Value
-	94,  // 73: api.SyncUserBookmark.excerpt:type_name -> google.protobuf.StringValue
-	97,  // 74: api.SyncUserBookmark.end_time:type_name -> google.protobuf.DoubleValue
+	166, // 53: api.SyncUserPlaylist.show_archived:type_name -> google.protobuf.BoolValue
+	169, // 54: api.SyncUserFolder.date_added:type_name -> google.protobuf.Timestamp
+	168, // 55: api.SyncUserDevice.device_id:type_name -> google.protobuf.StringValue
+	167, // 56: api.SyncUserDevice.device_type:type_name -> google.protobuf.Int32Value
+	170, // 57: api.SyncUserDevice.times_started_at:type_name -> google.protobuf.Int64Value
+	170, // 58: api.SyncUserDevice.time_silence_removal:type_name -> google.protobuf.Int64Value
+	170, // 59: api.SyncUserDevice.time_variable_speed:type_name -> google.protobuf.Int64Value
+	170, // 60: api.SyncUserDevice.time_intro_skipping:type_name -> google.protobuf.Int64Value
+	170, // 61: api.SyncUserDevice.time_skipping:type_name -> google.protobuf.Int64Value
+	170, // 62: api.SyncUserDevice.time_listened:type_name -> google.protobuf.Int64Value
+	169, // 63: api.SyncUserBookmark.created_at:type_name -> google.protobuf.Timestamp
+	167, // 64: api.SyncUserBookmark.time:type_name -> google.protobuf.Int32Value
+	168, // 65: api.SyncUserBookmark.title:type_name -> google.protobuf.StringValue
+	170, // 66: api.SyncUserBookmark.title_modified:type_name -> google.protobuf.Int64Value
+	166, // 67: api.SyncUserBookmark.is_deleted:type_name -> google.protobuf.BoolValue
+	170, // 68: api.SyncUserBookmark.is_deleted_modified:type_name -> google.protobuf.Int64Value
+	168, // 69: api.SyncUserBookmark.ai_title:type_name -> google.protobuf.StringValue
+	170, // 70: api.SyncUserBookmark.ai_title_modified:type_name -> google.protobuf.Int64Value
+	168, // 71: api.SyncUserBookmark.ai_summary:type_name -> google.protobuf.StringValue
+	170, // 72: api.SyncUserBookmark.ai_summary_modified:type_name -> google.protobuf.Int64Value
+	168, // 73: api.SyncUserBookmark.excerpt:type_name -> google.protobuf.StringValue
+	171, // 74: api.SyncUserBookmark.end_time:type_name -> google.protobuf.DoubleValue
 	25,  // 75: api.PodcastSettings.notification:type_name -> api.BoolSetting
 	25,  // 76: api.PodcastSettings.add_to_up_next:type_name -> api.BoolSetting
 	26,  // 77: api.PodcastSettings.add_to_up_next_position:type_name -> api.Int32Setting
@@ -10840,177 +16868,177 @@ var file_api_proto_depIdxs = []int32{
 	25,  // 90: api.PodcastSettings.show_archived:type_name -> api.BoolSetting
 	28,  // 91: api.PodcastSettings.skip_chapter_titles:type_name -> api.StringSetting
 	25,  // 92: api.PodcastSettings.disable_remote_transcription:type_name -> api.BoolSetting
-	92,  // 93: api.BoolSetting.value:type_name -> google.protobuf.BoolValue
-	92,  // 94: api.BoolSetting.changed:type_name -> google.protobuf.BoolValue
-	95,  // 95: api.BoolSetting.modified_at:type_name -> google.protobuf.Timestamp
-	93,  // 96: api.Int32Setting.value:type_name -> google.protobuf.Int32Value
-	92,  // 97: api.Int32Setting.changed:type_name -> google.protobuf.BoolValue
-	95,  // 98: api.Int32Setting.modified_at:type_name -> google.protobuf.Timestamp
-	97,  // 99: api.DoubleSetting.value:type_name -> google.protobuf.DoubleValue
-	92,  // 100: api.DoubleSetting.changed:type_name -> google.protobuf.BoolValue
-	95,  // 101: api.DoubleSetting.modified_at:type_name -> google.protobuf.Timestamp
-	94,  // 102: api.StringSetting.value:type_name -> google.protobuf.StringValue
-	92,  // 103: api.StringSetting.changed:type_name -> google.protobuf.BoolValue
-	95,  // 104: api.StringSetting.modified_at:type_name -> google.protobuf.Timestamp
-	96,  // 105: api.SyncPlaylistEpisode.added:type_name -> google.protobuf.Int64Value
-	95,  // 106: api.SyncPlaylistEpisode.published:type_name -> google.protobuf.Timestamp
-	94,  // 107: api.SyncPlaylistEpisode.title:type_name -> google.protobuf.StringValue
-	94,  // 108: api.SyncPlaylistEpisode.url:type_name -> google.protobuf.StringValue
-	94,  // 109: api.SyncPlaylistEpisode.podcast_slug:type_name -> google.protobuf.StringValue
-	94,  // 110: api.SyncPlaylistEpisode.episode_slug:type_name -> google.protobuf.StringValue
+	166, // 93: api.BoolSetting.value:type_name -> google.protobuf.BoolValue
+	166, // 94: api.BoolSetting.changed:type_name -> google.protobuf.BoolValue
+	169, // 95: api.BoolSetting.modified_at:type_name -> google.protobuf.Timestamp
+	167, // 96: api.Int32Setting.value:type_name -> google.protobuf.Int32Value
+	166, // 97: api.Int32Setting.changed:type_name -> google.protobuf.BoolValue
+	169, // 98: api.Int32Setting.modified_at:type_name -> google.protobuf.Timestamp
+	171, // 99: api.DoubleSetting.value:type_name -> google.protobuf.DoubleValue
+	166, // 100: api.DoubleSetting.changed:type_name -> google.protobuf.BoolValue
+	169, // 101: api.DoubleSetting.modified_at:type_name -> google.protobuf.Timestamp
+	168, // 102: api.StringSetting.value:type_name -> google.protobuf.StringValue
+	166, // 103: api.StringSetting.changed:type_name -> google.protobuf.BoolValue
+	169, // 104: api.StringSetting.modified_at:type_name -> google.protobuf.Timestamp
+	170, // 105: api.SyncPlaylistEpisode.added:type_name -> google.protobuf.Int64Value
+	169, // 106: api.SyncPlaylistEpisode.published:type_name -> google.protobuf.Timestamp
+	168, // 107: api.SyncPlaylistEpisode.title:type_name -> google.protobuf.StringValue
+	168, // 108: api.SyncPlaylistEpisode.url:type_name -> google.protobuf.StringValue
+	168, // 109: api.SyncPlaylistEpisode.podcast_slug:type_name -> google.protobuf.StringValue
+	168, // 110: api.SyncPlaylistEpisode.episode_slug:type_name -> google.protobuf.StringValue
 	32,  // 111: api.UserPodcastListResponse.podcasts:type_name -> api.UserPodcastResponse
 	33,  // 112: api.UserPodcastListResponse.folders:type_name -> api.PodcastFolder
-	95,  // 113: api.UserPodcastResponse.last_episode_published:type_name -> google.protobuf.Timestamp
-	94,  // 114: api.UserPodcastResponse.folder_uuid:type_name -> google.protobuf.StringValue
-	93,  // 115: api.UserPodcastResponse.sort_position:type_name -> google.protobuf.Int32Value
-	95,  // 116: api.UserPodcastResponse.date_added:type_name -> google.protobuf.Timestamp
+	169, // 113: api.UserPodcastResponse.last_episode_published:type_name -> google.protobuf.Timestamp
+	168, // 114: api.UserPodcastResponse.folder_uuid:type_name -> google.protobuf.StringValue
+	167, // 115: api.UserPodcastResponse.sort_position:type_name -> google.protobuf.Int32Value
+	169, // 116: api.UserPodcastResponse.date_added:type_name -> google.protobuf.Timestamp
 	24,  // 117: api.UserPodcastResponse.settings:type_name -> api.PodcastSettings
-	92,  // 118: api.UserPodcastResponse.is_private:type_name -> google.protobuf.BoolValue
-	92,  // 119: api.UserPodcastResponse.explicit:type_name -> google.protobuf.BoolValue
-	95,  // 120: api.PodcastFolder.date_added:type_name -> google.protobuf.Timestamp
+	166, // 118: api.UserPodcastResponse.is_private:type_name -> google.protobuf.BoolValue
+	166, // 119: api.UserPodcastResponse.explicit:type_name -> google.protobuf.BoolValue
+	169, // 120: api.PodcastFolder.date_added:type_name -> google.protobuf.Timestamp
 	35,  // 121: api.SyncEpisodesResponse.episodes:type_name -> api.EpisodeSyncResponse
-	93,  // 122: api.SyncEpisodesResponse.auto_start_from:type_name -> google.protobuf.Int32Value
-	93,  // 123: api.SyncEpisodesResponse.episodes_sort_order:type_name -> google.protobuf.Int32Value
-	93,  // 124: api.SyncEpisodesResponse.auto_skip_last:type_name -> google.protobuf.Int32Value
+	167, // 122: api.SyncEpisodesResponse.auto_start_from:type_name -> google.protobuf.Int32Value
+	167, // 123: api.SyncEpisodesResponse.episodes_sort_order:type_name -> google.protobuf.Int32Value
+	167, // 124: api.SyncEpisodesResponse.auto_skip_last:type_name -> google.protobuf.Int32Value
 	39,  // 125: api.EpisodeSyncResponse.bookmarks:type_name -> api.BookmarkResponse
-	93,  // 126: api.BookmarkRequest.time:type_name -> google.protobuf.Int32Value
-	94,  // 127: api.BookmarkRequest.title:type_name -> google.protobuf.StringValue
+	167, // 126: api.BookmarkRequest.time:type_name -> google.protobuf.Int32Value
+	168, // 127: api.BookmarkRequest.title:type_name -> google.protobuf.StringValue
 	39,  // 128: api.BookmarksResponse.bookmarks:type_name -> api.BookmarkResponse
-	95,  // 129: api.BookmarkResponse.createdAt:type_name -> google.protobuf.Timestamp
+	169, // 129: api.BookmarkResponse.createdAt:type_name -> google.protobuf.Timestamp
 	41,  // 130: api.StarredEpisodesResponse.episodes:type_name -> api.StarredEpisode
 	44,  // 131: api.UserPlaylistListResponse.playlists:type_name -> api.PlaylistSyncResponse
-	92,  // 132: api.PlaylistSyncResponse.is_deleted:type_name -> google.protobuf.BoolValue
-	93,  // 133: api.PlaylistSyncResponse.audio_video:type_name -> google.protobuf.Int32Value
-	92,  // 134: api.PlaylistSyncResponse.not_downloaded:type_name -> google.protobuf.BoolValue
-	92,  // 135: api.PlaylistSyncResponse.downloaded:type_name -> google.protobuf.BoolValue
-	92,  // 136: api.PlaylistSyncResponse.downloading:type_name -> google.protobuf.BoolValue
-	92,  // 137: api.PlaylistSyncResponse.finished:type_name -> google.protobuf.BoolValue
-	92,  // 138: api.PlaylistSyncResponse.partially_played:type_name -> google.protobuf.BoolValue
-	92,  // 139: api.PlaylistSyncResponse.unplayed:type_name -> google.protobuf.BoolValue
-	92,  // 140: api.PlaylistSyncResponse.starred:type_name -> google.protobuf.BoolValue
-	92,  // 141: api.PlaylistSyncResponse.manual:type_name -> google.protobuf.BoolValue
-	93,  // 142: api.PlaylistSyncResponse.sort_position:type_name -> google.protobuf.Int32Value
-	93,  // 143: api.PlaylistSyncResponse.sort_type:type_name -> google.protobuf.Int32Value
-	93,  // 144: api.PlaylistSyncResponse.icon_id:type_name -> google.protobuf.Int32Value
-	92,  // 145: api.PlaylistSyncResponse.all_podcasts:type_name -> google.protobuf.BoolValue
-	93,  // 146: api.PlaylistSyncResponse.filter_hours:type_name -> google.protobuf.Int32Value
-	92,  // 147: api.PlaylistSyncResponse.filter_duration:type_name -> google.protobuf.BoolValue
-	93,  // 148: api.PlaylistSyncResponse.longer_than:type_name -> google.protobuf.Int32Value
-	93,  // 149: api.PlaylistSyncResponse.shorter_than:type_name -> google.protobuf.Int32Value
+	166, // 132: api.PlaylistSyncResponse.is_deleted:type_name -> google.protobuf.BoolValue
+	167, // 133: api.PlaylistSyncResponse.audio_video:type_name -> google.protobuf.Int32Value
+	166, // 134: api.PlaylistSyncResponse.not_downloaded:type_name -> google.protobuf.BoolValue
+	166, // 135: api.PlaylistSyncResponse.downloaded:type_name -> google.protobuf.BoolValue
+	166, // 136: api.PlaylistSyncResponse.downloading:type_name -> google.protobuf.BoolValue
+	166, // 137: api.PlaylistSyncResponse.finished:type_name -> google.protobuf.BoolValue
+	166, // 138: api.PlaylistSyncResponse.partially_played:type_name -> google.protobuf.BoolValue
+	166, // 139: api.PlaylistSyncResponse.unplayed:type_name -> google.protobuf.BoolValue
+	166, // 140: api.PlaylistSyncResponse.starred:type_name -> google.protobuf.BoolValue
+	166, // 141: api.PlaylistSyncResponse.manual:type_name -> google.protobuf.BoolValue
+	167, // 142: api.PlaylistSyncResponse.sort_position:type_name -> google.protobuf.Int32Value
+	167, // 143: api.PlaylistSyncResponse.sort_type:type_name -> google.protobuf.Int32Value
+	167, // 144: api.PlaylistSyncResponse.icon_id:type_name -> google.protobuf.Int32Value
+	166, // 145: api.PlaylistSyncResponse.all_podcasts:type_name -> google.protobuf.BoolValue
+	167, // 146: api.PlaylistSyncResponse.filter_hours:type_name -> google.protobuf.Int32Value
+	166, // 147: api.PlaylistSyncResponse.filter_duration:type_name -> google.protobuf.BoolValue
+	167, // 148: api.PlaylistSyncResponse.longer_than:type_name -> google.protobuf.Int32Value
+	167, // 149: api.PlaylistSyncResponse.shorter_than:type_name -> google.protobuf.Int32Value
 	29,  // 150: api.PlaylistSyncResponse.episodes:type_name -> api.SyncPlaylistEpisode
-	92,  // 151: api.PlaylistSyncResponse.show_archived:type_name -> google.protobuf.BoolValue
+	166, // 151: api.PlaylistSyncResponse.show_archived:type_name -> google.protobuf.BoolValue
 	46,  // 152: api.UpNextSyncRequest.up_next:type_name -> api.UpNextChanges
-	89,  // 153: api.UpNextChanges.changes:type_name -> api.UpNextChanges.Change
-	95,  // 154: api.UpNextEpisodeRequest.published:type_name -> google.protobuf.Timestamp
-	90,  // 155: api.UpNextResponse.episodes:type_name -> api.UpNextResponse.EpisodeResponse
-	91,  // 156: api.UpNextResponse.episodeSync:type_name -> api.UpNextResponse.EpisodeSyncResponse
-	95,  // 157: api.EpisodeResponse.published:type_name -> google.protobuf.Timestamp
+	163, // 153: api.UpNextChanges.changes:type_name -> api.UpNextChanges.Change
+	169, // 154: api.UpNextEpisodeRequest.published:type_name -> google.protobuf.Timestamp
+	164, // 155: api.UpNextResponse.episodes:type_name -> api.UpNextResponse.EpisodeResponse
+	165, // 156: api.UpNextResponse.episodeSync:type_name -> api.UpNextResponse.EpisodeSyncResponse
+	169, // 157: api.EpisodeResponse.published:type_name -> google.protobuf.Timestamp
 	39,  // 158: api.EpisodeResponse.bookmarks:type_name -> api.BookmarkResponse
 	80,  // 159: api.EpisodeResponse.transcripts:type_name -> api.TranscriptMetadata
 	51,  // 160: api.HistorySyncRequest.changes:type_name -> api.HistoryChange
-	95,  // 161: api.HistoryChange.published:type_name -> google.protobuf.Timestamp
+	169, // 161: api.HistoryChange.published:type_name -> google.protobuf.Timestamp
 	51,  // 162: api.HistoryResponse.changes:type_name -> api.HistoryChange
-	93,  // 163: api.UpdateEpisodeRequest.position:type_name -> google.protobuf.Int32Value
+	167, // 163: api.UpdateEpisodeRequest.position:type_name -> google.protobuf.Int32Value
 	58,  // 164: api.UpdateEpisodeRequest.stats:type_name -> api.StatsRequest
 	60,  // 165: api.NamedSettingsRequest.settings:type_name -> api.NamedSettings
 	61,  // 166: api.NamedSettingsRequest.changed_settings:type_name -> api.ChangeableSettings
-	93,  // 167: api.NamedSettings.grid_layout:type_name -> google.protobuf.Int32Value
-	93,  // 168: api.NamedSettings.grid_order:type_name -> google.protobuf.Int32Value
-	93,  // 169: api.NamedSettings.show_played:type_name -> google.protobuf.Int32Value
-	93,  // 170: api.NamedSettings.theme:type_name -> google.protobuf.Int32Value
-	93,  // 171: api.NamedSettings.skip_forward:type_name -> google.protobuf.Int32Value
-	93,  // 172: api.NamedSettings.skip_back:type_name -> google.protobuf.Int32Value
-	93,  // 173: api.NamedSettings.web_version:type_name -> google.protobuf.Int32Value
-	94,  // 174: api.NamedSettings.language:type_name -> google.protobuf.StringValue
-	92,  // 175: api.NamedSettings.recommendations_on:type_name -> google.protobuf.BoolValue
-	92,  // 176: api.NamedSettings.use_embedded_artwork:type_name -> google.protobuf.BoolValue
-	97,  // 177: api.NamedSettings.playback_speed:type_name -> google.protobuf.DoubleValue
-	92,  // 178: api.NamedSettings.volume_boost:type_name -> google.protobuf.BoolValue
-	93,  // 179: api.NamedSettings.badges:type_name -> google.protobuf.Int32Value
-	92,  // 180: api.NamedSettings.free_gift_acknowledgement:type_name -> google.protobuf.BoolValue
-	92,  // 181: api.NamedSettings.marketing_opt_in:type_name -> google.protobuf.BoolValue
-	92,  // 182: api.NamedSettings.auto_archive_played_episodes:type_name -> google.protobuf.BoolValue
-	92,  // 183: api.NamedSettings.auto_archive_includes_starred:type_name -> google.protobuf.BoolValue
-	94,  // 184: api.NamedSettings.region:type_name -> google.protobuf.StringValue
-	93,  // 185: api.NamedSettings.row_action:type_name -> google.protobuf.Int32Value
-	93,  // 186: api.NamedSettings.up_next_swipe:type_name -> google.protobuf.Int32Value
-	93,  // 187: api.NamedSettings.episode_grouping:type_name -> google.protobuf.Int32Value
-	92,  // 188: api.NamedSettings.show_archived:type_name -> google.protobuf.BoolValue
-	92,  // 189: api.NamedSettings.open_links:type_name -> google.protobuf.BoolValue
-	92,  // 190: api.NamedSettings.media_actions:type_name -> google.protobuf.BoolValue
-	94,  // 191: api.NamedSettings.media_actions_order:type_name -> google.protobuf.StringValue
-	92,  // 192: api.NamedSettings.keep_screen_awake:type_name -> google.protobuf.BoolValue
-	92,  // 193: api.NamedSettings.open_player:type_name -> google.protobuf.BoolValue
-	92,  // 194: api.NamedSettings.intelligent_resumption:type_name -> google.protobuf.BoolValue
-	92,  // 195: api.NamedSettings.play_up_next_on_tap:type_name -> google.protobuf.BoolValue
-	92,  // 196: api.NamedSettings.remote_skip_chapters:type_name -> google.protobuf.BoolValue
-	92,  // 197: api.NamedSettings.playback_actions:type_name -> google.protobuf.BoolValue
-	92,  // 198: api.NamedSettings.legacy_bluetooth:type_name -> google.protobuf.BoolValue
-	92,  // 199: api.NamedSettings.multi_select_gesture:type_name -> google.protobuf.BoolValue
-	92,  // 200: api.NamedSettings.chapter_titles:type_name -> google.protobuf.BoolValue
-	92,  // 201: api.NamedSettings.notifications:type_name -> google.protobuf.BoolValue
-	94,  // 202: api.NamedSettings.notification_actions:type_name -> google.protobuf.StringValue
-	93,  // 203: api.NamedSettings.play_over_notifications:type_name -> google.protobuf.Int32Value
-	92,  // 204: api.NamedSettings.hide_notification_on_pause:type_name -> google.protobuf.BoolValue
-	93,  // 205: api.NamedSettings.app_badge:type_name -> google.protobuf.Int32Value
-	94,  // 206: api.NamedSettings.app_badge_filter:type_name -> google.protobuf.StringValue
-	93,  // 207: api.NamedSettings.auto_archive_played:type_name -> google.protobuf.Int32Value
-	93,  // 208: api.NamedSettings.auto_archive_inactive:type_name -> google.protobuf.Int32Value
-	93,  // 209: api.NamedSettings.auto_up_next_limit:type_name -> google.protobuf.Int32Value
-	93,  // 210: api.NamedSettings.auto_up_next_limit_reached:type_name -> google.protobuf.Int32Value
-	92,  // 211: api.NamedSettings.warn_data_usage:type_name -> google.protobuf.BoolValue
-	92,  // 212: api.NamedSettings.files_auto_up_next:type_name -> google.protobuf.BoolValue
-	92,  // 213: api.NamedSettings.files_after_playing_delete_local:type_name -> google.protobuf.BoolValue
-	92,  // 214: api.NamedSettings.files_after_playing_delete_cloud:type_name -> google.protobuf.BoolValue
-	92,  // 215: api.NamedSettings.privacy_analytics:type_name -> google.protobuf.BoolValue
-	92,  // 216: api.NamedSettings.privacy_crash_reports:type_name -> google.protobuf.BoolValue
-	92,  // 217: api.NamedSettings.privacy_link_account:type_name -> google.protobuf.BoolValue
-	94,  // 218: api.NamedSettings.player_shelf:type_name -> google.protobuf.StringValue
-	92,  // 219: api.NamedSettings.auto_subscribe_to_played:type_name -> google.protobuf.BoolValue
-	92,  // 220: api.NamedSettings.auto_show_played:type_name -> google.protobuf.BoolValue
-	92,  // 221: api.NamedSettings.auto_play_enabled:type_name -> google.protobuf.BoolValue
-	94,  // 222: api.NamedSettings.auto_play_last_list_uuid:type_name -> google.protobuf.StringValue
-	93,  // 223: api.NamedSettings.trim_silence:type_name -> google.protobuf.Int32Value
-	92,  // 224: api.NamedSettings.show_artwork_on_lock_screen:type_name -> google.protobuf.BoolValue
-	93,  // 225: api.NamedSettings.headphone_controls_next_action:type_name -> google.protobuf.Int32Value
-	93,  // 226: api.NamedSettings.headphone_controls_previous_action:type_name -> google.protobuf.Int32Value
-	92,  // 227: api.NamedSettings.headphone_controls_play_bookmark_confirmation_sound:type_name -> google.protobuf.BoolValue
-	93,  // 228: api.NamedSettings.dark_theme_preference:type_name -> google.protobuf.Int32Value
-	93,  // 229: api.NamedSettings.light_theme_preference:type_name -> google.protobuf.Int32Value
-	92,  // 230: api.NamedSettings.use_system_theme:type_name -> google.protobuf.BoolValue
-	93,  // 231: api.NamedSettings.episode_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
-	93,  // 232: api.NamedSettings.player_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
-	93,  // 233: api.NamedSettings.podcast_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
-	92,  // 234: api.NamedSettings.use_dark_up_next_theme:type_name -> google.protobuf.BoolValue
-	92,  // 235: api.NamedSettings.use_dynamic_colors_for_widget:type_name -> google.protobuf.BoolValue
-	93,  // 236: api.NamedSettings.files_sort_order:type_name -> google.protobuf.Int32Value
-	92,  // 237: api.NamedSettings.background_refresh:type_name -> google.protobuf.BoolValue
-	92,  // 238: api.NamedSettings.auto_download_unmetered_only:type_name -> google.protobuf.BoolValue
-	92,  // 239: api.NamedSettings.auto_download_only_when_charging:type_name -> google.protobuf.BoolValue
-	92,  // 240: api.NamedSettings.auto_download_up_next:type_name -> google.protobuf.BoolValue
-	92,  // 241: api.NamedSettings.cloud_auto_upload:type_name -> google.protobuf.BoolValue
-	92,  // 242: api.NamedSettings.cloud_auto_download:type_name -> google.protobuf.BoolValue
-	92,  // 243: api.NamedSettings.cloud_download_unmetered_only:type_name -> google.protobuf.BoolValue
-	92,  // 244: api.NamedSettings.use_rss_artwork:type_name -> google.protobuf.BoolValue
-	93,  // 245: api.NamedSettings.bookmarks_sort_order:type_name -> google.protobuf.Int32Value
-	92,  // 246: api.NamedSettings.auto_archive_played_episodes_global:type_name -> google.protobuf.BoolValue
-	92,  // 247: api.NamedSettings.auto_archive_includes_starred_global:type_name -> google.protobuf.BoolValue
-	92,  // 248: api.NamedSettings.files_auto_up_next_global:type_name -> google.protobuf.BoolValue
-	92,  // 249: api.NamedSettings.files_after_playing_delete_local_global:type_name -> google.protobuf.BoolValue
-	92,  // 250: api.NamedSettings.files_after_playing_delete_cloud_global:type_name -> google.protobuf.BoolValue
-	94,  // 251: api.NamedSettings.player_shelf_global:type_name -> google.protobuf.StringValue
-	93,  // 252: api.NamedSettings.row_action_global:type_name -> google.protobuf.Int32Value
-	92,  // 253: api.NamedSettings.use_embedded_artwork_global:type_name -> google.protobuf.BoolValue
-	92,  // 254: api.NamedSettings.recommendations_on_global:type_name -> google.protobuf.BoolValue
-	93,  // 255: api.NamedSettings.grid_layout_global:type_name -> google.protobuf.Int32Value
-	92,  // 256: api.NamedSettings.volume_boost_global:type_name -> google.protobuf.BoolValue
-	93,  // 257: api.NamedSettings.badges_global:type_name -> google.protobuf.Int32Value
-	93,  // 258: api.NamedSettings.smart_folders_number_of_times_shown:type_name -> google.protobuf.Int32Value
-	94,  // 259: api.NamedSettings.smart_folders_last_date_shown:type_name -> google.protobuf.StringValue
-	92,  // 260: api.NamedSettings.save_up_next_on_playlists_play_all:type_name -> google.protobuf.BoolValue
-	92,  // 261: api.NamedSettings.do_not_sell_or_share:type_name -> google.protobuf.BoolValue
-	94,  // 262: api.NamedSettings.live_analytics_url:type_name -> google.protobuf.StringValue
-	92,  // 263: api.NamedSettings.listening_time_stats:type_name -> google.protobuf.BoolValue
+	167, // 167: api.NamedSettings.grid_layout:type_name -> google.protobuf.Int32Value
+	167, // 168: api.NamedSettings.grid_order:type_name -> google.protobuf.Int32Value
+	167, // 169: api.NamedSettings.show_played:type_name -> google.protobuf.Int32Value
+	167, // 170: api.NamedSettings.theme:type_name -> google.protobuf.Int32Value
+	167, // 171: api.NamedSettings.skip_forward:type_name -> google.protobuf.Int32Value
+	167, // 172: api.NamedSettings.skip_back:type_name -> google.protobuf.Int32Value
+	167, // 173: api.NamedSettings.web_version:type_name -> google.protobuf.Int32Value
+	168, // 174: api.NamedSettings.language:type_name -> google.protobuf.StringValue
+	166, // 175: api.NamedSettings.recommendations_on:type_name -> google.protobuf.BoolValue
+	166, // 176: api.NamedSettings.use_embedded_artwork:type_name -> google.protobuf.BoolValue
+	171, // 177: api.NamedSettings.playback_speed:type_name -> google.protobuf.DoubleValue
+	166, // 178: api.NamedSettings.volume_boost:type_name -> google.protobuf.BoolValue
+	167, // 179: api.NamedSettings.badges:type_name -> google.protobuf.Int32Value
+	166, // 180: api.NamedSettings.free_gift_acknowledgement:type_name -> google.protobuf.BoolValue
+	166, // 181: api.NamedSettings.marketing_opt_in:type_name -> google.protobuf.BoolValue
+	166, // 182: api.NamedSettings.auto_archive_played_episodes:type_name -> google.protobuf.BoolValue
+	166, // 183: api.NamedSettings.auto_archive_includes_starred:type_name -> google.protobuf.BoolValue
+	168, // 184: api.NamedSettings.region:type_name -> google.protobuf.StringValue
+	167, // 185: api.NamedSettings.row_action:type_name -> google.protobuf.Int32Value
+	167, // 186: api.NamedSettings.up_next_swipe:type_name -> google.protobuf.Int32Value
+	167, // 187: api.NamedSettings.episode_grouping:type_name -> google.protobuf.Int32Value
+	166, // 188: api.NamedSettings.show_archived:type_name -> google.protobuf.BoolValue
+	166, // 189: api.NamedSettings.open_links:type_name -> google.protobuf.BoolValue
+	166, // 190: api.NamedSettings.media_actions:type_name -> google.protobuf.BoolValue
+	168, // 191: api.NamedSettings.media_actions_order:type_name -> google.protobuf.StringValue
+	166, // 192: api.NamedSettings.keep_screen_awake:type_name -> google.protobuf.BoolValue
+	166, // 193: api.NamedSettings.open_player:type_name -> google.protobuf.BoolValue
+	166, // 194: api.NamedSettings.intelligent_resumption:type_name -> google.protobuf.BoolValue
+	166, // 195: api.NamedSettings.play_up_next_on_tap:type_name -> google.protobuf.BoolValue
+	166, // 196: api.NamedSettings.remote_skip_chapters:type_name -> google.protobuf.BoolValue
+	166, // 197: api.NamedSettings.playback_actions:type_name -> google.protobuf.BoolValue
+	166, // 198: api.NamedSettings.legacy_bluetooth:type_name -> google.protobuf.BoolValue
+	166, // 199: api.NamedSettings.multi_select_gesture:type_name -> google.protobuf.BoolValue
+	166, // 200: api.NamedSettings.chapter_titles:type_name -> google.protobuf.BoolValue
+	166, // 201: api.NamedSettings.notifications:type_name -> google.protobuf.BoolValue
+	168, // 202: api.NamedSettings.notification_actions:type_name -> google.protobuf.StringValue
+	167, // 203: api.NamedSettings.play_over_notifications:type_name -> google.protobuf.Int32Value
+	166, // 204: api.NamedSettings.hide_notification_on_pause:type_name -> google.protobuf.BoolValue
+	167, // 205: api.NamedSettings.app_badge:type_name -> google.protobuf.Int32Value
+	168, // 206: api.NamedSettings.app_badge_filter:type_name -> google.protobuf.StringValue
+	167, // 207: api.NamedSettings.auto_archive_played:type_name -> google.protobuf.Int32Value
+	167, // 208: api.NamedSettings.auto_archive_inactive:type_name -> google.protobuf.Int32Value
+	167, // 209: api.NamedSettings.auto_up_next_limit:type_name -> google.protobuf.Int32Value
+	167, // 210: api.NamedSettings.auto_up_next_limit_reached:type_name -> google.protobuf.Int32Value
+	166, // 211: api.NamedSettings.warn_data_usage:type_name -> google.protobuf.BoolValue
+	166, // 212: api.NamedSettings.files_auto_up_next:type_name -> google.protobuf.BoolValue
+	166, // 213: api.NamedSettings.files_after_playing_delete_local:type_name -> google.protobuf.BoolValue
+	166, // 214: api.NamedSettings.files_after_playing_delete_cloud:type_name -> google.protobuf.BoolValue
+	166, // 215: api.NamedSettings.privacy_analytics:type_name -> google.protobuf.BoolValue
+	166, // 216: api.NamedSettings.privacy_crash_reports:type_name -> google.protobuf.BoolValue
+	166, // 217: api.NamedSettings.privacy_link_account:type_name -> google.protobuf.BoolValue
+	168, // 218: api.NamedSettings.player_shelf:type_name -> google.protobuf.StringValue
+	166, // 219: api.NamedSettings.auto_subscribe_to_played:type_name -> google.protobuf.BoolValue
+	166, // 220: api.NamedSettings.auto_show_played:type_name -> google.protobuf.BoolValue
+	166, // 221: api.NamedSettings.auto_play_enabled:type_name -> google.protobuf.BoolValue
+	168, // 222: api.NamedSettings.auto_play_last_list_uuid:type_name -> google.protobuf.StringValue
+	167, // 223: api.NamedSettings.trim_silence:type_name -> google.protobuf.Int32Value
+	166, // 224: api.NamedSettings.show_artwork_on_lock_screen:type_name -> google.protobuf.BoolValue
+	167, // 225: api.NamedSettings.headphone_controls_next_action:type_name -> google.protobuf.Int32Value
+	167, // 226: api.NamedSettings.headphone_controls_previous_action:type_name -> google.protobuf.Int32Value
+	166, // 227: api.NamedSettings.headphone_controls_play_bookmark_confirmation_sound:type_name -> google.protobuf.BoolValue
+	167, // 228: api.NamedSettings.dark_theme_preference:type_name -> google.protobuf.Int32Value
+	167, // 229: api.NamedSettings.light_theme_preference:type_name -> google.protobuf.Int32Value
+	166, // 230: api.NamedSettings.use_system_theme:type_name -> google.protobuf.BoolValue
+	167, // 231: api.NamedSettings.episode_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
+	167, // 232: api.NamedSettings.player_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
+	167, // 233: api.NamedSettings.podcast_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
+	166, // 234: api.NamedSettings.use_dark_up_next_theme:type_name -> google.protobuf.BoolValue
+	166, // 235: api.NamedSettings.use_dynamic_colors_for_widget:type_name -> google.protobuf.BoolValue
+	167, // 236: api.NamedSettings.files_sort_order:type_name -> google.protobuf.Int32Value
+	166, // 237: api.NamedSettings.background_refresh:type_name -> google.protobuf.BoolValue
+	166, // 238: api.NamedSettings.auto_download_unmetered_only:type_name -> google.protobuf.BoolValue
+	166, // 239: api.NamedSettings.auto_download_only_when_charging:type_name -> google.protobuf.BoolValue
+	166, // 240: api.NamedSettings.auto_download_up_next:type_name -> google.protobuf.BoolValue
+	166, // 241: api.NamedSettings.cloud_auto_upload:type_name -> google.protobuf.BoolValue
+	166, // 242: api.NamedSettings.cloud_auto_download:type_name -> google.protobuf.BoolValue
+	166, // 243: api.NamedSettings.cloud_download_unmetered_only:type_name -> google.protobuf.BoolValue
+	166, // 244: api.NamedSettings.use_rss_artwork:type_name -> google.protobuf.BoolValue
+	167, // 245: api.NamedSettings.bookmarks_sort_order:type_name -> google.protobuf.Int32Value
+	166, // 246: api.NamedSettings.auto_archive_played_episodes_global:type_name -> google.protobuf.BoolValue
+	166, // 247: api.NamedSettings.auto_archive_includes_starred_global:type_name -> google.protobuf.BoolValue
+	166, // 248: api.NamedSettings.files_auto_up_next_global:type_name -> google.protobuf.BoolValue
+	166, // 249: api.NamedSettings.files_after_playing_delete_local_global:type_name -> google.protobuf.BoolValue
+	166, // 250: api.NamedSettings.files_after_playing_delete_cloud_global:type_name -> google.protobuf.BoolValue
+	168, // 251: api.NamedSettings.player_shelf_global:type_name -> google.protobuf.StringValue
+	167, // 252: api.NamedSettings.row_action_global:type_name -> google.protobuf.Int32Value
+	166, // 253: api.NamedSettings.use_embedded_artwork_global:type_name -> google.protobuf.BoolValue
+	166, // 254: api.NamedSettings.recommendations_on_global:type_name -> google.protobuf.BoolValue
+	167, // 255: api.NamedSettings.grid_layout_global:type_name -> google.protobuf.Int32Value
+	166, // 256: api.NamedSettings.volume_boost_global:type_name -> google.protobuf.BoolValue
+	167, // 257: api.NamedSettings.badges_global:type_name -> google.protobuf.Int32Value
+	167, // 258: api.NamedSettings.smart_folders_number_of_times_shown:type_name -> google.protobuf.Int32Value
+	168, // 259: api.NamedSettings.smart_folders_last_date_shown:type_name -> google.protobuf.StringValue
+	166, // 260: api.NamedSettings.save_up_next_on_playlists_play_all:type_name -> google.protobuf.BoolValue
+	166, // 261: api.NamedSettings.do_not_sell_or_share:type_name -> google.protobuf.BoolValue
+	168, // 262: api.NamedSettings.live_analytics_url:type_name -> google.protobuf.StringValue
+	166, // 263: api.NamedSettings.listening_time_stats:type_name -> google.protobuf.BoolValue
 	26,  // 264: api.ChangeableSettings.grid_layout:type_name -> api.Int32Setting
 	26,  // 265: api.ChangeableSettings.grid_order:type_name -> api.Int32Setting
 	26,  // 266: api.ChangeableSettings.show_played:type_name -> api.Int32Setting
@@ -11232,32 +17260,170 @@ var file_api_proto_depIdxs = []int32{
 	25,  // 482: api.NamedSettingsResponse.adaptive_effects:type_name -> api.BoolSetting
 	25,  // 483: api.NamedSettingsResponse.allow_cellular_downloads:type_name -> api.BoolSetting
 	25,  // 484: api.NamedSettingsResponse.allow_cellular_auto_downloads:type_name -> api.BoolSetting
-	95,  // 485: api.PodcastRating.modified_at:type_name -> google.protobuf.Timestamp
+	169, // 485: api.PodcastRating.modified_at:type_name -> google.protobuf.Timestamp
 	66,  // 486: api.PodcastRatingsResponse.podcast_ratings:type_name -> api.PodcastRating
-	95,  // 487: api.StatsResponse.times_started_at:type_name -> google.protobuf.Timestamp
+	169, // 487: api.StatsResponse.times_started_at:type_name -> google.protobuf.Timestamp
 	49,  // 488: api.EpisodesResponse.episodes:type_name -> api.EpisodeResponse
-	95,  // 489: api.PodcastRatingResponse.modified_at:type_name -> google.protobuf.Timestamp
-	94,  // 490: api.WebFeedCreateRequest.poll_uuid:type_name -> google.protobuf.StringValue
+	169, // 489: api.PodcastRatingResponse.modified_at:type_name -> google.protobuf.Timestamp
+	168, // 490: api.WebFeedCreateRequest.poll_uuid:type_name -> google.protobuf.StringValue
 	71,  // 491: api.WebFeedCreateResponse.podcast:type_name -> api.ApiPodcastResponse
-	94,  // 492: api.TranscriptMetadata.language:type_name -> google.protobuf.StringValue
-	95,  // 493: api.TranscriptionRecord.created_at:type_name -> google.protobuf.Timestamp
-	95,  // 494: api.TranscriptionRecord.updated_at:type_name -> google.protobuf.Timestamp
-	97,  // 495: api.TranscriptCue.end_time:type_name -> google.protobuf.DoubleValue
-	94,  // 496: api.TranscriptCue.speaker:type_name -> google.protobuf.StringValue
+	168, // 492: api.TranscriptMetadata.language:type_name -> google.protobuf.StringValue
+	169, // 493: api.TranscriptionRecord.created_at:type_name -> google.protobuf.Timestamp
+	169, // 494: api.TranscriptionRecord.updated_at:type_name -> google.protobuf.Timestamp
+	171, // 495: api.TranscriptCue.end_time:type_name -> google.protobuf.DoubleValue
+	168, // 496: api.TranscriptCue.speaker:type_name -> google.protobuf.StringValue
 	82,  // 497: api.EpisodeTranscript.cues:type_name -> api.TranscriptCue
 	83,  // 498: api.TranscriptUploadRequest.transcript:type_name -> api.EpisodeTranscript
 	81,  // 499: api.TranscriptUploadRequest.provenance:type_name -> api.TranscriptionRecord
 	87,  // 500: api.EpisodeGeneratedChapters.chapters:type_name -> api.GeneratedChapter
-	47,  // 501: api.UpNextChanges.Change.episodes:type_name -> api.UpNextEpisodeRequest
-	95,  // 502: api.UpNextChanges.Change.published:type_name -> google.protobuf.Timestamp
-	95,  // 503: api.UpNextResponse.EpisodeResponse.published:type_name -> google.protobuf.Timestamp
-	93,  // 504: api.UpNextResponse.EpisodeSyncResponse.played_up_to:type_name -> google.protobuf.Int32Value
-	93,  // 505: api.UpNextResponse.EpisodeSyncResponse.duration:type_name -> google.protobuf.Int32Value
-	506, // [506:506] is the sub-list for method output_type
-	506, // [506:506] is the sub-list for method input_type
-	506, // [506:506] is the sub-list for extension type_name
-	506, // [506:506] is the sub-list for extension extendee
-	0,   // [0:506] is the sub-list for field type_name
+	71,  // 501: api.ApiPodcastListResponse.podcasts:type_name -> api.ApiPodcastResponse
+	132, // 502: api.CheckEligibleRequest.android:type_name -> api.SubscriptionsPurchaseAndroidRequest
+	133, // 503: api.CheckEligibleRequest.apple:type_name -> api.SubscriptionsPurchaseAppleRequest
+	134, // 504: api.CheckEligibleRequest.web:type_name -> api.SubscriptionsPurchaseWebRequest
+	168, // 505: api.LegacyRecord.uuid:type_name -> google.protobuf.StringValue
+	168, // 506: api.LegacyRecord.user_podcast_uuid:type_name -> google.protobuf.StringValue
+	168, // 507: api.LegacyRecord.episode_uuid:type_name -> google.protobuf.StringValue
+	168, // 508: api.LegacyRecord.podcast_uuid:type_name -> google.protobuf.StringValue
+	168, // 509: api.LegacyRecord.is_deleted:type_name -> google.protobuf.StringValue
+	170, // 510: api.LegacyRecord.is_deleted_modified:type_name -> google.protobuf.Int64Value
+	171, // 511: api.LegacyRecord.duration:type_name -> google.protobuf.DoubleValue
+	170, // 512: api.LegacyRecord.duration_modified:type_name -> google.protobuf.Int64Value
+	167, // 513: api.LegacyRecord.playing_status:type_name -> google.protobuf.Int32Value
+	170, // 514: api.LegacyRecord.playing_status_modified:type_name -> google.protobuf.Int64Value
+	171, // 515: api.LegacyRecord.played_up_to:type_name -> google.protobuf.DoubleValue
+	170, // 516: api.LegacyRecord.played_up_to_modified:type_name -> google.protobuf.Int64Value
+	168, // 517: api.LegacyRecord.starred:type_name -> google.protobuf.StringValue
+	170, // 518: api.LegacyRecord.starred_modified:type_name -> google.protobuf.Int64Value
+	171, // 519: api.LegacyRecord.times_started_at:type_name -> google.protobuf.DoubleValue
+	171, // 520: api.LegacyRecord.time_silence_removal:type_name -> google.protobuf.DoubleValue
+	171, // 521: api.LegacyRecord.time_variable_speed:type_name -> google.protobuf.DoubleValue
+	171, // 522: api.LegacyRecord.time_intro_skipping:type_name -> google.protobuf.DoubleValue
+	171, // 523: api.LegacyRecord.time_skipping:type_name -> google.protobuf.DoubleValue
+	171, // 524: api.LegacyRecord.time_listened:type_name -> google.protobuf.DoubleValue
+	167, // 525: api.LegacyRecord.auto_start_from:type_name -> google.protobuf.Int32Value
+	168, // 526: api.LegacyRecord.subscribed:type_name -> google.protobuf.StringValue
+	168, // 527: api.LegacyRecord.title:type_name -> google.protobuf.StringValue
+	168, // 528: api.LegacyRecord.all_podcasts:type_name -> google.protobuf.StringValue
+	168, // 529: api.LegacyRecord.podcast_uuids:type_name -> google.protobuf.StringValue
+	168, // 530: api.LegacyRecord.episode_uuids:type_name -> google.protobuf.StringValue
+	167, // 531: api.LegacyRecord.audio_video:type_name -> google.protobuf.Int32Value
+	168, // 532: api.LegacyRecord.not_downloaded:type_name -> google.protobuf.StringValue
+	168, // 533: api.LegacyRecord.downloaded:type_name -> google.protobuf.StringValue
+	168, // 534: api.LegacyRecord.downloading:type_name -> google.protobuf.StringValue
+	168, // 535: api.LegacyRecord.finished:type_name -> google.protobuf.StringValue
+	168, // 536: api.LegacyRecord.partially_played:type_name -> google.protobuf.StringValue
+	168, // 537: api.LegacyRecord.unplayed:type_name -> google.protobuf.StringValue
+	168, // 538: api.LegacyRecord.manual:type_name -> google.protobuf.StringValue
+	167, // 539: api.LegacyRecord.sort_position:type_name -> google.protobuf.Int32Value
+	167, // 540: api.LegacyRecord.sort_type:type_name -> google.protobuf.Int32Value
+	167, // 541: api.LegacyRecord.icon_id:type_name -> google.protobuf.Int32Value
+	167, // 542: api.LegacyRecord.filter_hours:type_name -> google.protobuf.Int32Value
+	167, // 543: api.LegacyRecord.auto_skip_last:type_name -> google.protobuf.Int32Value
+	166, // 544: api.LegacyRecord.filter_duration:type_name -> google.protobuf.BoolValue
+	167, // 545: api.LegacyRecord.longer_than:type_name -> google.protobuf.Int32Value
+	167, // 546: api.LegacyRecord.shorter_than:type_name -> google.protobuf.Int32Value
+	168, // 547: api.LegacyRecord.folder_uuid:type_name -> google.protobuf.StringValue
+	168, // 548: api.LegacyRecord.name:type_name -> google.protobuf.StringValue
+	167, // 549: api.LegacyRecord.color:type_name -> google.protobuf.Int32Value
+	167, // 550: api.LegacyRecord.podcasts_sort_type:type_name -> google.protobuf.Int32Value
+	169, // 551: api.LegacyRecord.date_added:type_name -> google.protobuf.Timestamp
+	168, // 552: api.LegacyRecord.bookmark_uuid:type_name -> google.protobuf.StringValue
+	167, // 553: api.LegacyRecord.time:type_name -> google.protobuf.Int32Value
+	170, // 554: api.LegacyRecord.title_modified:type_name -> google.protobuf.Int64Value
+	169, // 555: api.LegacyRecord.created_at:type_name -> google.protobuf.Timestamp
+	168, // 556: api.LegacyRecord.deselected_chapters:type_name -> google.protobuf.StringValue
+	170, // 557: api.LegacyRecord.deselected_chapters_modified:type_name -> google.protobuf.Int64Value
+	29,  // 558: api.LegacyRecord.episodes:type_name -> api.SyncPlaylistEpisode
+	166, // 559: api.LegacyRecord.show_archived:type_name -> google.protobuf.BoolValue
+	168, // 560: api.LegacyResponseRecord.uuid:type_name -> google.protobuf.StringValue
+	168, // 561: api.LegacyResponseRecord.user_podcast_uuid:type_name -> google.protobuf.StringValue
+	168, // 562: api.LegacyResponseRecord.episode_uuid:type_name -> google.protobuf.StringValue
+	168, // 563: api.LegacyResponseRecord.podcast_uuid:type_name -> google.protobuf.StringValue
+	166, // 564: api.LegacyResponseRecord.is_deleted:type_name -> google.protobuf.BoolValue
+	170, // 565: api.LegacyResponseRecord.is_deleted_modified:type_name -> google.protobuf.Int64Value
+	171, // 566: api.LegacyResponseRecord.duration:type_name -> google.protobuf.DoubleValue
+	170, // 567: api.LegacyResponseRecord.duration_modified:type_name -> google.protobuf.Int64Value
+	167, // 568: api.LegacyResponseRecord.playing_status:type_name -> google.protobuf.Int32Value
+	170, // 569: api.LegacyResponseRecord.playing_status_modified:type_name -> google.protobuf.Int64Value
+	171, // 570: api.LegacyResponseRecord.played_up_to:type_name -> google.protobuf.DoubleValue
+	170, // 571: api.LegacyResponseRecord.played_up_to_modified:type_name -> google.protobuf.Int64Value
+	166, // 572: api.LegacyResponseRecord.starred:type_name -> google.protobuf.BoolValue
+	170, // 573: api.LegacyResponseRecord.starred_modified:type_name -> google.protobuf.Int64Value
+	170, // 574: api.LegacyResponseRecord.times_started_at:type_name -> google.protobuf.Int64Value
+	170, // 575: api.LegacyResponseRecord.time_silence_removal:type_name -> google.protobuf.Int64Value
+	170, // 576: api.LegacyResponseRecord.time_variable_speed:type_name -> google.protobuf.Int64Value
+	170, // 577: api.LegacyResponseRecord.time_intro_skipping:type_name -> google.protobuf.Int64Value
+	170, // 578: api.LegacyResponseRecord.time_skipping:type_name -> google.protobuf.Int64Value
+	170, // 579: api.LegacyResponseRecord.time_listened:type_name -> google.protobuf.Int64Value
+	167, // 580: api.LegacyResponseRecord.auto_start_from:type_name -> google.protobuf.Int32Value
+	166, // 581: api.LegacyResponseRecord.subscribed:type_name -> google.protobuf.BoolValue
+	168, // 582: api.LegacyResponseRecord.title:type_name -> google.protobuf.StringValue
+	166, // 583: api.LegacyResponseRecord.all_podcasts:type_name -> google.protobuf.BoolValue
+	168, // 584: api.LegacyResponseRecord.podcast_uuids:type_name -> google.protobuf.StringValue
+	168, // 585: api.LegacyResponseRecord.episode_uuids:type_name -> google.protobuf.StringValue
+	167, // 586: api.LegacyResponseRecord.audio_video:type_name -> google.protobuf.Int32Value
+	166, // 587: api.LegacyResponseRecord.not_downloaded:type_name -> google.protobuf.BoolValue
+	166, // 588: api.LegacyResponseRecord.downloaded:type_name -> google.protobuf.BoolValue
+	166, // 589: api.LegacyResponseRecord.downloading:type_name -> google.protobuf.BoolValue
+	166, // 590: api.LegacyResponseRecord.finished:type_name -> google.protobuf.BoolValue
+	166, // 591: api.LegacyResponseRecord.partially_played:type_name -> google.protobuf.BoolValue
+	166, // 592: api.LegacyResponseRecord.unplayed:type_name -> google.protobuf.BoolValue
+	166, // 593: api.LegacyResponseRecord.manual:type_name -> google.protobuf.BoolValue
+	167, // 594: api.LegacyResponseRecord.sort_position:type_name -> google.protobuf.Int32Value
+	167, // 595: api.LegacyResponseRecord.sort_type:type_name -> google.protobuf.Int32Value
+	167, // 596: api.LegacyResponseRecord.icon_id:type_name -> google.protobuf.Int32Value
+	167, // 597: api.LegacyResponseRecord.filter_hours:type_name -> google.protobuf.Int32Value
+	167, // 598: api.LegacyResponseRecord.auto_skip_last:type_name -> google.protobuf.Int32Value
+	166, // 599: api.LegacyResponseRecord.filter_duration:type_name -> google.protobuf.BoolValue
+	167, // 600: api.LegacyResponseRecord.longer_than:type_name -> google.protobuf.Int32Value
+	167, // 601: api.LegacyResponseRecord.shorter_than:type_name -> google.protobuf.Int32Value
+	168, // 602: api.LegacyResponseRecord.folder_uuid:type_name -> google.protobuf.StringValue
+	168, // 603: api.LegacyResponseRecord.name:type_name -> google.protobuf.StringValue
+	167, // 604: api.LegacyResponseRecord.color:type_name -> google.protobuf.Int32Value
+	167, // 605: api.LegacyResponseRecord.podcasts_sort_type:type_name -> google.protobuf.Int32Value
+	169, // 606: api.LegacyResponseRecord.date_added:type_name -> google.protobuf.Timestamp
+	168, // 607: api.LegacyResponseRecord.bookmark_uuid:type_name -> google.protobuf.StringValue
+	167, // 608: api.LegacyResponseRecord.time:type_name -> google.protobuf.Int32Value
+	170, // 609: api.LegacyResponseRecord.title_modified:type_name -> google.protobuf.Int64Value
+	169, // 610: api.LegacyResponseRecord.created_at:type_name -> google.protobuf.Timestamp
+	168, // 611: api.LegacyResponseRecord.deselected_chapters:type_name -> google.protobuf.StringValue
+	170, // 612: api.LegacyResponseRecord.deselected_chapters_modified:type_name -> google.protobuf.Int64Value
+	29,  // 613: api.LegacyResponseRecord.episodes:type_name -> api.SyncPlaylistEpisode
+	166, // 614: api.LegacyResponseRecord.show_archived:type_name -> google.protobuf.BoolValue
+	112, // 615: api.LegacySyncData.records:type_name -> api.LegacySyncRecord
+	106, // 616: api.LegacySyncRecord.fields:type_name -> api.LegacyRecord
+	114, // 617: api.LegacySyncResponse.changes:type_name -> api.LegacySyncResponseRecord
+	109, // 618: api.LegacySyncResponseRecord.fields:type_name -> api.LegacyResponseRecord
+	169, // 619: api.PaymentResponse.date:type_name -> google.protobuf.Timestamp
+	20,  // 620: api.PlaylistCreateRequest.playlist:type_name -> api.SyncUserPlaylist
+	33,  // 621: api.PodcastFolderRequest.folder:type_name -> api.PodcastFolder
+	120, // 622: api.PodcastFolderSortRequest.podcasts:type_name -> api.PodcastFolderSorting
+	120, // 623: api.PodcastFolderSortRequest.folders:type_name -> api.PodcastFolderSorting
+	169, // 624: api.SubscriptionResponse.expiry_date:type_name -> google.protobuf.Timestamp
+	137, // 625: api.SubscriptionResponse.web:type_name -> api.SubscriptionsWebStatusResponse
+	121, // 626: api.SubscriptionResponse.podcasts:type_name -> api.PodcastPair
+	115, // 627: api.SubscriptionResponse.next_payment:type_name -> api.PaymentResponse
+	169, // 628: api.SubscriptionsStatusResponse.expiry_date:type_name -> google.protobuf.Timestamp
+	137, // 629: api.SubscriptionsStatusResponse.web:type_name -> api.SubscriptionsWebStatusResponse
+	131, // 630: api.SubscriptionsStatusResponse.subscriptions:type_name -> api.SubscriptionResponse
+	101, // 631: api.SubscriptionsStatusResponse.features:type_name -> api.Features
+	169, // 632: api.SubscriptionsStatusResponse.created_at:type_name -> google.protobuf.Timestamp
+	136, // 633: api.SubscriptionsWebStatusResponse.plus:type_name -> api.SubscriptionsWebProduct
+	136, // 634: api.SubscriptionsWebStatusResponse.patron:type_name -> api.SubscriptionsWebProduct
+	138, // 635: api.SuggestedFoldersRequest.folders:type_name -> api.SuggestedFolder
+	47,  // 636: api.UpNextPlayRequest.episode:type_name -> api.UpNextEpisodeRequest
+	100, // 637: api.UpdateEpisodesArchiveRequest.episodes:type_name -> api.EpisodeWithPodcast
+	168, // 638: api.UserTokenResponse.refresh_token:type_name -> google.protobuf.StringValue
+	47,  // 639: api.UpNextChanges.Change.episodes:type_name -> api.UpNextEpisodeRequest
+	169, // 640: api.UpNextChanges.Change.published:type_name -> google.protobuf.Timestamp
+	169, // 641: api.UpNextResponse.EpisodeResponse.published:type_name -> google.protobuf.Timestamp
+	167, // 642: api.UpNextResponse.EpisodeSyncResponse.played_up_to:type_name -> google.protobuf.Int32Value
+	167, // 643: api.UpNextResponse.EpisodeSyncResponse.duration:type_name -> google.protobuf.Int32Value
+	644, // [644:644] is the sub-list for method output_type
+	644, // [644:644] is the sub-list for method input_type
+	644, // [644:644] is the sub-list for extension type_name
+	644, // [644:644] is the sub-list for extension extendee
+	0,   // [0:644] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_init() }
@@ -11277,13 +17443,21 @@ func file_api_proto_init() {
 		(*WebFeedCreateResponse_Podcast)(nil),
 		(*WebFeedCreateResponse_PollUuid)(nil),
 	}
+	file_api_proto_msgTypes[94].OneofWrappers = []any{
+		(*CheckEligibleRequest_Android)(nil),
+		(*CheckEligibleRequest_Apple)(nil),
+		(*CheckEligibleRequest_Web)(nil),
+	}
+	file_api_proto_msgTypes[107].OneofWrappers = []any{}
+	file_api_proto_msgTypes[131].OneofWrappers = []any{}
+	file_api_proto_msgTypes[135].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_rawDesc), len(file_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   92,
+			NumMessages:   166,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

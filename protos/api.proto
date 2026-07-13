@@ -91,7 +91,8 @@ message UserChangePasswordRequest {
 message UserChangeResponse {
   google.protobuf.BoolValue success = 1;
   string message = 2;
-  string message_id = 3;
+  // JSON name is camelCase in the client's nameMap (upstream quirk).
+  string messageId = 3;
 }
 
 message BasicRequest {
@@ -1021,7 +1022,7 @@ message ReferralRedemptionResponse {
 
 message WinbackResponse {
   string offer = 1;
-  string platform = 2;
+  int32 platform = 2; // int32 in the generated client (sync_api.proto had string)
   string details = 3;
   string code = 4;
 }
@@ -1125,3 +1126,578 @@ message EpisodeGeneratedChapters {
   repeated GeneratedChapter chapters = 3;
   string origin = 4; // "server" | "on_device"
 }
+
+// ============================================================================
+// Upstream client surface — full parity with the generated iOS client
+// (api.pb.swift). These messages exist so the Swift client can be REGENERATED
+// from this file; the backend implements few of these endpoints. Field
+// numbers, types and names are reconstructed from the generated code's
+// traverse/decode tables.
+// ============================================================================
+
+message ApiPodcastListResponse {
+  repeated ApiPodcastResponse podcasts = 1;
+}
+
+message AuthorizeCallbackRequest {
+  string id_token = 1;
+  string state = 2;
+}
+
+message BundleUserRequest {
+  string user_uuid = 1;
+  repeated string bundles = 2;
+}
+
+message BundleUserResponse {
+  bool user_exists = 1;
+  bool paid = 2;
+}
+
+message CancelUserSubscriptionRequest {
+  string bundle_uuid = 1;
+}
+
+message CheckEligibleRequest {
+  oneof store_receipt {
+    SubscriptionsPurchaseAndroidRequest android = 1;
+    SubscriptionsPurchaseAppleRequest apple = 2;
+    SubscriptionsPurchaseWebRequest web = 3;
+  }
+}
+
+message CheckEligibleResponse {
+  int32 platform = 1;
+  bool eligible = 2;
+}
+
+message CreateBetaUserRequest {
+  string email = 1;
+}
+
+message DeviceApproveRequest {
+  string user_code = 1;
+  bool deny = 2;
+}
+
+message DeviceAuthorizeRequest {
+  string scope = 1;
+}
+
+message DeviceAuthorizeResponse {
+  string device_code = 1;
+  string user_code = 2;
+  string verification_uri = 3;
+  string verification_uri_complete = 4;
+  int32 expires_in = 5;
+  int32 interval = 6;
+}
+
+message EpisodeWithPodcast {
+  string uuid = 1;
+  string podcast = 2;
+  bool include_bookmarks = 3;
+}
+
+message Features {
+  bool remove_banner_ads = 1;
+  bool remove_discover_ads = 2;
+}
+
+message FindUserEpisodeRequest {
+  string uuid = 1;
+  string v = 2;
+  string m = 3;
+}
+
+message FindUserEpisodesRequest {
+  string podcast_uuid = 1;
+  int32 page = 2;
+  int32 sort = 3;
+  string v = 4;
+  string m = 5;
+}
+
+message HealthResponse {
+  bool ok = 1;
+  repeated string messages = 2;
+}
+
+message KeywordRequest {
+  string v = 1;
+  string m = 2;
+  string keyword = 3;
+}
+
+message LegacyRecord {
+  google.protobuf.StringValue uuid = 1;
+  google.protobuf.StringValue user_podcast_uuid = 2;
+  google.protobuf.StringValue episode_uuid = 3;
+  google.protobuf.StringValue podcast_uuid = 4;
+  google.protobuf.StringValue is_deleted = 5;
+  google.protobuf.Int64Value is_deleted_modified = 6;
+  google.protobuf.DoubleValue duration = 7;
+  google.protobuf.Int64Value duration_modified = 8;
+  google.protobuf.Int32Value playing_status = 9;
+  google.protobuf.Int64Value playing_status_modified = 10;
+  google.protobuf.DoubleValue played_up_to = 11;
+  google.protobuf.Int64Value played_up_to_modified = 12;
+  google.protobuf.StringValue starred = 13;
+  google.protobuf.Int64Value starred_modified = 14;
+  google.protobuf.DoubleValue times_started_at = 15;
+  google.protobuf.DoubleValue time_silence_removal = 16;
+  google.protobuf.DoubleValue time_variable_speed = 17;
+  google.protobuf.DoubleValue time_intro_skipping = 18;
+  google.protobuf.DoubleValue time_skipping = 19;
+  google.protobuf.DoubleValue time_listened = 20;
+  google.protobuf.Int32Value auto_start_from = 21;
+  google.protobuf.StringValue subscribed = 22;
+  google.protobuf.StringValue title = 23;
+  google.protobuf.StringValue all_podcasts = 24;
+  google.protobuf.StringValue podcast_uuids = 25;
+  google.protobuf.StringValue episode_uuids = 26;
+  google.protobuf.Int32Value audio_video = 27;
+  google.protobuf.StringValue not_downloaded = 28;
+  google.protobuf.StringValue downloaded = 29;
+  google.protobuf.StringValue downloading = 30;
+  google.protobuf.StringValue finished = 31;
+  google.protobuf.StringValue partially_played = 32;
+  google.protobuf.StringValue unplayed = 33;
+  google.protobuf.StringValue manual = 34;
+  google.protobuf.Int32Value sort_position = 35;
+  google.protobuf.Int32Value sort_type = 36;
+  google.protobuf.Int32Value icon_id = 37;
+  google.protobuf.Int32Value filter_hours = 38;
+  google.protobuf.Int32Value auto_skip_last = 39;
+  google.protobuf.BoolValue filter_duration = 40;
+  google.protobuf.Int32Value longer_than = 41;
+  google.protobuf.Int32Value shorter_than = 42;
+  google.protobuf.StringValue folder_uuid = 43;
+  google.protobuf.StringValue name = 44;
+  google.protobuf.Int32Value color = 45;
+  google.protobuf.Int32Value podcasts_sort_type = 46;
+  google.protobuf.Timestamp date_added = 47;
+  google.protobuf.StringValue bookmark_uuid = 48;
+  google.protobuf.Int32Value time = 49;
+  google.protobuf.Int64Value title_modified = 50;
+  google.protobuf.Timestamp created_at = 51;
+  google.protobuf.StringValue deselected_chapters = 52;
+  google.protobuf.Int64Value deselected_chapters_modified = 53;
+  repeated string episode_order = 54;
+  repeated SyncPlaylistEpisode episodes = 55;
+  google.protobuf.BoolValue show_archived = 56;
+}
+
+message LegacyRequest {
+  optional string device = 1;
+  optional string datetime = 2;
+  optional string v = 3;
+  optional string av = 4;
+  optional string ac = 5;
+  optional string h = 6;
+  optional string dt = 7;
+  optional string c = 8;
+  optional string l = 9;
+  optional string m = 10;
+  optional string email = 11;
+  optional string password = 12;
+  optional string token = 13;
+  optional string device_utc_time_ms = 14;
+  optional string data = 15;
+  optional string message = 16;
+  optional string last_modified = 17;
+}
+
+message LegacyResponse {
+  string status = 1;
+  string token = 2;
+  string copyright = 3;
+  string result = 4;
+}
+
+message LegacyResponseRecord {
+  google.protobuf.StringValue uuid = 1;
+  google.protobuf.StringValue user_podcast_uuid = 2;
+  google.protobuf.StringValue episode_uuid = 3;
+  google.protobuf.StringValue podcast_uuid = 4;
+  google.protobuf.BoolValue is_deleted = 5;
+  google.protobuf.Int64Value is_deleted_modified = 6;
+  google.protobuf.DoubleValue duration = 7;
+  google.protobuf.Int64Value duration_modified = 8;
+  google.protobuf.Int32Value playing_status = 9;
+  google.protobuf.Int64Value playing_status_modified = 10;
+  google.protobuf.DoubleValue played_up_to = 11;
+  google.protobuf.Int64Value played_up_to_modified = 12;
+  google.protobuf.BoolValue starred = 13;
+  google.protobuf.Int64Value starred_modified = 14;
+  google.protobuf.Int64Value times_started_at = 15;
+  google.protobuf.Int64Value time_silence_removal = 16;
+  google.protobuf.Int64Value time_variable_speed = 17;
+  google.protobuf.Int64Value time_intro_skipping = 18;
+  google.protobuf.Int64Value time_skipping = 19;
+  google.protobuf.Int64Value time_listened = 20;
+  google.protobuf.Int32Value auto_start_from = 21;
+  google.protobuf.BoolValue subscribed = 22;
+  google.protobuf.StringValue title = 23;
+  google.protobuf.BoolValue all_podcasts = 24;
+  google.protobuf.StringValue podcast_uuids = 25;
+  google.protobuf.StringValue episode_uuids = 26;
+  google.protobuf.Int32Value audio_video = 27;
+  google.protobuf.BoolValue not_downloaded = 28;
+  google.protobuf.BoolValue downloaded = 29;
+  google.protobuf.BoolValue downloading = 30;
+  google.protobuf.BoolValue finished = 31;
+  google.protobuf.BoolValue partially_played = 32;
+  google.protobuf.BoolValue unplayed = 33;
+  google.protobuf.BoolValue manual = 34;
+  google.protobuf.Int32Value sort_position = 35;
+  google.protobuf.Int32Value sort_type = 36;
+  google.protobuf.Int32Value icon_id = 37;
+  google.protobuf.Int32Value filter_hours = 38;
+  google.protobuf.Int32Value auto_skip_last = 39;
+  google.protobuf.BoolValue filter_duration = 40;
+  google.protobuf.Int32Value longer_than = 41;
+  google.protobuf.Int32Value shorter_than = 42;
+  google.protobuf.StringValue folder_uuid = 43;
+  google.protobuf.StringValue name = 44;
+  google.protobuf.Int32Value color = 45;
+  google.protobuf.Int32Value podcasts_sort_type = 46;
+  google.protobuf.Timestamp date_added = 47;
+  google.protobuf.StringValue bookmark_uuid = 48;
+  google.protobuf.Int32Value time = 49;
+  google.protobuf.Int64Value title_modified = 50;
+  google.protobuf.Timestamp created_at = 51;
+  google.protobuf.StringValue deselected_chapters = 52;
+  google.protobuf.Int64Value deselected_chapters_modified = 53;
+  repeated string episode_order = 54;
+  repeated SyncPlaylistEpisode episodes = 55;
+  google.protobuf.BoolValue show_archived = 56;
+}
+
+message LegacyStatsResponse {
+  int32 times_started_at = 1;
+  int32 time_silence_removal = 2;
+  int32 time_variable_speed = 3;
+  int32 time_intro_skipping = 4;
+  int32 time_skipping = 5;
+  int32 time_listened = 6;
+}
+
+message LegacySyncData {
+  repeated LegacySyncRecord records = 4;
+}
+
+message LegacySyncRecord {
+  string type = 1;
+  LegacyRecord fields = 2;
+}
+
+message LegacySyncResponse {
+  string last_modified = 1;
+  repeated LegacySyncResponseRecord changes = 2;
+}
+
+message LegacySyncResponseRecord {
+  string type = 1;
+  LegacyResponseRecord fields = 2;
+}
+
+message PaymentResponse {
+  string payment_date = 1;
+  double amount = 2;
+  string currency = 3;
+  google.protobuf.Timestamp date = 4;
+}
+
+message PlaylistCreateRequest {
+  SyncUserPlaylist playlist = 1;
+}
+
+message PlaylistReorderRequest {
+  repeated string playlist_uuids = 1;
+}
+
+message PodcastFolderRequest {
+  string version = 1;
+  string model = 2;
+  PodcastFolder folder = 3;
+  repeated string podcasts = 4;
+}
+
+message PodcastFolderSortRequest {
+  string version = 1;
+  string model = 2;
+  repeated PodcastFolderSorting podcasts = 3;
+  repeated PodcastFolderSorting folders = 4;
+}
+
+message PodcastFolderSorting {
+  string uuid = 1;
+  int32 position = 2;
+}
+
+message PodcastPair {
+  string master_podcast_uuid = 1;
+  string user_podcast_uuid = 2;
+}
+
+message PodcastRatingAggregateResponse {
+  string podcast_uuid = 1;
+  uint64 podcast_ratings_count = 2;
+  uint64 podcast_ratings_total = 3;
+}
+
+message PodcastRatingUpdateRequest {
+  uint32 podcast_rating = 1;
+}
+
+message PodcastSubscriptionCheckRequest {
+  string user_uuid = 1;
+  string podcast_uuid = 2;
+  int32 platform = 3;
+}
+
+message PodcastSubscriptionCheckResponse {
+  bool paid = 1;
+  bool user_exists = 2;
+}
+
+message Promotion {
+  string code = 1;
+  string description = 2; // Swift renames to description_p (NSObject collision)
+  string starts_at = 3;
+  string ends_at = 4;
+}
+
+message PromotionCode {
+  string code = 1;
+}
+
+message ReferralCode {
+  string code = 1;
+  string url = 2;
+}
+
+message ReferralRedemption {
+  string code = 1;
+}
+
+message SearchPodcastsRequest {
+  string term = 1;
+}
+
+message SubscriptionResponse {
+  optional int32 platform = 1;
+  optional int32 type = 2;
+  optional int32 frequency = 3;
+  optional bool auto_renewing = 4;
+  google.protobuf.Timestamp expiry_date = 5;
+  optional string cancel_url = 7;
+  optional string update_url = 8;
+  SubscriptionsWebStatusResponse web = 9;
+  optional string plan = 10;
+  optional int32 index = 11;
+  optional int32 gift_days = 12;
+  optional int32 paid = 13;
+  optional int32 web_status = 14;
+  optional string bundle_uuid = 15;
+  repeated PodcastPair podcasts = 16;
+  optional bool eligible = 17;
+  PaymentResponse next_payment = 18;
+  optional string tier = 19;
+}
+
+message SubscriptionsPurchaseAndroidRequest {
+  string purchase_token = 1;
+  string sku = 2;
+  bool newsletter_opt_in = 3;
+}
+
+message SubscriptionsPurchaseAppleRequest {
+  string receipt = 1;
+  bool newsletter_opt_in = 2;
+}
+
+message SubscriptionsPurchaseWebRequest {
+  string transaction_id = 1;
+  string email = 2;
+  int64 paddle_user_id = 3;
+  string product_id = 4;
+  bool newsletter_opt_in = 5;
+  int64 subscription_id = 6;
+}
+
+message SubscriptionsStatusResponse {
+  optional int32 paid = 1;
+  optional int32 platform = 2;
+  google.protobuf.Timestamp expiry_date = 3;
+  optional bool auto_renewing = 4;
+  optional int32 gift_days = 5;
+  optional string cancel_url = 6;
+  optional string update_url = 7;
+  optional int32 frequency = 8;
+  SubscriptionsWebStatusResponse web = 9;
+  repeated SubscriptionResponse subscriptions = 10;
+  optional int32 type = 11;
+  optional int32 index = 12;
+  optional int32 web_status = 13;
+  optional string tier = 14;
+  Features features = 15;
+  google.protobuf.Timestamp created_at = 16;
+  optional bool installment_based = 17;
+}
+
+message SubscriptionsWebProduct {
+  int32 monthly = 1;
+  int32 yearly = 2;
+  int32 trial_days = 3;
+}
+
+message SubscriptionsWebStatusResponse {
+  int32 monthly = 1;
+  int32 yearly = 2;
+  int32 trial = 3;
+  int32 web_status = 4;
+  SubscriptionsWebProduct plus = 5;
+  SubscriptionsWebProduct patron = 6;
+}
+
+message SuggestedFolder {
+  string name = 1;
+  repeated string podcast_uuids = 2;
+}
+
+message SuggestedFoldersRequest {
+  repeated SuggestedFolder folders = 1;
+}
+
+message TokenErrorResponse {
+  string error = 1;
+  string error_description = 2;
+  string error_uri = 3;
+}
+
+message TokenLoginRequest {
+  string id_token = 1;
+  string email = 2;
+  string password = 3;
+  string scope = 4;
+}
+
+message UpNextListRequest {
+  int32 limit = 1;
+  string version = 2;
+  string model = 3;
+  int64 server_modified = 4;
+  bool show_play_status = 5;
+}
+
+message UpNextPlayRequest {
+  string version = 1;
+  string model = 2;
+  UpNextEpisodeRequest episode = 3;
+}
+
+message UpNextRemoveRequest {
+  repeated string uuids = 1;
+  string version = 2;
+}
+
+message UpdateEpisodeDeselectChaptersRequest {
+  string uuid = 1;
+  string podcast = 2;
+  string deselected_chapters = 3;
+}
+
+message UpdateEpisodeDeselectChaptersResponse {
+}
+
+message UpdateEpisodesArchiveRequest {
+  bool archive = 1;
+  repeated EpisodeWithPodcast episodes = 2;
+}
+
+message UpdatePlanRequest {
+  int64 plan_id = 1;
+}
+
+message UpdatePlanResponse {
+  int64 expiry_date = 1;
+  bool auto_renewing = 2;
+  int32 frequency = 3;
+  int64 plan_id = 4;
+  int32 tier = 5;
+  string error_message = 6;
+}
+
+message UserAuthorizeRequest {
+  string email = 1;
+  string password = 2;
+  string response_type = 3;
+  string client_id = 4;
+  string redirect_uri = 5;
+  string scope = 6;
+  string state = 7;
+}
+
+message UserAuthorizeResponse {
+  bool success = 1;
+  string code = 2;
+  string error = 3;
+  string state = 4;
+}
+
+message UserIdResponse {
+  string id = 1;
+}
+
+message UserPlaylistEpisodesRequest {
+  string v = 1;
+  string m = 2;
+  string uuid = 3;
+}
+
+message UserResetPasswordRequest {
+  string reset_password_token = 1;
+  string password = 2;
+  string scope = 3;
+}
+
+message UserRevokeRequest {
+  string refresh_token = 1;
+}
+
+message UserSubscriptionSurveyRequest {
+  string reason = 1;
+  string other = 2;
+}
+
+message UserTokenResponse {
+  string access_token = 1;
+  string token_type = 2;
+  int32 expires_in = 3;
+  google.protobuf.StringValue refresh_token = 4;
+}
+
+message UuidListResponse {
+  repeated string uuids = 1;
+}
+
+message VerifyEmailRequest {
+  string verify_email_token = 1;
+}
+
+message WinbackEligibilityResponse {
+  bool eligible = 1;
+  string reason = 2;
+}
+
+message YearHistoryRequest {
+  string version = 2;
+  bool count = 3;
+  int32 year = 4;
+}
+
+message YearHistoryResponse {
+}
+
