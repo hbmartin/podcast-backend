@@ -1,10 +1,16 @@
-// Pocket Casts API protocol buffers.
+// Pocket Casts API protocol buffers — UNIFIED SCHEMA.
+//
+// CANONICAL home: github.com/hbmartin/podcast-backend/protos/api.proto.
+// The iOS repo (hbmartin/pocket-casts-ios) carries a byte-identical copy at
+// api.proto in the repo root; edit here first and copy verbatim.
 //
 // Reconstructed from the SwiftProtobuf-generated client code
-// (Modules/Sources/PocketCastsServer/Private/Protobuffer/api.pb.swift in
-// hbmartin/pocket-casts-ios). Field numbers and types must stay wire-compatible
-// with that client; verify against the generated Swift before changing any
-// field. Only the messages used by implemented endpoints are defined here.
+// (Modules/Sources/PocketCastsServer/Private/Protobuffer/api.pb.swift).
+// Field numbers, types and JSON names must stay wire-compatible with that
+// client; verify against the generated Swift before changing any field.
+// Fields and messages numbered >= 1001 are fork extensions; everything else
+// matches the upstream Pocket Casts wire format, including messages for
+// endpoints this backend has not implemented yet.
 syntax = "proto3";
 
 package api;
@@ -226,6 +232,15 @@ message SyncUserBookmark {
   google.protobuf.Int64Value title_modified = 7;
   google.protobuf.BoolValue is_deleted = 8;
   google.protobuf.Int64Value is_deleted_modified = 9;
+  // Upstream AI-title/summary sync fields (defined by the upstream service;
+  // not yet present in this fork's generated client).
+  google.protobuf.StringValue ai_title = 10;
+  google.protobuf.Int64Value ai_title_modified = 11;
+  google.protobuf.StringValue ai_summary = 12;
+  google.protobuf.Int64Value ai_summary_modified = 13;
+  // Fork: smart-highlight enrichment (iOS Bookmark migration-80 columns).
+  google.protobuf.StringValue excerpt = 1001;
+  google.protobuf.DoubleValue end_time = 1002;
 }
 
 message PodcastSettings {
@@ -245,6 +260,11 @@ message PodcastSettings {
   Int32Setting auto_archive_episode_limit = 14;
   Int32Setting episode_grouping = 15;
   BoolSetting show_archived = 16;
+  // Fork: chapter smart-skip title substrings. JSON-encoded string array —
+  // comma-joining would corrupt titles that contain commas.
+  StringSetting skip_chapter_titles = 1001;
+  // Fork: opt this podcast out of the remote transcription provider.
+  BoolSetting disable_remote_transcription = 1002;
 }
 
 message BoolSetting {
@@ -365,7 +385,8 @@ message BookmarkResponse {
   string episode_uuid = 3;
   int32 time = 5;
   string title = 6;
-  google.protobuf.Timestamp created_at = 7;
+  // JSON name is camelCase in the client's nameMap (upstream quirk).
+  google.protobuf.Timestamp createdAt = 7;
 }
 
 message StarredEpisodesResponse {
@@ -472,7 +493,8 @@ message UpNextResponse {
 
   int64 server_modified = 1;
   repeated EpisodeResponse episodes = 4;
-  repeated EpisodeSyncResponse episode_sync = 5;
+  // JSON name is camelCase in the client's nameMap (upstream quirk).
+  repeated EpisodeSyncResponse episodeSync = 5;
 }
 
 message EpisodeResponse {
@@ -496,6 +518,10 @@ message EpisodeResponse {
   repeated BookmarkResponse bookmarks = 18;
   string podcast_slug = 19;
   string slug = 20;
+  // Fork: publisher transcript metadata + chapters URL (served via the
+  // show-notes JSON endpoint today; declared here for proto transport).
+  repeated TranscriptMetadata transcripts = 1001;
+  string chapters_url = 1002;
 }
 
 message HistorySyncRequest {
@@ -760,6 +786,23 @@ message ChangeableSettings {
   BoolSetting do_not_sell_or_share = 98;
   StringSetting live_analytics_url = 99;
   BoolSetting listening_time_stats = 100;
+  // ---- Fork settings extensions (>= 1001). The production upstream server
+  // drops unknown fields; this fork's server persists them. NamedSettings (the
+  // legacy full-set message) deliberately does not carry them, mirroring the
+  // generated client. ----
+  BoolSetting tap_to_play = 1001;
+  BoolSetting seek_acceleration = 1002;
+  Int32Setting transcription_engine_mode = 1003;
+  Int32Setting transcription_battery_policy = 1004;
+  StringSetting transcription_language_override = 1005;
+  StringSetting transcription_remote_provider = 1006;
+  Int32Setting transcription_max_speakers = 1007;
+  StringSetting transcription_whisper_model = 1008;
+  BoolSetting transcription_allow_cellular_model_downloads = 1009;
+  StringSetting transcription_local_stack = 1010;
+  BoolSetting adaptive_effects = 1011;
+  BoolSetting allow_cellular_downloads = 1012;
+  BoolSetting allow_cellular_auto_downloads = 1013;
 }
 
 message NamedSettingsResponse {
@@ -861,6 +904,23 @@ message NamedSettingsResponse {
   BoolSetting do_not_sell_or_share = 98;
   StringSetting live_analytics_url = 99;
   BoolSetting listening_time_stats = 100;
+  // ---- Fork settings extensions (>= 1001). The production upstream server
+  // drops unknown fields; this fork's server persists them. NamedSettings (the
+  // legacy full-set message) deliberately does not carry them, mirroring the
+  // generated client. ----
+  BoolSetting tap_to_play = 1001;
+  BoolSetting seek_acceleration = 1002;
+  Int32Setting transcription_engine_mode = 1003;
+  Int32Setting transcription_battery_policy = 1004;
+  StringSetting transcription_language_override = 1005;
+  StringSetting transcription_remote_provider = 1006;
+  Int32Setting transcription_max_speakers = 1007;
+  StringSetting transcription_whisper_model = 1008;
+  BoolSetting transcription_allow_cellular_model_downloads = 1009;
+  StringSetting transcription_local_stack = 1010;
+  BoolSetting adaptive_effects = 1011;
+  BoolSetting allow_cellular_downloads = 1012;
+  BoolSetting allow_cellular_auto_downloads = 1013;
 }
 
 message PodcastRatingAddRequest {
@@ -906,4 +966,162 @@ message StatsResponse {
   int64 time_variable_speed = 4;
   int64 time_listened = 5;
   google.protobuf.Timestamp times_started_at = 6;
+}
+
+// ============================================================================
+// Upstream surface not yet implemented by this backend. Kept for complete
+// alignment with the client-side schema; field numbers match upstream.
+// ============================================================================
+
+message PodcastsEpisodesRequest {
+  repeated string podcast_uuids = 1;
+  repeated string episode_uuids = 2;
+}
+
+message EpisodesResponse {
+  int32 total = 1;
+  repeated EpisodeResponse episodes = 2;
+}
+
+message ApiPodcastResponse {
+  string uuid = 1;
+  string title = 2;
+  string author = 3;
+  string description = 4;
+  string url = 5;
+  string slug = 6;
+}
+
+// Same wire shape as PodcastRating; kept for upstream endpoint parity.
+message PodcastRatingResponse {
+  string podcast_uuid = 1;
+  reserved 2; // undefined upstream
+  google.protobuf.Timestamp modified_at = 3;
+  uint32 podcast_rating = 4;
+}
+
+message ReferralCodeResponse {
+  string code = 1;
+  string url = 2;
+}
+
+message ReferralValidationResponse {
+  string offer = 1;
+  int32 platform = 2;
+  string details = 3;
+}
+
+message ReferralRedemptionRequest {
+  string code = 1;
+}
+
+message ReferralRedemptionResponse {
+  string code = 1;
+}
+
+message WinbackResponse {
+  string offer = 1;
+  string platform = 2;
+  string details = 3;
+  string code = 4;
+}
+
+message WebFeedCreateRequest {
+  string url = 1;
+  google.protobuf.StringValue poll_uuid = 2;
+}
+
+message WebFeedCreateResponse {
+  oneof result {
+    ApiPodcastResponse podcast = 1;
+    string poll_uuid = 2;
+  }
+}
+
+// ============================================================================
+// Fork extensions — AI features (transcripts, chapters, highlights).
+// Schema-only for now: messages are declared ahead of server/client wiring.
+// Shapes mirror the iOS types they transport (EpisodeTranscriptionRecord,
+// TranscriptCue/TranscriptSearchSegment, GeneratedChapter).
+// ============================================================================
+
+// Publisher-provided transcript metadata ({url, type, language} — served via
+// the show-notes JSON endpoint today).
+message TranscriptMetadata {
+  string url = 1;
+  string type = 2; // MIME type, e.g. text/vtt
+  google.protobuf.StringValue language = 3; // BCP-47
+}
+
+// Per-episode generated-transcription metadata: EpisodeTranscriptionRecord
+// minus the device-operational fields (file_path, remote_job_id,
+// error_message), which never leave the device.
+message TranscriptionRecord {
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  int32 status = 3; // TranscriptionStatus: queued 0 / processing 1 / completed 2 / failed 3 / cancelled 4
+  int32 engine_mode = 4; // appleBuiltIn 0 / localModel 1 / remoteProvider 2
+  string provider = 5; // remote provider id, e.g. "assemblyai"
+  string model_id = 6; // local model variant / engine build id
+  string language = 7; // BCP-47
+  double duration_secs = 8;
+  int32 speaker_count = 9;
+  string speaker_names_json = 10; // {"Speaker 1":"Alice"}
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+}
+
+// One transcript cue. end_time is absent for some generated cues; speaker only
+// exists for diarized (generated) transcripts.
+message TranscriptCue {
+  int32 index = 1;
+  string text = 2;
+  double start_time = 3;
+  google.protobuf.DoubleValue end_time = 4;
+  google.protobuf.StringValue speaker = 5;
+}
+
+// Full transcript content for one episode.
+message EpisodeTranscript {
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  string source = 3; // TranscriptSource: "provided" | "generated"
+  string language = 4; // BCP-47
+  repeated TranscriptCue cues = 5;
+}
+
+// Crowd-sourced transcript corpus: transcript BODIES post to a dedicated
+// endpoint — deliberately NOT a SyncUpdateRequest Record — so anonymous users
+// can contribute, mirroring the anonymous/feedback pattern. Intended
+// endpoints (unimplemented): POST transcripts/upload (anonymous-capable) and
+// POST transcripts/show (read complement).
+message TranscriptUploadRequest {
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  EpisodeTranscript transcript = 3;
+  TranscriptionRecord provenance = 4; // engine/model/provider metadata
+}
+
+message TranscriptUploadResponse {
+  bool accepted = 1;
+}
+
+message TranscriptShowRequest {
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+} // response: EpisodeTranscript
+
+// AI-generated chapters for a chapterless episode (server meta.json or
+// on-device generation).
+message GeneratedChapter {
+  string title = 1;
+  string timestamp = 2; // display form, "m:ss" / "h:mm:ss"
+  double start_time = 3;
+}
+
+message EpisodeGeneratedChapters {
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  repeated GeneratedChapter chapters = 3;
+  string origin = 4; // "server" | "on_device"
 }
