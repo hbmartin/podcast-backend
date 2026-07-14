@@ -58,6 +58,7 @@ type Querier interface {
 
 	GetUpNextItems(ctx context.Context, userID int64) ([]UpNextItem, error)
 	DeleteAllUpNextItems(ctx context.Context, userID int64) error
+	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error
 	InsertUpNextItem(ctx context.Context, arg InsertUpNextItemParams) error
 
 	UpsertHistoryItem(ctx context.Context, arg UpsertHistoryItemParams) error

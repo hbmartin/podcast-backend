@@ -1741,6 +1741,36 @@ func (q *Queries) GetUserStatsTotals(ctx context.Context, userID int64) (GetUser
 	return i, err
 }
 
+const insertFeedback = `-- name: InsertFeedback :exec
+INSERT INTO feedback (user_id, message, subject, inbox, logs, bitdrift_session_id, device_info, app_version)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+`
+
+type InsertFeedbackParams struct {
+	UserID            *int64
+	Message           string
+	Subject           string
+	Inbox             string
+	Logs              string
+	BitdriftSessionID string
+	DeviceInfo        string
+	AppVersion        string
+}
+
+func (q *Queries) InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error {
+	_, err := q.db.Exec(ctx, insertFeedback,
+		arg.UserID,
+		arg.Message,
+		arg.Subject,
+		arg.Inbox,
+		arg.Logs,
+		arg.BitdriftSessionID,
+		arg.DeviceInfo,
+		arg.AppVersion,
+	)
+	return err
+}
+
 const insertUpNextItem = `-- name: InsertUpNextItem :exec
 INSERT INTO up_next_items (
     user_id, episode_uuid, podcast_uuid, title, url, published, position

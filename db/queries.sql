@@ -555,3 +555,7 @@ WHERE up.podcast_uuid = $1
 -- name: ClearPushToken :exec
 UPDATE devices SET push_token = '', updated_at = now()
 WHERE push_token = $1;
+
+-- name: InsertFeedback :exec
+INSERT INTO feedback (user_id, message, subject, inbox, logs, bitdrift_session_id, device_info, app_version)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8);

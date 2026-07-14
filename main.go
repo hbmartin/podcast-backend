@@ -151,6 +151,10 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	// search host role
 	router.Handle("GET /autocomplete/search", publicChain(controllers.GetAutocompleteSearch))
 
+	// api host role: feedback (protobuf; authenticated and anonymous)
+	router.Handle("POST /support/feedback", authChain(controllers.PostSupportFeedback))
+	router.Handle("POST /anonymous/feedback", publicChain(controllers.PostAnonymousFeedback))
+
 	// api host role: ratings & stats (protobuf, authenticated)
 	router.Handle("POST /user/podcast_rating/add", authChain(controllers.PostPodcastRatingAdd))
 	router.Handle("POST /user/podcast_rating/show", authChain(controllers.PostPodcastRatingShow))
