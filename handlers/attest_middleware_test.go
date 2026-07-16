@@ -127,6 +127,31 @@ func TestAttestVerify_UnattestedLogOnlyAllowed(t *testing.T) {
 	}
 }
 
+func TestAttestVerify_OversizedHeaderHonorsMode(t *testing.T) {
+	tests := []struct {
+		name       string
+		mode       attest.Mode
+		wantCalled bool
+		wantCode   int
+	}{
+		{name: "required", mode: attest.ModeRequired, wantCode: http.StatusRequestHeaderFieldsTooLarge},
+		{name: "log-only", mode: attest.ModeLogOnly, wantCalled: true, wantCode: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := mwHandlers(t, newActiveStore())
+			req := mwRequest(t, signedBody(t), true)
+			req.Header.Set(attest.HeaderAssertion, strings.Repeat("a", maxAssertionB64Len+1))
+
+			rec, called := run(t, h, tt.mode, req)
+			if called != tt.wantCalled || rec.Code != tt.wantCode {
+				t.Fatalf("oversized header: called=%v code=%d, want called=%v code=%d", called, rec.Code, tt.wantCalled, tt.wantCode)
+			}
+		})
+	}
+}
+
 func TestAttestVerify_ReplayIsStale(t *testing.T) {
 	store := newActiveStore()
 	h := mwHandlers(t, store)

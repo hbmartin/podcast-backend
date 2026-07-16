@@ -66,7 +66,7 @@ func (h Handlers) AttestVerify(mode attest.Mode, maxBody int64, endpoint string,
 			return
 		}
 		if len(keyID) > maxKeyIDLen || len(assertionB64) > maxAssertionB64Len {
-			w.WriteHeader(http.StatusRequestHeaderFieldsTooLarge)
+			deny("invalid_key", pcerrors.InvalidAttestation, http.StatusRequestHeaderFieldsTooLarge)
 			return
 		}
 		assertion, err := base64.StdEncoding.DecodeString(assertionB64)
