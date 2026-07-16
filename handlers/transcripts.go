@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -233,7 +235,21 @@ func attribution(r *http.Request) (string, string) {
 	if keyID := attestKeyID(r); keyID != "" {
 		return "install", keyID
 	}
-	return "anonymous", ""
+	// Give each anonymous client its own daily-quota bucket keyed by a hash of
+	// its address, so one unattested client cannot exhaust the shared quota and
+	// lock out every other anonymous submitter (docs/TranscriptContributions.md
+	// §5). Uses RemoteAddr (not spoofable X-Forwarded-*); behind a proxy this
+	// degrades to a per-proxy bucket, never worse than a single global one.
+	return "anonymous", anonymousAttributionID(r)
+}
+
+func anonymousAttributionID(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	sum := sha256.Sum256([]byte(host))
+	return "ip:" + hex.EncodeToString(sum[:8])
 }
 
 func (h Handlers) withinRate(ctx context.Context, w http.ResponseWriter, kind, attribution, attributionID string, limit int64) bool {

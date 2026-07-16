@@ -3,6 +3,8 @@ package handlers
 import (
 	"bytes"
 	"compress/gzip"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -85,5 +87,22 @@ func TestGunzipCapped(t *testing.T) {
 	}
 	if _, err := gunzipCapped([]byte("not gzip"), 1024); err == nil {
 		t.Fatal("expected error on non-gzip input")
+	}
+}
+
+func TestAnonymousAttributionIDPerClient(t *testing.T) {
+	mk := func(addr string) string {
+		r := httptest.NewRequest(http.MethodPost, "/transcripts/contribute", nil)
+		r.RemoteAddr = addr
+		return anonymousAttributionID(r)
+	}
+	a := mk("203.0.113.7:5000")
+	b := mk("198.51.100.9:5000")
+	if a == "" || a == b {
+		t.Fatalf("expected distinct non-empty anonymous keys, got %q and %q", a, b)
+	}
+	// same client IP (different ephemeral port) => same bucket
+	if mk("203.0.113.7:5000") != mk("203.0.113.7:6001") {
+		t.Fatal("same IP should map to the same anonymous bucket")
 	}
 }
