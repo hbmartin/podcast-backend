@@ -10,6 +10,28 @@ import (
 	"time"
 )
 
+const advanceAttestCounter = `-- name: AdvanceAttestCounter :execrows
+UPDATE attest_keys
+SET counter = $2, last_used_at = now()
+WHERE key_id = $1 AND status = 'active' AND counter < $2
+`
+
+type AdvanceAttestCounterParams struct {
+	KeyID   string
+	Counter int64
+}
+
+// Atomic compare-and-update (docs/AppAttest.md §2.2 step 3): accept only a
+// strictly greater counter on an active key. Zero rows affected => unknown,
+// revoked, or non-increasing counter (the caller re-reads to classify).
+func (q *Queries) AdvanceAttestCounter(ctx context.Context, arg AdvanceAttestCounterParams) (int64, error) {
+	result, err := q.db.Exec(ctx, advanceAttestCounter, arg.KeyID, arg.Counter)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const clearPushToken = `-- name: ClearPushToken :exec
 UPDATE devices SET push_token = '', updated_at = now()
 WHERE push_token = $1
@@ -18,6 +40,57 @@ WHERE push_token = $1
 func (q *Queries) ClearPushToken(ctx context.Context, pushToken string) error {
 	_, err := q.db.Exec(ctx, clearPushToken, pushToken)
 	return err
+}
+
+const consumeChallenge = `-- name: ConsumeChallenge :one
+DELETE FROM attest_challenges
+WHERE challenge = $1 AND expires_at > now()
+RETURNING challenge
+`
+
+// Single-use: deletes the challenge and returns it only when present and
+// unexpired. No row => unknown or expired challenge.
+func (q *Queries) ConsumeChallenge(ctx context.Context, challenge []byte) ([]byte, error) {
+	row := q.db.QueryRow(ctx, consumeChallenge, challenge)
+	var challenge_2 []byte
+	err := row.Scan(&challenge_2)
+	return challenge_2, err
+}
+
+const countRecentContributionsByAttribution = `-- name: CountRecentContributionsByAttribution :one
+SELECT count(*) FROM transcript_contributions
+WHERE attribution = $1 AND attribution_id = $2 AND received_at > $3
+`
+
+type CountRecentContributionsByAttributionParams struct {
+	Attribution   string
+	AttributionID string
+	ReceivedAt    time.Time
+}
+
+func (q *Queries) CountRecentContributionsByAttribution(ctx context.Context, arg CountRecentContributionsByAttributionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentContributionsByAttribution, arg.Attribution, arg.AttributionID, arg.ReceivedAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countRecentSightingsByAttribution = `-- name: CountRecentSightingsByAttribution :one
+SELECT count(*) FROM transcript_sightings
+WHERE attribution = $1 AND attribution_id = $2 AND received_at > $3
+`
+
+type CountRecentSightingsByAttributionParams struct {
+	Attribution   string
+	AttributionID string
+	ReceivedAt    time.Time
+}
+
+func (q *Queries) CountRecentSightingsByAttribution(ctx context.Context, arg CountRecentSightingsByAttributionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentSightingsByAttribution, arg.Attribution, arg.AttributionID, arg.ReceivedAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const createPodcastPending = `-- name: CreatePodcastPending :one
@@ -181,6 +254,15 @@ func (q *Queries) DeleteAllUpNextItems(ctx context.Context, userID int64) error 
 	return err
 }
 
+const deleteExpiredChallenges = `-- name: DeleteExpiredChallenges :exec
+DELETE FROM attest_challenges WHERE expires_at <= now()
+`
+
+func (q *Queries) DeleteExpiredChallenges(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteExpiredChallenges)
+	return err
+}
+
 const deleteHistoryBefore = `-- name: DeleteHistoryBefore :exec
 DELETE FROM history WHERE user_id = $1 AND modified_at <= $2
 `
@@ -240,6 +322,26 @@ func (q *Queries) DistinctCategories(ctx context.Context) ([]DistinctCategoriesR
 		return nil, err
 	}
 	return items, nil
+}
+
+const getAttestKey = `-- name: GetAttestKey :one
+SELECT key_id, public_key, counter, receipt, environment, status, created_at, last_used_at FROM attest_keys WHERE key_id = $1
+`
+
+func (q *Queries) GetAttestKey(ctx context.Context, keyID string) (AttestKey, error) {
+	row := q.db.QueryRow(ctx, getAttestKey, keyID)
+	var i AttestKey
+	err := row.Scan(
+		&i.KeyID,
+		&i.PublicKey,
+		&i.Counter,
+		&i.Receipt,
+		&i.Environment,
+		&i.Status,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+	)
+	return i, err
 }
 
 const getBookmark = `-- name: GetBookmark :one
@@ -1319,6 +1421,31 @@ func (q *Queries) GetSubscribedPodcastsWithCatalog(ctx context.Context, userID i
 	return items, nil
 }
 
+const getTranscriptSighting = `-- name: GetTranscriptSighting :one
+SELECT id, episode_uuid, podcast_uuid, transcript_url, format, language, attribution, attribution_id, status, content, content_type, fetched_at, received_at FROM transcript_sightings WHERE id = $1
+`
+
+func (q *Queries) GetTranscriptSighting(ctx context.Context, id int64) (TranscriptSighting, error) {
+	row := q.db.QueryRow(ctx, getTranscriptSighting, id)
+	var i TranscriptSighting
+	err := row.Scan(
+		&i.ID,
+		&i.EpisodeUuid,
+		&i.PodcastUuid,
+		&i.TranscriptUrl,
+		&i.Format,
+		&i.Language,
+		&i.Attribution,
+		&i.AttributionID,
+		&i.Status,
+		&i.Content,
+		&i.ContentType,
+		&i.FetchedAt,
+		&i.ReceivedAt,
+	)
+	return i, err
+}
+
 const getUpNextItems = `-- name: GetUpNextItems :many
 SELECT user_id, episode_uuid, podcast_uuid, title, url, published, position, added_at FROM up_next_items
 WHERE user_id = $1
@@ -1741,6 +1868,52 @@ func (q *Queries) GetUserStatsTotals(ctx context.Context, userID int64) (GetUser
 	return i, err
 }
 
+const insertAttestKey = `-- name: InsertAttestKey :exec
+INSERT INTO attest_keys (key_id, public_key, counter, receipt, environment)
+VALUES ($1, $2, 0, $3, $4)
+ON CONFLICT (key_id) DO NOTHING
+`
+
+type InsertAttestKeyParams struct {
+	KeyID       string
+	PublicKey   []byte
+	Receipt     []byte
+	Environment string
+}
+
+// Idempotent enrollment: a re-enroll of an existing key_id (same Secure Enclave
+// key) is a no-op, preserving the stored monotonic counter and any revoked
+// status. key_id == base64(SHA256(public key)), so a differing key is a
+// different row.
+func (q *Queries) InsertAttestKey(ctx context.Context, arg InsertAttestKeyParams) error {
+	_, err := q.db.Exec(ctx, insertAttestKey,
+		arg.KeyID,
+		arg.PublicKey,
+		arg.Receipt,
+		arg.Environment,
+	)
+	return err
+}
+
+const insertChallenge = `-- name: InsertChallenge :exec
+
+INSERT INTO attest_challenges (challenge, expires_at)
+VALUES ($1, $2)
+`
+
+type InsertChallengeParams struct {
+	Challenge []byte
+	ExpiresAt time.Time
+}
+
+// ============================================================================
+// App Attest (docs/AppAttest.md §2)
+// ============================================================================
+func (q *Queries) InsertChallenge(ctx context.Context, arg InsertChallengeParams) error {
+	_, err := q.db.Exec(ctx, insertChallenge, arg.Challenge, arg.ExpiresAt)
+	return err
+}
+
 const insertFeedback = `-- name: InsertFeedback :exec
 INSERT INTO feedback (user_id, message, subject, inbox, logs, bitdrift_session_id, device_info, app_version)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -1771,6 +1944,89 @@ func (q *Queries) InsertFeedback(ctx context.Context, arg InsertFeedbackParams) 
 	return err
 }
 
+const insertTranscriptContribution = `-- name: InsertTranscriptContribution :exec
+
+INSERT INTO transcript_contributions (
+    episode_uuid, podcast_uuid, vtt_blob, fingerprint_blob, engine, model_id,
+    language, diarized, app_version, episode_duration_seconds, created_at,
+    attribution, attribution_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+`
+
+type InsertTranscriptContributionParams struct {
+	EpisodeUuid            string
+	PodcastUuid            string
+	VttBlob                []byte
+	FingerprintBlob        []byte
+	Engine                 string
+	ModelID                string
+	Language               string
+	Diarized               bool
+	AppVersion             string
+	EpisodeDurationSeconds float64
+	CreatedAt              *time.Time
+	Attribution            string
+	AttributionID          string
+}
+
+// ============================================================================
+// Transcript contributions & sightings (docs/TranscriptContributions.md §4)
+// ============================================================================
+func (q *Queries) InsertTranscriptContribution(ctx context.Context, arg InsertTranscriptContributionParams) error {
+	_, err := q.db.Exec(ctx, insertTranscriptContribution,
+		arg.EpisodeUuid,
+		arg.PodcastUuid,
+		arg.VttBlob,
+		arg.FingerprintBlob,
+		arg.Engine,
+		arg.ModelID,
+		arg.Language,
+		arg.Diarized,
+		arg.AppVersion,
+		arg.EpisodeDurationSeconds,
+		arg.CreatedAt,
+		arg.Attribution,
+		arg.AttributionID,
+	)
+	return err
+}
+
+const insertTranscriptSighting = `-- name: InsertTranscriptSighting :one
+INSERT INTO transcript_sightings (
+    episode_uuid, podcast_uuid, transcript_url, format, language,
+    attribution, attribution_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (episode_uuid, transcript_url) DO NOTHING
+RETURNING id
+`
+
+type InsertTranscriptSightingParams struct {
+	EpisodeUuid   string
+	PodcastUuid   string
+	TranscriptUrl string
+	Format        string
+	Language      string
+	Attribution   string
+	AttributionID string
+}
+
+// Dedup on (episode_uuid, transcript_url). A conflict returns no row, which the
+// caller reads as "already sighted" (no fetch enqueued).
+func (q *Queries) InsertTranscriptSighting(ctx context.Context, arg InsertTranscriptSightingParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertTranscriptSighting,
+		arg.EpisodeUuid,
+		arg.PodcastUuid,
+		arg.TranscriptUrl,
+		arg.Format,
+		arg.Language,
+		arg.Attribution,
+		arg.AttributionID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertUpNextItem = `-- name: InsertUpNextItem :exec
 INSERT INTO up_next_items (
     user_id, episode_uuid, podcast_uuid, title, url, published, position
@@ -1797,6 +2053,20 @@ func (q *Queries) InsertUpNextItem(ctx context.Context, arg InsertUpNextItemPara
 		arg.Published,
 		arg.Position,
 	)
+	return err
+}
+
+const markSightingStatus = `-- name: MarkSightingStatus :exec
+UPDATE transcript_sightings SET status = $2 WHERE id = $1
+`
+
+type MarkSightingStatusParams struct {
+	ID     int64
+	Status string
+}
+
+func (q *Queries) MarkSightingStatus(ctx context.Context, arg MarkSightingStatusParams) error {
+	_, err := q.db.Exec(ctx, markSightingStatus, arg.ID, arg.Status)
 	return err
 }
 
@@ -2493,6 +2763,29 @@ func (q *Queries) UpdatePodcastCrawlSuccess(ctx context.Context, arg UpdatePodca
 		arg.LatestEpisodePublished,
 		arg.ContentModifiedMs,
 		arg.NextRefreshAt,
+	)
+	return err
+}
+
+const updateSightingContent = `-- name: UpdateSightingContent :exec
+UPDATE transcript_sightings
+SET content = $2, content_type = $3, status = $4, fetched_at = now()
+WHERE id = $1
+`
+
+type UpdateSightingContentParams struct {
+	ID          int64
+	Content     []byte
+	ContentType string
+	Status      string
+}
+
+func (q *Queries) UpdateSightingContent(ctx context.Context, arg UpdateSightingContentParams) error {
+	_, err := q.db.Exec(ctx, updateSightingContent,
+		arg.ID,
+		arg.Content,
+		arg.ContentType,
+		arg.Status,
 	)
 	return err
 }

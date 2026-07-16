@@ -15,6 +15,7 @@ import (
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/errs"
 	"github.com/hbmartin/podcast-backend/push"
+	"github.com/hbmartin/podcast-backend/transcripts"
 )
 
 // WorkerServer is the daemon that consumes tasks from the Redis queue and
@@ -56,6 +57,7 @@ func (w *WorkerServer) Start() error {
 	mux.HandleFunc(TypeOpmlImport, w.HandleOpmlImportTask)
 	mux.HandleFunc(TypeRefreshDuePodcasts, w.HandleRefreshDuePodcastsTask)
 	mux.HandleFunc(TypeNotifyNewEpisodes, w.HandleNotifyNewEpisodesTask)
+	mux.HandleFunc(TypeSightingFetch, w.HandleSightingFetchTask)
 
 	return w.srv.Run(mux)
 }
@@ -185,4 +187,24 @@ func (l *slogAdapter) log(level slog.Level, args ...interface{}) {
 		return
 	}
 	l.logger.Log(context.Background(), level, msg)
+}
+
+// HandleSightingFetchTask fetches and stores a reported publisher transcript.
+func (w *WorkerServer) HandleSightingFetchTask(ctx context.Context, t *asynq.Task) error {
+	const op errs.Op = "tasks/WorkerServer.HandleSightingFetchTask"
+
+	var payload SightingFetchPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return errs.E(op, errs.Internal, fmt.Errorf("%w: %v", asynq.SkipRetry, err))
+	}
+	if payload.SightingID <= 0 {
+		return fmt.Errorf("%w: invalid sighting id %d", asynq.SkipRetry, payload.SightingID)
+	}
+	if err := transcripts.FetchAndStore(ctx, w.db, payload.SightingID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: sighting %d not found", asynq.SkipRetry, payload.SightingID)
+		}
+		return errs.E(op, err)
+	}
+	return nil
 }

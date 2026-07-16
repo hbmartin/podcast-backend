@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"bytes"
+	"compress/gzip"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/hbmartin/podcast-backend/errs"
 
@@ -41,4 +44,58 @@ func writeProto(w http.ResponseWriter, statusCode int, m proto.Message) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.WriteHeader(statusCode)
 	w.Write(body)
+}
+
+// maxDecompressedProto caps the decompressed size of a gzip-encoded protobuf
+// body, guarding against decompression bombs independent of the compressed cap.
+const maxDecompressedProto = 8 << 20
+
+// bindProtoGzip reads a protobuf request body that the client gzip-encodes
+// (Content-Encoding: gzip), as the transcript endpoints do. It falls back to a
+// plain read when the header is absent. The compressed body must already be
+// size-capped by the caller (the attest middleware enforces the per-endpoint
+// cap before this runs).
+func bindProtoGzip(r *http.Request, m proto.Message) error {
+	const op errs.Op = "handlers/bindProtoGzip"
+
+	var reader io.Reader = r.Body
+	if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
+		zr, err := gzip.NewReader(r.Body)
+		if err != nil {
+			return errs.E(op, errs.Invalid, errs.Code("invalid_gzip"), err)
+		}
+		defer zr.Close()
+		reader = zr
+	}
+
+	body, err := io.ReadAll(io.LimitReader(reader, maxDecompressedProto+1))
+	if err != nil {
+		return errs.E(op, errs.Invalid, err)
+	}
+	if len(body) > maxDecompressedProto {
+		return errs.E(op, errs.Invalid, errs.Code("body_too_large"))
+	}
+	if err := proto.Unmarshal(body, m); err != nil {
+		return errs.E(op, errs.Invalid, errs.Code("invalid_protobuf"), err)
+	}
+	return nil
+}
+
+// readCappedBody reads up to max bytes of the request body, replacing r.Body
+// with a re-readable buffer for the downstream handler. It returns false and
+// writes 413 when the body exceeds the cap. Used by the attest middleware so
+// the assertion can sign the exact wire bytes while the handler still decodes
+// the body itself.
+func readCappedBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, bool) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return nil, false
+	}
+	if int64(len(body)) > limit {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		return nil, false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	return body, true
 }

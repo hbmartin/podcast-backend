@@ -559,3 +559,81 @@ WHERE push_token = $1;
 -- name: InsertFeedback :exec
 INSERT INTO feedback (user_id, message, subject, inbox, logs, bitdrift_session_id, device_info, app_version)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+
+-- ============================================================================
+-- App Attest (docs/AppAttest.md §2)
+-- ============================================================================
+
+-- name: InsertChallenge :exec
+INSERT INTO attest_challenges (challenge, expires_at)
+VALUES ($1, $2);
+
+-- name: ConsumeChallenge :one
+-- Single-use: deletes the challenge and returns it only when present and
+-- unexpired. No row => unknown or expired challenge.
+DELETE FROM attest_challenges
+WHERE challenge = $1 AND expires_at > now()
+RETURNING challenge;
+
+-- name: DeleteExpiredChallenges :exec
+DELETE FROM attest_challenges WHERE expires_at <= now();
+
+-- name: InsertAttestKey :exec
+-- Idempotent enrollment: a re-enroll of an existing key_id (same Secure Enclave
+-- key) is a no-op, preserving the stored monotonic counter and any revoked
+-- status. key_id == base64(SHA256(public key)), so a differing key is a
+-- different row.
+INSERT INTO attest_keys (key_id, public_key, counter, receipt, environment)
+VALUES ($1, $2, 0, $3, $4)
+ON CONFLICT (key_id) DO NOTHING;
+
+-- name: GetAttestKey :one
+SELECT * FROM attest_keys WHERE key_id = $1;
+
+-- name: AdvanceAttestCounter :execrows
+-- Atomic compare-and-update (docs/AppAttest.md §2.2 step 3): accept only a
+-- strictly greater counter on an active key. Zero rows affected => unknown,
+-- revoked, or non-increasing counter (the caller re-reads to classify).
+UPDATE attest_keys
+SET counter = $2, last_used_at = now()
+WHERE key_id = $1 AND status = 'active' AND counter < $2;
+
+-- ============================================================================
+-- Transcript contributions & sightings (docs/TranscriptContributions.md §4)
+-- ============================================================================
+
+-- name: InsertTranscriptContribution :exec
+INSERT INTO transcript_contributions (
+    episode_uuid, podcast_uuid, vtt_blob, fingerprint_blob, engine, model_id,
+    language, diarized, app_version, episode_duration_seconds, created_at,
+    attribution, attribution_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
+
+-- name: CountRecentContributionsByAttribution :one
+SELECT count(*) FROM transcript_contributions
+WHERE attribution = $1 AND attribution_id = $2 AND received_at > $3;
+
+-- name: InsertTranscriptSighting :one
+-- Dedup on (episode_uuid, transcript_url). A conflict returns no row, which the
+-- caller reads as "already sighted" (no fetch enqueued).
+INSERT INTO transcript_sightings (
+    episode_uuid, podcast_uuid, transcript_url, format, language,
+    attribution, attribution_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (episode_uuid, transcript_url) DO NOTHING
+RETURNING id;
+
+-- name: CountRecentSightingsByAttribution :one
+SELECT count(*) FROM transcript_sightings
+WHERE attribution = $1 AND attribution_id = $2 AND received_at > $3;
+
+-- name: GetTranscriptSighting :one
+SELECT * FROM transcript_sightings WHERE id = $1;
+
+-- name: UpdateSightingContent :exec
+UPDATE transcript_sightings
+SET content = $2, content_type = $3, status = $4, fetched_at = now()
+WHERE id = $1;
+
+-- name: MarkSightingStatus :exec
+UPDATE transcript_sightings SET status = $2 WHERE id = $1;

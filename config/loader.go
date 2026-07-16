@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -58,11 +59,24 @@ type PushConfiguration struct {
 	Endpoint string
 }
 
+// AppAttestConfiguration holds Apple App Attest verification policy
+// (docs/AppAttest.md). Enabled only when APP_ATTEST_TEAM_ID is set; the App ID
+// is TEAMID.BundleID. Mode/FeedbackMode are the per-endpoint enforcement levels
+// (off | log-only | required).
+type AppAttestConfiguration struct {
+	Enabled      bool
+	AppID        string
+	AllowDev     bool
+	Mode         string
+	FeedbackMode string
+}
+
 type Configuration struct {
 	WebServerConfig *WebServerConfiguration
 	AuthConfig      *AuthConfiguration
 	QueueConfig     *QueueConfiguration
 	PushConfig      *PushConfiguration
+	AppAttestConfig *AppAttestConfiguration
 }
 
 func loadAuthConfig() (*AuthConfiguration, error) {
@@ -218,6 +232,37 @@ func loadPushConfig() (*PushConfiguration, error) {
 	}
 }
 
+func loadAppAttestConfig() (*AppAttestConfiguration, error) {
+	config := &AppAttestConfiguration{
+		AllowDev:     os.Getenv("APP_ATTEST_ALLOW_DEV") == "true",
+		Mode:         os.Getenv("APP_ATTEST_MODE"),
+		FeedbackMode: os.Getenv("APP_ATTEST_FEEDBACK_MODE"),
+	}
+
+	// Reject a typo'd enforcement mode at startup rather than silently falling
+	// back to log-only, which would weaken a deployment that meant to require
+	// attestation.
+	for name, val := range map[string]string{"APP_ATTEST_MODE": config.Mode, "APP_ATTEST_FEEDBACK_MODE": config.FeedbackMode} {
+		switch strings.ToLower(strings.TrimSpace(val)) {
+		case "", "off", "log-only", "required":
+		default:
+			return nil, fmt.Errorf("%s must be one of off|log-only|required, got %q", name, val)
+		}
+	}
+
+	teamID := os.Getenv("APP_ATTEST_TEAM_ID")
+	bundleID := os.Getenv("APP_ATTEST_BUNDLE_ID")
+	if bundleID == "" {
+		bundleID = "au.com.shiftyjelly.podcasts"
+	}
+	if teamID != "" {
+		config.Enabled = true
+		config.AppID = teamID + "." + bundleID
+	}
+
+	return config, nil
+}
+
 func LoadConfig() *Configuration {
 	webServerConfig, err := loadWebServerConfig()
 	if err != nil {
@@ -239,10 +284,16 @@ func LoadConfig() *Configuration {
 		log.Fatal(err)
 	}
 
+	appAttestConfig, err := loadAppAttestConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	return &Configuration{
 		WebServerConfig: webServerConfig,
 		AuthConfig:      authConfig,
 		QueueConfig:     queueConfig,
 		PushConfig:      pushConfig,
+		AppAttestConfig: appAttestConfig,
 	}
 }

@@ -34,3 +34,47 @@ var PushDeliveries = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name:      "deliveries_total",
 	Help:      "APNs notification deliveries by outcome.",
 }, []string{"outcome"})
+
+// AttestEnrollments counts App Attest enrollment attempts by outcome
+// (enrolled | rejected | error).
+var AttestEnrollments = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "podcast_backend",
+	Subsystem: "attest",
+	Name:      "enrollments_total",
+	Help:      "App Attest enrollment attempts by outcome.",
+}, []string{"outcome"})
+
+// AttestAssertions counts App Attest assertion verifications by endpoint and
+// outcome (ok | unattested | invalid_key | bad_signature | stale | error).
+var AttestAssertions = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "podcast_backend",
+	Subsystem: "attest",
+	Name:      "assertions_total",
+	Help:      "App Attest assertion verifications by endpoint and outcome.",
+}, []string{"endpoint", "outcome"})
+
+// TranscriptContributions counts stored transcript contributions by engine.
+var TranscriptContributions = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "podcast_backend",
+	Subsystem: "transcripts",
+	Name:      "contributions_total",
+	Help:      "Stored transcript contributions by engine.",
+}, []string{"engine"})
+
+// TranscriptSightings counts transcript sightings by outcome
+// (accepted | duplicate | rejected | fetched | fetch_failed).
+var TranscriptSightings = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "podcast_backend",
+	Subsystem: "transcripts",
+	Name:      "sightings_total",
+	Help:      "Transcript sightings by outcome.",
+}, []string{"outcome"})
+
+// TranscriptRejections counts transcript submissions rejected before storage
+// by cause (vtt | fingerprint | duration | size | url | rate_limit).
+var TranscriptRejections = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "podcast_backend",
+	Subsystem: "transcripts",
+	Name:      "rejections_total",
+	Help:      "Transcript submissions rejected before storage by cause.",
+}, []string{"cause"})

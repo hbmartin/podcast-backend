@@ -27,9 +27,13 @@ everywhere else.
 | Discover | `discover/ios/content_v2.json`/`content_v3.json` with catalog-backed sources (trending/popular/recent/categories) |
 | Sharing | `share/list` (+ `GET /l/{code}` resolution), shared `podcast/{uuid}` and `episode/{uuid}` link lookups |
 | Push notifications | APNs new-episode alerts: token registration rides on `user/update` (`push_token`/`push_on`/`push_messages_on`), delivery fires from feed crawls (set `APNS_*`) |
+| App security (App Attest) | `attest/challenge`, `attest/enroll` (Apple DeviceCheck App Attest enrollment), and per-request assertion verification (`X-Attest-Key-Id`/`X-Attest-Assertion`) on the transcript endpoints and feedback, with monotonic-counter replay defense |
+| Transcript contributions | `transcripts/contribute` (crowdsourced generated-transcript upload — gzipped protobuf, VTT + fingerprint validation) and `transcripts/sighting` (publisher-transcript report; the server fetches the content itself) |
 
 Not implemented (yet): user file uploads, TV device auth, Sonos,
-recommendations, supporter bundles, generated (AI) transcripts.
+recommendations, supporter bundles, server-served generated (AI) transcripts
+(the crowdsourced *contribution* upload above is implemented; serving
+contributed transcripts back to clients is a future design).
 
 ## Architecture
 
@@ -84,6 +88,11 @@ Configuration:
 | `SHARING_CREDENTIAL` | optional; when set, `share/list` requests must carry the client's legacy SHA-1 signature |
 | `APNS_KEY_FILE`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | set all four to enable APNs push (`.p8` auth key path, key id, team id, app bundle id) |
 | `APNS_ENDPOINT` | APNs host override, e.g. `https://api.sandbox.push.apple.com` for development builds |
+| `APP_ATTEST_TEAM_ID` | Apple Developer team id; setting it enables App Attest (challenge/enroll/verify). Unset ⇒ App Attest off, endpoints accept unattested requests |
+| `APP_ATTEST_BUNDLE_ID` | app bundle id for the App Attest App ID (`TEAMID.BUNDLEID`), default `au.com.shiftyjelly.podcasts` |
+| `APP_ATTEST_ALLOW_DEV` | `true` also accepts the development-environment attestation (`appattestdevelop`); production/TestFlight attest under production regardless. Default `false` |
+| `APP_ATTEST_MODE` | enforcement on the transcript endpoints: `off`/`log-only`/`required`, default `log-only` (verify when present, accept unattested — keeps Simulator/dev builds working) |
+| `APP_ATTEST_FEEDBACK_MODE` | enforcement on the feedback endpoints, default `log-only` (dual-accept while the installed base adopts) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | set to enable OpenTelemetry tracing (OTLP/HTTP export; standard `OTEL_*` vars respected, service name defaults to `podcast-backend`) |
 
 Operations: `GET /health` reports each dependency (Postgres, and the queue's
