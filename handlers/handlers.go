@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/hbmartin/podcast-backend/artwork"
+	"github.com/hbmartin/podcast-backend/attest"
 	"github.com/hbmartin/podcast-backend/auth"
 	"github.com/hbmartin/podcast-backend/config"
 	"github.com/hbmartin/podcast-backend/crawler"
@@ -37,6 +38,9 @@ type Handlers struct {
 	// QueuePing, when set, is consulted by /health to report the task
 	// queue's Redis as a dependency.
 	QueuePing func(ctx context.Context) error
+	// AttestVerifier verifies App Attest material; nil when App Attest is not
+	// configured (endpoints then behave as ModeOff regardless of route mode).
+	AttestVerifier *attest.Verifier
 }
 
 func New(store db.Store) Handlers {

@@ -58,11 +58,24 @@ type PushConfiguration struct {
 	Endpoint string
 }
 
+// AppAttestConfiguration holds Apple App Attest verification policy
+// (docs/AppAttest.md). Enabled only when APP_ATTEST_TEAM_ID is set; the App ID
+// is TEAMID.BundleID. Mode/FeedbackMode are the per-endpoint enforcement levels
+// (off | log-only | required).
+type AppAttestConfiguration struct {
+	Enabled      bool
+	AppID        string
+	AllowDev     bool
+	Mode         string
+	FeedbackMode string
+}
+
 type Configuration struct {
 	WebServerConfig *WebServerConfiguration
 	AuthConfig      *AuthConfiguration
 	QueueConfig     *QueueConfiguration
 	PushConfig      *PushConfiguration
+	AppAttestConfig *AppAttestConfiguration
 }
 
 func loadAuthConfig() (*AuthConfiguration, error) {
@@ -218,6 +231,26 @@ func loadPushConfig() (*PushConfiguration, error) {
 	}
 }
 
+func loadAppAttestConfig() *AppAttestConfiguration {
+	config := &AppAttestConfiguration{
+		AllowDev:     os.Getenv("APP_ATTEST_ALLOW_DEV") == "true",
+		Mode:         os.Getenv("APP_ATTEST_MODE"),
+		FeedbackMode: os.Getenv("APP_ATTEST_FEEDBACK_MODE"),
+	}
+
+	teamID := os.Getenv("APP_ATTEST_TEAM_ID")
+	bundleID := os.Getenv("APP_ATTEST_BUNDLE_ID")
+	if bundleID == "" {
+		bundleID = "au.com.shiftyjelly.podcasts"
+	}
+	if teamID != "" {
+		config.Enabled = true
+		config.AppID = teamID + "." + bundleID
+	}
+
+	return config
+}
+
 func LoadConfig() *Configuration {
 	webServerConfig, err := loadWebServerConfig()
 	if err != nil {
@@ -244,5 +277,6 @@ func LoadConfig() *Configuration {
 		AuthConfig:      authConfig,
 		QueueConfig:     queueConfig,
 		PushConfig:      pushConfig,
+		AppAttestConfig: loadAppAttestConfig(),
 	}
 }

@@ -8,6 +8,23 @@ import (
 	"time"
 )
 
+type AttestChallenge struct {
+	Challenge []byte
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+type AttestKey struct {
+	KeyID       string
+	PublicKey   []byte
+	Counter     int64
+	Receipt     []byte
+	Environment string
+	Status      string
+	CreatedAt   time.Time
+	LastUsedAt  *time.Time
+}
+
 type Bookmark struct {
 	UserID            int64
 	BookmarkUuid      string
@@ -58,6 +75,19 @@ type Episode struct {
 	UpdatedAt    time.Time
 	Transcripts  []byte
 	ChaptersUrl  string
+}
+
+type Feedback struct {
+	ID                int64
+	UserID            *int64
+	Message           string
+	Subject           string
+	Inbox             string
+	Logs              string
+	BitdriftSessionID string
+	DeviceInfo        string
+	AppVersion        string
+	CreatedAt         time.Time
 }
 
 type Folder struct {
@@ -168,6 +198,40 @@ type SharedList struct {
 	Description  string
 	PodcastUuids []string
 	CreatedAt    time.Time
+}
+
+type TranscriptContribution struct {
+	ID                     int64
+	EpisodeUuid            string
+	PodcastUuid            string
+	VttBlob                []byte
+	FingerprintBlob        []byte
+	Engine                 string
+	ModelID                string
+	Language               string
+	Diarized               bool
+	AppVersion             string
+	EpisodeDurationSeconds float64
+	CreatedAt              *time.Time
+	ReceivedAt             time.Time
+	Attribution            string
+	AttributionID          string
+}
+
+type TranscriptSighting struct {
+	ID            int64
+	EpisodeUuid   string
+	PodcastUuid   string
+	TranscriptUrl string
+	Format        string
+	Language      string
+	Attribution   string
+	AttributionID string
+	Status        string
+	Content       []byte
+	ContentType   string
+	FetchedAt     *time.Time
+	ReceivedAt    time.Time
 }
 
 type UpNextItem struct {

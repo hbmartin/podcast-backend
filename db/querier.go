@@ -110,4 +110,18 @@ type Querier interface {
 	SetPodcastNotifyFlags(ctx context.Context, arg SetPodcastNotifyFlagsParams) error
 	GetPushTargetsForPodcast(ctx context.Context, podcastUuid string) ([]GetPushTargetsForPodcastRow, error)
 	ClearPushToken(ctx context.Context, pushToken string) error
+	InsertChallenge(ctx context.Context, arg InsertChallengeParams) error
+	ConsumeChallenge(ctx context.Context, challenge []byte) ([]byte, error)
+	DeleteExpiredChallenges(ctx context.Context) error
+	InsertAttestKey(ctx context.Context, arg InsertAttestKeyParams) error
+	GetAttestKey(ctx context.Context, keyID string) (AttestKey, error)
+	AdvanceAttestCounter(ctx context.Context, arg AdvanceAttestCounterParams) (int64, error)
+
+	InsertTranscriptContribution(ctx context.Context, arg InsertTranscriptContributionParams) error
+	CountRecentContributionsByAttribution(ctx context.Context, arg CountRecentContributionsByAttributionParams) (int64, error)
+	InsertTranscriptSighting(ctx context.Context, arg InsertTranscriptSightingParams) (int64, error)
+	CountRecentSightingsByAttribution(ctx context.Context, arg CountRecentSightingsByAttributionParams) (int64, error)
+	GetTranscriptSighting(ctx context.Context, id int64) (TranscriptSighting, error)
+	UpdateSightingContent(ctx context.Context, arg UpdateSightingContentParams) error
+	MarkSightingStatus(ctx context.Context, arg MarkSightingStatusParams) error
 }

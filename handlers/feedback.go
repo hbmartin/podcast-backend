@@ -14,6 +14,8 @@ const (
 	maxFeedbackMessage = 10_000
 	maxFeedbackLogs    = 512 * 1024
 	maxFeedbackField   = 1_000
+	// MaxFeedbackBody caps the raw feedback protobuf body (docs/AppAttest.md §4).
+	MaxFeedbackBody = 1 << 20 // 1 MiB
 )
 
 // PostSupportFeedback handles POST /support/feedback: a feedback report from a

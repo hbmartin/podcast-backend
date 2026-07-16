@@ -1046,6 +1046,53 @@ message WebFeedCreateResponse {
 // TranscriptCue/TranscriptSearchSegment, GeneratedChapter).
 // ============================================================================
 
+// ---- Fork-owned transcript contribution messages (docs/TranscriptContributions.md §3).
+// These are NEW top-level messages, not extensions of shared upstream messages,
+// so field numbering starts at 1 (the >= 1001 rule applies only to fields added
+// inside shared messages). Copied verbatim from the iOS client's api.proto —
+// the ACTIVE crowdsourced-transcript endpoints the client posts to today
+// (POST transcripts/contribute, POST transcripts/sighting).
+
+// Body of POST transcripts/contribute. The request body is this message
+// serialized and gzip-encoded (Content-Encoding: gzip); App Attest assertion
+// headers sign the gzipped body bytes.
+message TranscriptContributionRequest {
+  // Catalog UUIDs or deterministic local-feed identities — indistinguishable by design.
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  // Gzipped VTT bytes, speaker labels included, exactly the on-device artifact.
+  bytes vtt = 3;
+  // Gzipped fingerprint-compact-v2 JSON of the contributor's audio stitch.
+  bytes fingerprint = 4;
+  // "whisperkit" | "applespeech" | remote provider identifier.
+  string engine = 5;
+  // The specific producer, e.g. "whisper-large-v3-turbo", "apple-speech-ios26".
+  string model_id = 6;
+  // BCP-47 as reported by the engine.
+  string language = 7;
+  bool diarized = 8;
+  // Build marketing version.
+  string app_version = 9;
+  // Sanity anchor for server-side validation (cue span ≈ duration, reject > ±20%).
+  double episode_duration_seconds = 10;
+  // Contribution creation time (no listening timestamps).
+  google.protobuf.Timestamp created_at = 11;
+}
+
+// Body of POST transcripts/sighting. Same encoding rules as
+// TranscriptContributionRequest. The server fetches the transcript content
+// itself; the client never uploads publisher transcript bytes.
+message TranscriptSightingRequest {
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  // Token-free publisher URL (enforced client-side, re-validated server-side).
+  string transcript_url = 3;
+  // Mime type of the sighted transcript.
+  string format = 4;
+  // Optional BCP-47 tag; empty when the feed didn't declare one.
+  string language = 5;
+}
+
 // Publisher-provided transcript metadata ({url, type, language} — served via
 // the show-notes JSON endpoint today).
 message TranscriptMetadata {

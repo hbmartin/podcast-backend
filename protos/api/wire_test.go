@@ -115,3 +115,41 @@ func TestRoundTripCoreMessages(t *testing.T) {
 		assert.True(t, proto.Equal(m, clone), "round trip mismatch for %T", m)
 	}
 }
+
+// Fork-owned transcript messages (docs/TranscriptContributions.md §3). Field
+// numbers must match the iOS client's generated api.pb.swift.
+func TestTranscriptContributionRequestWire(t *testing.T) {
+	msg := &TranscriptContributionRequest{EpisodeUuid: "e", PodcastUuid: "p"}
+	// field 1 string "e": 0a 01 65; field 2 string "p": 12 01 70
+	assert.Equal(t, "0a0165120170", mustHex(t, msg))
+}
+
+func TestTranscriptSightingRequestWire(t *testing.T) {
+	msg := &TranscriptSightingRequest{EpisodeUuid: "e", TranscriptUrl: "u"}
+	// field 1 string "e": 0a 01 65; field 3 string "u": 1a 01 75
+	assert.Equal(t, "0a01651a0175", mustHex(t, msg))
+}
+
+func TestTranscriptContributionRequestRoundTrip(t *testing.T) {
+	in := &TranscriptContributionRequest{
+		EpisodeUuid:            "ep",
+		PodcastUuid:            "pod",
+		Vtt:                    []byte{1, 2, 3},
+		Fingerprint:            []byte{4, 5},
+		Engine:                 "whisperkit",
+		ModelId:                "whisper-large-v3-turbo",
+		Language:               "en",
+		Diarized:               true,
+		AppVersion:             "1.0",
+		EpisodeDurationSeconds: 1234.5,
+		CreatedAt:              timestamppb.New(timestamppb.Now().AsTime()),
+	}
+	b, err := proto.Marshal(in)
+	assert.NoError(t, err)
+	out := &TranscriptContributionRequest{}
+	assert.NoError(t, proto.Unmarshal(b, out))
+	assert.Equal(t, in.EpisodeUuid, out.EpisodeUuid)
+	assert.Equal(t, in.Vtt, out.Vtt)
+	assert.Equal(t, in.Diarized, out.Diarized)
+	assert.Equal(t, in.EpisodeDurationSeconds, out.EpisodeDurationSeconds)
+}

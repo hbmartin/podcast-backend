@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/hbmartin/podcast-backend/artwork"
+	"github.com/hbmartin/podcast-backend/attest"
 	"github.com/hbmartin/podcast-backend/auth"
 	"github.com/hbmartin/podcast-backend/config"
 	"github.com/hbmartin/podcast-backend/crawler"
@@ -87,6 +88,25 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 		PublicBaseURL: configValues.WebServerConfig.PublicBaseURL,
 		QueuePing:     queuePing,
 	}
+
+	// App Attest: verify device attestation on the fork-owned endpoints when
+	// configured (docs/AppAttest.md). Unconfigured => endpoints behave as ModeOff.
+	attestMode, attestFeedbackMode := attest.ModeOff, attest.ModeOff
+	if configValues.AppAttestConfig != nil && configValues.AppAttestConfig.Enabled {
+		verifier, err := attest.NewVerifier(configValues.AppAttestConfig.AppID, configValues.AppAttestConfig.AllowDev)
+		if err != nil {
+			log.Fatal(err)
+		}
+		controllers.AttestVerifier = verifier
+		attestMode = attest.ParseMode(configValues.AppAttestConfig.Mode, attest.ModeLogOnly)
+		attestFeedbackMode = attest.ParseMode(configValues.AppAttestConfig.FeedbackMode, attest.ModeLogOnly)
+		slog.Info("App Attest enabled",
+			"app_id", configValues.AppAttestConfig.AppID,
+			"mode", attestMode.String(),
+			"feedback_mode", attestFeedbackMode.String(),
+			"allow_dev", configValues.AppAttestConfig.AllowDev)
+	}
+
 	router := http.NewServeMux()
 
 	// limitedChain additionally rate limits by client IP; credential
@@ -101,6 +121,30 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 				configValues.WebServerConfig.Cors.Handler(
 					authLimiter.Handler(
 						http.HandlerFunc(handler)))))
+	}
+
+	// attestedOptionalChain: optional Bearer + App Attest assertion verification.
+	attestedOptionalChain := func(mode attest.Mode, maxBody int64, endpoint string, handler http.HandlerFunc) http.Handler {
+		return middlewares.TraceMiddleware(
+			middlewares.LogMiddleware(
+				configValues.WebServerConfig.Cors.Handler(
+					auth.OptionalTokenMiddleware(
+						controllers.AttestVerify(mode, maxBody, endpoint, handler)))))
+	}
+	// attestedAuthChain: required Bearer + App Attest assertion verification.
+	attestedAuthChain := func(mode attest.Mode, maxBody int64, endpoint string, handler http.HandlerFunc) http.Handler {
+		return middlewares.TraceMiddleware(
+			middlewares.LogMiddleware(
+				configValues.WebServerConfig.Cors.Handler(
+					auth.TokenAuthMiddleware(
+						controllers.AttestVerify(mode, maxBody, endpoint, handler)))))
+	}
+	// attestedPublicChain: unauthenticated + App Attest assertion verification.
+	attestedPublicChain := func(mode attest.Mode, maxBody int64, endpoint string, handler http.HandlerFunc) http.Handler {
+		return middlewares.TraceMiddleware(
+			middlewares.LogMiddleware(
+				configValues.WebServerConfig.Cors.Handler(
+					controllers.AttestVerify(mode, maxBody, endpoint, handler))))
 	}
 
 	router.HandleFunc("OPTIONS /", configValues.WebServerConfig.Cors.HandlerFunc)
@@ -151,9 +195,16 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	// search host role
 	router.Handle("GET /autocomplete/search", publicChain(controllers.GetAutocompleteSearch))
 
+	// api host role: App Attest bootstrap (JSON) + crowdsourced transcripts
+	// (gzipped protobuf), fork-owned (docs/AppAttest.md, docs/TranscriptContributions.md)
+	router.Handle("GET /attest/challenge", limitedChain(controllers.GetAttestChallenge))
+	router.Handle("POST /attest/enroll", limitedChain(controllers.PostAttestEnroll))
+	router.Handle("POST /transcripts/contribute", attestedOptionalChain(attestMode, handlers.MaxContributeBody, "contribute", controllers.PostTranscriptContribute))
+	router.Handle("POST /transcripts/sighting", attestedOptionalChain(attestMode, handlers.MaxSightingBody, "sighting", controllers.PostTranscriptSighting))
+
 	// api host role: feedback (protobuf; authenticated and anonymous)
-	router.Handle("POST /support/feedback", authChain(controllers.PostSupportFeedback))
-	router.Handle("POST /anonymous/feedback", publicChain(controllers.PostAnonymousFeedback))
+	router.Handle("POST /support/feedback", attestedAuthChain(attestFeedbackMode, handlers.MaxFeedbackBody, "feedback", controllers.PostSupportFeedback))
+	router.Handle("POST /anonymous/feedback", attestedPublicChain(attestFeedbackMode, handlers.MaxFeedbackBody, "feedback", controllers.PostAnonymousFeedback))
 
 	// api host role: ratings & stats (protobuf, authenticated)
 	router.Handle("POST /user/podcast_rating/add", authChain(controllers.PostPodcastRatingAdd))

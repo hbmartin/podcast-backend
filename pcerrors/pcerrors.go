@@ -25,6 +25,12 @@ const (
 	ExpiredToken          = "expired_token"
 	AccessDenied          = "access_denied"
 	InvalidGrant          = "invalid_grant"
+	// InvalidAttestation / StaleAttestation are App Attest verdicts
+	// (docs/AppAttest.md §1.5). invalid_attestation makes the client discard
+	// its key and re-enroll; stale_attestation makes it retry with a fresh
+	// assertion without discarding the key.
+	InvalidAttestation = "invalid_attestation"
+	StaleAttestation   = "stale_attestation"
 	// RateLimited is not in the client's enum; unknown ids fall back to its
 	// generic error message, which is the desired behavior for a 429.
 	RateLimited = "rate_limited"

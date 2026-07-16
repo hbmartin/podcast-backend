@@ -20,6 +20,7 @@ const (
 	TypeOpmlImport         = "opml:import"
 	TypeRefreshDuePodcasts = "podcast:refresh_due"
 	TypeNotifyNewEpisodes  = "push:new_episodes"
+	TypeSightingFetch      = "transcript:sighting_fetch"
 )
 
 // Queue names, in priority order.
@@ -45,6 +46,12 @@ type OpmlImportPayload struct {
 type NotifyNewEpisodesPayload struct {
 	PodcastUUID  string   `json:"podcast_uuid"`
 	EpisodeUUIDs []string `json:"episode_uuids"`
+}
+
+// SightingFetchPayload identifies a transcript sighting whose publisher URL the
+// server should fetch and store.
+type SightingFetchPayload struct {
+	SightingID int64 `json:"sighting_id"`
 }
 
 // QueueClient enqueues background tasks onto the Redis queue.
@@ -143,6 +150,23 @@ func (qc *QueueClient) EnqueueRefreshDuePodcasts(ctx context.Context) error {
 		if errors.Is(err, asynq.ErrTaskIDConflict) {
 			return nil
 		}
+		return errs.E(op, err)
+	}
+	return nil
+}
+
+// EnqueueSightingFetch queues a background fetch of a reported publisher
+// transcript (docs/TranscriptContributions.md §3).
+func (qc *QueueClient) EnqueueSightingFetch(ctx context.Context, sightingID int64) error {
+	const op errs.Op = "tasks/QueueClient.EnqueueSightingFetch"
+
+	payload, err := json.Marshal(SightingFetchPayload{SightingID: sightingID})
+	if err != nil {
+		return errs.E(op, errs.Internal, err)
+	}
+
+	task := asynq.NewTask(TypeSightingFetch, payload)
+	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow)); err != nil {
 		return errs.E(op, err)
 	}
 	return nil
