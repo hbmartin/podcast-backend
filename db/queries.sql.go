@@ -32,6 +32,23 @@ func (q *Queries) AdvanceAttestCounter(ctx context.Context, arg AdvanceAttestCou
 	return result.RowsAffected(), nil
 }
 
+const claimHandle = `-- name: ClaimHandle :exec
+INSERT INTO social_handles (handle, user_id, status) VALUES ($1, $2, 0)
+`
+
+type ClaimHandleParams struct {
+	Handle string
+	UserID *int64
+}
+
+// A bare INSERT: the PRIMARY KEY rejects a concurrent duplicate claim and the
+// user_id UNIQUE rejects a second handle for the same account (both surface as
+// 23505). Runs inside the join transaction with CreateSocialProfile.
+func (q *Queries) ClaimHandle(ctx context.Context, arg ClaimHandleParams) error {
+	_, err := q.db.Exec(ctx, claimHandle, arg.Handle, arg.UserID)
+	return err
+}
+
 const clearPushToken = `-- name: ClearPushToken :exec
 UPDATE devices SET push_token = '', updated_at = now()
 WHERE push_token = $1
@@ -206,6 +223,47 @@ func (q *Queries) CreateSharedList(ctx context.Context, arg CreateSharedListPara
 	return i, err
 }
 
+const createSocialProfile = `-- name: CreateSocialProfile :one
+INSERT INTO social_profiles (user_id, handle, display_name, terms_version)
+VALUES ($1, $2, $3, $4)
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at
+`
+
+type CreateSocialProfileParams struct {
+	UserID       int64
+	Handle       string
+	DisplayName  string
+	TermsVersion int32
+}
+
+// Visibility columns keep their private-by-default column defaults (ADR-0006).
+func (q *Queries) CreateSocialProfile(ctx context.Context, arg CreateSocialProfileParams) (SocialProfile, error) {
+	row := q.db.QueryRow(ctx, createSocialProfile,
+		arg.UserID,
+		arg.Handle,
+		arg.DisplayName,
+		arg.TermsVersion,
+	)
+	var i SocialProfile
+	err := row.Scan(
+		&i.UserID,
+		&i.Handle,
+		&i.DisplayName,
+		&i.Bio,
+		&i.TermsVersion,
+		&i.AvatarVisibility,
+		&i.BioVisibility,
+		&i.FollowedShowsVisibility,
+		&i.TopPodcastsVisibility,
+		&i.StatsVisibility,
+		&i.HistoryVisibility,
+		&i.PresenceVisibility,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (uuid, email, password_hash, scope)
 VALUES ($1, $2, $3, $4)
@@ -289,6 +347,46 @@ type DeleteHistoryItemParams struct {
 func (q *Queries) DeleteHistoryItem(ctx context.Context, arg DeleteHistoryItemParams) error {
 	_, err := q.db.Exec(ctx, deleteHistoryItem, arg.UserID, arg.EpisodeUuid)
 	return err
+}
+
+const deleteRelationshipsForUser = `-- name: DeleteRelationshipsForUser :exec
+DELETE FROM social_relationships WHERE user_id = $1 OR target_user_id = $1
+`
+
+func (q *Queries) DeleteRelationshipsForUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteRelationshipsForUser, userID)
+	return err
+}
+
+const deleteSocialProfile = `-- name: DeleteSocialProfile :execrows
+DELETE FROM social_profiles WHERE user_id = $1
+`
+
+func (q *Queries) DeleteSocialProfile(ctx context.Context, userID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSocialProfile, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteSocialRelationship = `-- name: DeleteSocialRelationship :execrows
+DELETE FROM social_relationships
+WHERE user_id = $1 AND target_user_id = $2 AND kind = $3
+`
+
+type DeleteSocialRelationshipParams struct {
+	UserID       int64
+	TargetUserID int64
+	Kind         int16
+}
+
+func (q *Queries) DeleteSocialRelationship(ctx context.Context, arg DeleteSocialRelationshipParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSocialRelationship, arg.UserID, arg.TargetUserID, arg.Kind)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const distinctCategories = `-- name: DistinctCategories :many
@@ -818,6 +916,28 @@ func (q *Queries) GetFoldersModifiedSince(ctx context.Context, arg GetFoldersMod
 	return items, nil
 }
 
+const getHandleStatus = `-- name: GetHandleStatus :one
+
+SELECT handle, user_id, status FROM social_handles WHERE handle = $1
+`
+
+type GetHandleStatusRow struct {
+	Handle string
+	UserID *int64
+	Status int16
+}
+
+// ============================================================================
+// Social identity + moderation (pocket-casts-ios docs/Social.md, ADR-0005/6/7)
+// ============================================================================
+// No row means the handle is available (pgx.ErrNoRows at the caller).
+func (q *Queries) GetHandleStatus(ctx context.Context, handle string) (GetHandleStatusRow, error) {
+	row := q.db.QueryRow(ctx, getHandleStatus, handle)
+	var i GetHandleStatusRow
+	err := row.Scan(&i.Handle, &i.UserID, &i.Status)
+	return i, err
+}
+
 const getHistory = `-- name: GetHistory :many
 SELECT user_id, episode_uuid, podcast_uuid, title, url, published, modified_at FROM history
 WHERE user_id = $1
@@ -1300,6 +1420,59 @@ func (q *Queries) GetSharedListByCode(ctx context.Context, code string) (SharedL
 		&i.Description,
 		&i.PodcastUuids,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getSocialProfileByHandle = `-- name: GetSocialProfileByHandle :one
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at FROM social_profiles WHERE handle = $1
+`
+
+// Tombstoned/erased handles have no profile row, so this only finds live ones.
+func (q *Queries) GetSocialProfileByHandle(ctx context.Context, handle string) (SocialProfile, error) {
+	row := q.db.QueryRow(ctx, getSocialProfileByHandle, handle)
+	var i SocialProfile
+	err := row.Scan(
+		&i.UserID,
+		&i.Handle,
+		&i.DisplayName,
+		&i.Bio,
+		&i.TermsVersion,
+		&i.AvatarVisibility,
+		&i.BioVisibility,
+		&i.FollowedShowsVisibility,
+		&i.TopPodcastsVisibility,
+		&i.StatsVisibility,
+		&i.HistoryVisibility,
+		&i.PresenceVisibility,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getSocialProfileByUserID = `-- name: GetSocialProfileByUserID :one
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at FROM social_profiles WHERE user_id = $1
+`
+
+func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (SocialProfile, error) {
+	row := q.db.QueryRow(ctx, getSocialProfileByUserID, userID)
+	var i SocialProfile
+	err := row.Scan(
+		&i.UserID,
+		&i.Handle,
+		&i.DisplayName,
+		&i.Bio,
+		&i.TermsVersion,
+		&i.AvatarVisibility,
+		&i.BioVisibility,
+		&i.FollowedShowsVisibility,
+		&i.TopPodcastsVisibility,
+		&i.StatsVisibility,
+		&i.HistoryVisibility,
+		&i.PresenceVisibility,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -1944,6 +2117,30 @@ func (q *Queries) InsertFeedback(ctx context.Context, arg InsertFeedbackParams) 
 	return err
 }
 
+const insertModerationReport = `-- name: InsertModerationReport :exec
+INSERT INTO moderation_reports (target_user_id, reporter_user_id, source, reason, context)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertModerationReportParams struct {
+	TargetUserID   int64
+	ReporterUserID *int64
+	Source         string
+	Reason         int16
+	Context        string
+}
+
+func (q *Queries) InsertModerationReport(ctx context.Context, arg InsertModerationReportParams) error {
+	_, err := q.db.Exec(ctx, insertModerationReport,
+		arg.TargetUserID,
+		arg.ReporterUserID,
+		arg.Source,
+		arg.Reason,
+		arg.Context,
+	)
+	return err
+}
+
 const insertTranscriptContribution = `-- name: InsertTranscriptContribution :exec
 
 INSERT INTO transcript_contributions (
@@ -2054,6 +2251,29 @@ func (q *Queries) InsertUpNextItem(ctx context.Context, arg InsertUpNextItemPara
 		arg.Position,
 	)
 	return err
+}
+
+const isBlockedEither = `-- name: IsBlockedEither :one
+SELECT EXISTS (
+    SELECT 1 FROM social_relationships
+    WHERE kind = 0
+      AND ((user_id = $1 AND target_user_id = $2)
+        OR (user_id = $2 AND target_user_id = $1))
+) AS blocked
+`
+
+type IsBlockedEitherParams struct {
+	UserID       int64
+	TargetUserID int64
+}
+
+// Mutual invisibility: a block in either direction hides the profile
+// (docs/SocialModeration.md).
+func (q *Queries) IsBlockedEither(ctx context.Context, arg IsBlockedEitherParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isBlockedEither, arg.UserID, arg.TargetUserID)
+	var blocked bool
+	err := row.Scan(&blocked)
+	return blocked, err
 }
 
 const markSightingStatus = `-- name: MarkSightingStatus :exec
@@ -2520,6 +2740,22 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const tombstoneHandle = `-- name: TombstoneHandle :execrows
+UPDATE social_handles
+SET status = 1, user_id = NULL, released_at = now()
+WHERE user_id = $1 AND status = 0
+`
+
+// GDPR erase: keep the handle string forever as a non-PII reservation, drop
+// the account association (ADR-0005).
+func (q *Queries) TombstoneHandle(ctx context.Context, userID *int64) (int64, error) {
+	result, err := q.db.Exec(ctx, tombstoneHandle, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const topPodcastsBySubscribers = `-- name: TopPodcastsBySubscribers :many
 SELECT p.id, p.uuid, p.feed_url, p.title, p.author, p.description, p.image_url, p.website_url, p.category, p.language, p.media_type, p.show_type, p.is_explicit, p.refresh_status, p.refresh_error, p.feed_etag, p.feed_last_modified, p.last_refresh_at, p.next_refresh_at, p.latest_episode_uuid, p.latest_episode_published, p.content_modified_ms, p.created_at, p.updated_at, p.background_color, p.tint_for_light_bg, p.tint_for_dark_bg, p.colors_source_image_url, COUNT(up.user_id)::bigint AS subscriber_count
 FROM podcasts p
@@ -2788,6 +3024,69 @@ func (q *Queries) UpdateSightingContent(ctx context.Context, arg UpdateSightingC
 		arg.Status,
 	)
 	return err
+}
+
+const updateSocialProfile = `-- name: UpdateSocialProfile :one
+UPDATE social_profiles SET
+    display_name = $2,
+    bio = $3,
+    avatar_visibility = $4,
+    bio_visibility = $5,
+    followed_shows_visibility = $6,
+    top_podcasts_visibility = $7,
+    stats_visibility = $8,
+    history_visibility = $9,
+    presence_visibility = $10,
+    updated_at = now()
+WHERE user_id = $1
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at
+`
+
+type UpdateSocialProfileParams struct {
+	UserID                  int64
+	DisplayName             string
+	Bio                     string
+	AvatarVisibility        int16
+	BioVisibility           int16
+	FollowedShowsVisibility int16
+	TopPodcastsVisibility   int16
+	StatsVisibility         int16
+	HistoryVisibility       int16
+	PresenceVisibility      int16
+}
+
+// The handle is immutable and deliberately absent here (ADR-0005).
+func (q *Queries) UpdateSocialProfile(ctx context.Context, arg UpdateSocialProfileParams) (SocialProfile, error) {
+	row := q.db.QueryRow(ctx, updateSocialProfile,
+		arg.UserID,
+		arg.DisplayName,
+		arg.Bio,
+		arg.AvatarVisibility,
+		arg.BioVisibility,
+		arg.FollowedShowsVisibility,
+		arg.TopPodcastsVisibility,
+		arg.StatsVisibility,
+		arg.HistoryVisibility,
+		arg.PresenceVisibility,
+	)
+	var i SocialProfile
+	err := row.Scan(
+		&i.UserID,
+		&i.Handle,
+		&i.DisplayName,
+		&i.Bio,
+		&i.TermsVersion,
+		&i.AvatarVisibility,
+		&i.BioVisibility,
+		&i.FollowedShowsVisibility,
+		&i.TopPodcastsVisibility,
+		&i.StatsVisibility,
+		&i.HistoryVisibility,
+		&i.PresenceVisibility,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const updateUserEmail = `-- name: UpdateUserEmail :execrows
@@ -3208,6 +3507,24 @@ type UpsertPodcastRatingParams struct {
 
 func (q *Queries) UpsertPodcastRating(ctx context.Context, arg UpsertPodcastRatingParams) error {
 	_, err := q.db.Exec(ctx, upsertPodcastRating, arg.UserID, arg.PodcastUuid, arg.Rating)
+	return err
+}
+
+const upsertSocialRelationship = `-- name: UpsertSocialRelationship :exec
+INSERT INTO social_relationships (user_id, target_user_id, kind)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, target_user_id, kind) DO NOTHING
+`
+
+type UpsertSocialRelationshipParams struct {
+	UserID       int64
+	TargetUserID int64
+	Kind         int16
+}
+
+// Idempotent block/mute (kind 0 = block, 1 = mute).
+func (q *Queries) UpsertSocialRelationship(ctx context.Context, arg UpsertSocialRelationshipParams) error {
+	_, err := q.db.Exec(ctx, upsertSocialRelationship, arg.UserID, arg.TargetUserID, arg.Kind)
 	return err
 }
 

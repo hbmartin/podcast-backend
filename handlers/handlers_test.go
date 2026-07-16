@@ -63,6 +63,14 @@ type QuerierMock struct {
 	RevokeAllRefreshTokensResult int64
 	RevokeAllRefreshTokensError  error
 	RevokeAllRefreshTokensUserID int64
+
+	// Social-erase stubs: PostDeleteAccount always runs socialErase, so the
+	// plain mock answers these as no-ops (a never-joined account).
+	DeleteSocialProfileResult int64
+	DeleteSocialProfileError  error
+	TombstoneHandleResult     int64
+	TombstoneHandleError      error
+	DeleteRelationshipsError  error
 }
 
 // InTx runs fn against the mock itself, mimicking a transaction.
@@ -122,6 +130,18 @@ func (m *QuerierMock) RevokeRefreshToken(ctx context.Context, tokenHash string) 
 func (m *QuerierMock) RevokeAllRefreshTokens(ctx context.Context, userID int64) (int64, error) {
 	m.RevokeAllRefreshTokensUserID = userID
 	return m.RevokeAllRefreshTokensResult, m.RevokeAllRefreshTokensError
+}
+
+func (m *QuerierMock) DeleteSocialProfile(ctx context.Context, userID int64) (int64, error) {
+	return m.DeleteSocialProfileResult, m.DeleteSocialProfileError
+}
+
+func (m *QuerierMock) TombstoneHandle(ctx context.Context, userID *int64) (int64, error) {
+	return m.TombstoneHandleResult, m.TombstoneHandleError
+}
+
+func (m *QuerierMock) DeleteRelationshipsForUser(ctx context.Context, userID int64) error {
+	return m.DeleteRelationshipsError
 }
 
 var testAuthConfig = &config.AuthConfiguration{

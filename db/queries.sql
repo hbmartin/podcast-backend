@@ -637,3 +637,83 @@ WHERE id = $1;
 
 -- name: MarkSightingStatus :exec
 UPDATE transcript_sightings SET status = $2 WHERE id = $1;
+
+-- ============================================================================
+-- Social identity + moderation (pocket-casts-ios docs/Social.md, ADR-0005/6/7)
+-- ============================================================================
+
+-- name: GetHandleStatus :one
+-- No row means the handle is available (pgx.ErrNoRows at the caller).
+SELECT handle, user_id, status FROM social_handles WHERE handle = $1;
+
+-- name: ClaimHandle :exec
+-- A bare INSERT: the PRIMARY KEY rejects a concurrent duplicate claim and the
+-- user_id UNIQUE rejects a second handle for the same account (both surface as
+-- 23505). Runs inside the join transaction with CreateSocialProfile.
+INSERT INTO social_handles (handle, user_id, status) VALUES ($1, $2, 0);
+
+-- name: CreateSocialProfile :one
+-- Visibility columns keep their private-by-default column defaults (ADR-0006).
+INSERT INTO social_profiles (user_id, handle, display_name, terms_version)
+VALUES ($1, $2, $3, $4)
+RETURNING *;
+
+-- name: GetSocialProfileByUserID :one
+SELECT * FROM social_profiles WHERE user_id = $1;
+
+-- name: GetSocialProfileByHandle :one
+-- Tombstoned/erased handles have no profile row, so this only finds live ones.
+SELECT * FROM social_profiles WHERE handle = $1;
+
+-- name: UpdateSocialProfile :one
+-- The handle is immutable and deliberately absent here (ADR-0005).
+UPDATE social_profiles SET
+    display_name = $2,
+    bio = $3,
+    avatar_visibility = $4,
+    bio_visibility = $5,
+    followed_shows_visibility = $6,
+    top_podcasts_visibility = $7,
+    stats_visibility = $8,
+    history_visibility = $9,
+    presence_visibility = $10,
+    updated_at = now()
+WHERE user_id = $1
+RETURNING *;
+
+-- name: UpsertSocialRelationship :exec
+-- Idempotent block/mute (kind 0 = block, 1 = mute).
+INSERT INTO social_relationships (user_id, target_user_id, kind)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, target_user_id, kind) DO NOTHING;
+
+-- name: DeleteSocialRelationship :execrows
+DELETE FROM social_relationships
+WHERE user_id = $1 AND target_user_id = $2 AND kind = $3;
+
+-- name: IsBlockedEither :one
+-- Mutual invisibility: a block in either direction hides the profile
+-- (docs/SocialModeration.md).
+SELECT EXISTS (
+    SELECT 1 FROM social_relationships
+    WHERE kind = 0
+      AND ((user_id = $1 AND target_user_id = $2)
+        OR (user_id = $2 AND target_user_id = $1))
+) AS blocked;
+
+-- name: InsertModerationReport :exec
+INSERT INTO moderation_reports (target_user_id, reporter_user_id, source, reason, context)
+VALUES ($1, $2, $3, $4, $5);
+
+-- name: DeleteSocialProfile :execrows
+DELETE FROM social_profiles WHERE user_id = $1;
+
+-- name: TombstoneHandle :execrows
+-- GDPR erase: keep the handle string forever as a non-PII reservation, drop
+-- the account association (ADR-0005).
+UPDATE social_handles
+SET status = 1, user_id = NULL, released_at = now()
+WHERE user_id = $1 AND status = 0;
+
+-- name: DeleteRelationshipsForUser :exec
+DELETE FROM social_relationships WHERE user_id = $1 OR target_user_id = $1;

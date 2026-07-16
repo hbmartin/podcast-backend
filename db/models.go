@@ -112,6 +112,17 @@ type History struct {
 	ModifiedAt  int64
 }
 
+type ModerationReport struct {
+	ID             int64
+	TargetUserID   int64
+	ReporterUserID *int64
+	Source         string
+	Reason         int16
+	Context        string
+	State          string
+	CreatedAt      time.Time
+}
+
 type Playlist struct {
 	UserID          int64
 	Uuid            string
@@ -197,6 +208,38 @@ type SharedList struct {
 	Title        string
 	Description  string
 	PodcastUuids []string
+	CreatedAt    time.Time
+}
+
+type SocialHandle struct {
+	Handle     string
+	UserID     *int64
+	Status     int16
+	ClaimedAt  time.Time
+	ReleasedAt *time.Time
+}
+
+type SocialProfile struct {
+	UserID                  int64
+	Handle                  string
+	DisplayName             string
+	Bio                     string
+	TermsVersion            int32
+	AvatarVisibility        int16
+	BioVisibility           int16
+	FollowedShowsVisibility int16
+	TopPodcastsVisibility   int16
+	StatsVisibility         int16
+	HistoryVisibility       int16
+	PresenceVisibility      int16
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
+type SocialRelationship struct {
+	UserID       int64
+	TargetUserID int64
+	Kind         int16
 	CreatedAt    time.Time
 }
 

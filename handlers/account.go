@@ -300,7 +300,10 @@ func (h Handlers) PostChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // PostDeleteAccount handles POST /user/delete_account (authenticated):
-// soft-deletes the user and revokes all refresh tokens.
+// erases the social profile (GDPR — profile PII deleted, handle tombstoned;
+// docs/SocialModeration.md), soft-deletes the user and revokes all refresh
+// tokens. Social erase runs first so a failure surfaces before the account
+// is gone; it is idempotent for never-joined accounts.
 func (h Handlers) PostDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	req := &pb.BasicRequest{}
 	if err := bindProto(r, req); err != nil {
@@ -313,6 +316,10 @@ func (h Handlers) PostDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.socialErase(r, user.ID); err != nil {
+		writeError(w, r, err)
+		return
+	}
 	if _, err := h.Queries.SoftDeleteUser(r.Context(), user.ID); err != nil {
 		writeError(w, r, err)
 		return

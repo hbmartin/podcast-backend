@@ -124,4 +124,18 @@ type Querier interface {
 	GetTranscriptSighting(ctx context.Context, id int64) (TranscriptSighting, error)
 	UpdateSightingContent(ctx context.Context, arg UpdateSightingContentParams) error
 	MarkSightingStatus(ctx context.Context, arg MarkSightingStatusParams) error
+
+	GetHandleStatus(ctx context.Context, handle string) (GetHandleStatusRow, error)
+	ClaimHandle(ctx context.Context, arg ClaimHandleParams) error
+	CreateSocialProfile(ctx context.Context, arg CreateSocialProfileParams) (SocialProfile, error)
+	GetSocialProfileByUserID(ctx context.Context, userID int64) (SocialProfile, error)
+	GetSocialProfileByHandle(ctx context.Context, handle string) (SocialProfile, error)
+	UpdateSocialProfile(ctx context.Context, arg UpdateSocialProfileParams) (SocialProfile, error)
+	UpsertSocialRelationship(ctx context.Context, arg UpsertSocialRelationshipParams) error
+	DeleteSocialRelationship(ctx context.Context, arg DeleteSocialRelationshipParams) (int64, error)
+	IsBlockedEither(ctx context.Context, arg IsBlockedEitherParams) (bool, error)
+	InsertModerationReport(ctx context.Context, arg InsertModerationReportParams) error
+	DeleteSocialProfile(ctx context.Context, userID int64) (int64, error)
+	TombstoneHandle(ctx context.Context, userID *int64) (int64, error)
+	DeleteRelationshipsForUser(ctx context.Context, userID int64) error
 }
