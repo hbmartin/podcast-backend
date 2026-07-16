@@ -11,6 +11,33 @@ import (
 // certificate's April-2021 validity window.
 func fixedApr2021() time.Time { return time.Date(2021, 4, 15, 12, 0, 0, 0, time.UTC) }
 
+func newSampleVerifier(t *testing.T, allowDev bool) *Verifier {
+	t.Helper()
+	v, err := NewVerifier(sampleAppID, allowDev)
+	if err != nil {
+		t.Fatalf("NewVerifier: %v", err)
+	}
+	return v
+}
+
+func decodeRawURLVector(t *testing.T, name, value string) []byte {
+	t.Helper()
+	b, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		t.Fatalf("decode %s: %v", name, err)
+	}
+	return b
+}
+
+func decodeHexVector(t *testing.T, name, value string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(value)
+	if err != nil {
+		t.Fatalf("decode %s: %v", name, err)
+	}
+	return b
+}
+
 func decodeVectors(t *testing.T) (attObj, keyID, challenge []byte) {
 	t.Helper()
 	var err error
@@ -27,10 +54,7 @@ func decodeVectors(t *testing.T) (attObj, keyID, challenge []byte) {
 }
 
 func TestVerifyAttestation_RealVector(t *testing.T) {
-	v, err := NewVerifier(sampleAppID, true)
-	if err != nil {
-		t.Fatalf("NewVerifier: %v", err)
-	}
+	v := newSampleVerifier(t, true)
 	v.now = fixedApr2021
 	attObj, keyID, challenge := decodeVectors(t)
 
@@ -50,7 +74,7 @@ func TestVerifyAttestation_RealVector(t *testing.T) {
 }
 
 func TestVerifyAttestation_RejectsDevWhenNotAllowed(t *testing.T) {
-	v, _ := NewVerifier(sampleAppID, false)
+	v := newSampleVerifier(t, false)
 	v.now = fixedApr2021
 	attObj, keyID, challenge := decodeVectors(t)
 	if _, _, _, err := v.VerifyAttestation(challenge, attObj, keyID); err == nil {
@@ -59,7 +83,7 @@ func TestVerifyAttestation_RejectsDevWhenNotAllowed(t *testing.T) {
 }
 
 func TestVerifyAttestation_WrongChallenge(t *testing.T) {
-	v, _ := NewVerifier(sampleAppID, true)
+	v := newSampleVerifier(t, true)
 	v.now = fixedApr2021
 	attObj, keyID, _ := decodeVectors(t)
 	if _, _, _, err := v.VerifyAttestation([]byte("not-the-challenge"), attObj, keyID); err == nil {
@@ -68,7 +92,7 @@ func TestVerifyAttestation_WrongChallenge(t *testing.T) {
 }
 
 func TestVerifyAttestation_ExpiredCertRejected(t *testing.T) {
-	v, _ := NewVerifier(sampleAppID, true) // default clock = time.Now(), cert expired 2021
+	v := newSampleVerifier(t, true) // default clock = time.Now(), cert expired 2021
 	attObj, keyID, challenge := decodeVectors(t)
 	if _, _, _, err := v.VerifyAttestation(challenge, attObj, keyID); err == nil {
 		t.Fatal("expected expired certificate chain to be rejected under real clock")
@@ -76,13 +100,10 @@ func TestVerifyAttestation_ExpiredCertRejected(t *testing.T) {
 }
 
 func TestVerifyAssertion_RealVector(t *testing.T) {
-	v, _ := NewVerifier(sampleAppID, true)
-	pub, _ := hex.DecodeString(samplePubKeyHex)
-	signedBody, _ := base64.RawURLEncoding.DecodeString(sampleAssertClientB64)
-	assertion, err := base64.RawURLEncoding.DecodeString(sampleAssertionB64)
-	if err != nil {
-		t.Fatalf("decode assertion: %v", err)
-	}
+	v := newSampleVerifier(t, true)
+	pub := decodeHexVector(t, "public key", samplePubKeyHex)
+	signedBody := decodeRawURLVector(t, "assertion client data", sampleAssertClientB64)
+	assertion := decodeRawURLVector(t, "assertion", sampleAssertionB64)
 
 	counter, err := v.VerifyAssertion(pub, assertion, signedBody)
 	if err != nil {
@@ -94,9 +115,9 @@ func TestVerifyAssertion_RealVector(t *testing.T) {
 }
 
 func TestVerifyAssertion_TamperedBody(t *testing.T) {
-	v, _ := NewVerifier(sampleAppID, true)
-	pub, _ := hex.DecodeString(samplePubKeyHex)
-	assertion, _ := base64.RawURLEncoding.DecodeString(sampleAssertionB64)
+	v := newSampleVerifier(t, true)
+	pub := decodeHexVector(t, "public key", samplePubKeyHex)
+	assertion := decodeRawURLVector(t, "assertion", sampleAssertionB64)
 	if _, err := v.VerifyAssertion(pub, assertion, []byte("tampered body")); err == nil {
 		t.Fatal("expected signature failure on tampered body")
 	}

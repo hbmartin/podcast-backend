@@ -85,7 +85,7 @@ type assertionObject struct {
 func (v *Verifier) VerifyAttestation(challenge, attestationCBOR, keyID []byte) (pubKey, receipt []byte, environment string, err error) {
 	var obj attestationObject
 	if err := cbor.Unmarshal(attestationCBOR, &obj); err != nil {
-		return nil, nil, "", fmt.Errorf("%w: cbor: %v", ErrInvalidAttestation, err)
+		return nil, nil, "", fmt.Errorf("%w: cbor: %w", ErrInvalidAttestation, err)
 	}
 	if obj.Fmt != attestationFormat {
 		return nil, nil, "", fmt.Errorf("%w: unexpected fmt %q", ErrInvalidAttestation, obj.Fmt)
@@ -103,7 +103,7 @@ func (v *Verifier) VerifyAttestation(challenge, attestationCBOR, keyID []byte) (
 	}
 	credCert, err := x509.ParseCertificate(obj.AttStmt.X5C[0])
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("%w: credCert: %v", ErrInvalidAttestation, err)
+		return nil, nil, "", fmt.Errorf("%w: credCert: %w", ErrInvalidAttestation, err)
 	}
 	if _, err := credCert.Verify(x509.VerifyOptions{
 		Roots:         v.roots,
@@ -111,7 +111,7 @@ func (v *Verifier) VerifyAttestation(challenge, attestationCBOR, keyID []byte) (
 		CurrentTime:   v.now(),
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}); err != nil {
-		return nil, nil, "", fmt.Errorf("%w: chain: %v", ErrInvalidAttestation, err)
+		return nil, nil, "", fmt.Errorf("%w: chain: %w", ErrInvalidAttestation, err)
 	}
 
 	// Steps 2-4: nonce = SHA256(authData ‖ SHA256(challenge)) must equal the
@@ -143,7 +143,7 @@ func (v *Verifier) VerifyAttestation(challenge, attestationCBOR, keyID []byte) (
 	// Steps 6-9: authenticator data checks (RP ID hash, counter 0, aaguid, credID).
 	ad, err := parseAuthenticatorData(obj.AuthData)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("%w: authData: %v", ErrInvalidAttestation, err)
+		return nil, nil, "", fmt.Errorf("%w: authData: %w", ErrInvalidAttestation, err)
 	}
 	appIDHash := sha256.Sum256([]byte(v.appID))
 	if subtleTimingSafeUnequal(ad.rpIDHash, appIDHash[:]) {
@@ -178,7 +178,7 @@ func (v *Verifier) VerifyAttestation(challenge, attestationCBOR, keyID []byte) (
 func (v *Verifier) VerifyAssertion(pubKeySEC1, assertionCBOR, signedBody []byte) (counter uint32, err error) {
 	var obj assertionObject
 	if err := cbor.Unmarshal(assertionCBOR, &obj); err != nil {
-		return 0, fmt.Errorf("%w: cbor: %v", ErrInvalidAttestation, err)
+		return 0, fmt.Errorf("%w: cbor: %w", ErrInvalidAttestation, err)
 	}
 	pub, err := parseSEC1(pubKeySEC1)
 	if err != nil {
@@ -196,7 +196,7 @@ func (v *Verifier) VerifyAssertion(pubKeySEC1, assertionCBOR, signedBody []byte)
 
 	ad, err := parseAuthenticatorData(obj.AuthenticatorData)
 	if err != nil {
-		return 0, fmt.Errorf("%w: authData: %v", ErrInvalidAttestation, err)
+		return 0, fmt.Errorf("%w: authData: %w", ErrInvalidAttestation, err)
 	}
 	appIDHash := sha256.Sum256([]byte(v.appID))
 	if subtleTimingSafeUnequal(ad.rpIDHash, appIDHash[:]) {
@@ -240,7 +240,7 @@ func marshalSEC1(pub *ecdsa.PublicKey) ([]byte, error) {
 	}
 	ecdhPub, err := pub.ECDH()
 	if err != nil {
-		return nil, fmt.Errorf("%w: ecdh: %v", ErrInvalidAttestation, err)
+		return nil, fmt.Errorf("%w: ecdh: %w", ErrInvalidAttestation, err)
 	}
 	return ecdhPub.Bytes(), nil
 }
@@ -249,7 +249,7 @@ func marshalSEC1(pub *ecdsa.PublicKey) ([]byte, error) {
 // encoding, validating the point lies on the curve via crypto/ecdh.
 func parseSEC1(b []byte) (*ecdsa.PublicKey, error) {
 	if _, err := ecdh.P256().NewPublicKey(b); err != nil {
-		return nil, fmt.Errorf("%w: public key: %v", ErrInvalidAttestation, err)
+		return nil, fmt.Errorf("%w: public key: %w", ErrInvalidAttestation, err)
 	}
 	if len(b) != 65 || b[0] != 0x04 {
 		return nil, fmt.Errorf("%w: public key not uncompressed P-256", ErrInvalidAttestation)

@@ -119,15 +119,28 @@ func TestRoundTripCoreMessages(t *testing.T) {
 // Fork-owned transcript messages (docs/TranscriptContributions.md §3). Field
 // numbers must match the iOS client's generated api.pb.swift.
 func TestTranscriptContributionRequestWire(t *testing.T) {
-	msg := &TranscriptContributionRequest{EpisodeUuid: "e", PodcastUuid: "p"}
-	// field 1 string "e": 0a 01 65; field 2 string "p": 12 01 70
-	assert.Equal(t, "0a0165120170", mustHex(t, msg))
+	msg := &TranscriptContributionRequest{
+		EpisodeUuid:            "e",
+		PodcastUuid:            "p",
+		Vtt:                    []byte{0x01, 0x02},
+		Fingerprint:            []byte{0x03},
+		Engine:                 "w",
+		ModelId:                "m",
+		Language:               "l",
+		Diarized:               true,
+		AppVersion:             "a",
+		EpisodeDurationSeconds: 1,
+		CreatedAt:              &timestamppb.Timestamp{Seconds: 1, Nanos: 2},
+	}
+	// f1-f9 are length-delimited except f8 (bool); f10 is fixed64 double;
+	// f11 is a Timestamp containing seconds=1 and nanos=2.
+	assert.Equal(t, "0a01651201701a0201022201032a017732016d3a016c40014a016151000000000000f03f5a0408011002", mustHex(t, msg))
 }
 
 func TestTranscriptSightingRequestWire(t *testing.T) {
-	msg := &TranscriptSightingRequest{EpisodeUuid: "e", TranscriptUrl: "u"}
-	// field 1 string "e": 0a 01 65; field 3 string "u": 1a 01 75
-	assert.Equal(t, "0a01651a0175", mustHex(t, msg))
+	msg := &TranscriptSightingRequest{EpisodeUuid: "e", PodcastUuid: "p", TranscriptUrl: "u", Format: "f", Language: "l"}
+	// f1 0a0165, f2 120170, f3 1a0175, f4 220166, f5 2a016c
+	assert.Equal(t, "0a01651201701a01752201662a016c", mustHex(t, msg))
 }
 
 func TestTranscriptContributionRequestRoundTrip(t *testing.T) {
@@ -152,16 +165,4 @@ func TestTranscriptContributionRequestRoundTrip(t *testing.T) {
 	assert.Equal(t, in.Vtt, out.Vtt)
 	assert.Equal(t, in.Diarized, out.Diarized)
 	assert.Equal(t, in.EpisodeDurationSeconds, out.EpisodeDurationSeconds)
-}
-
-func TestTranscriptSightingRequestWireAllFields(t *testing.T) {
-	msg := &TranscriptSightingRequest{EpisodeUuid: "e", PodcastUuid: "p", TranscriptUrl: "u", Format: "f", Language: "l"}
-	// f1 0a0165, f2 120170, f3 1a0175, f4 220166, f5 2a016c
-	assert.Equal(t, "0a01651201701a01752201662a016c", mustHex(t, msg))
-}
-
-func TestTranscriptContributionRequestBytesFieldWire(t *testing.T) {
-	msg := &TranscriptContributionRequest{EpisodeUuid: "e", Vtt: []byte{0x01, 0x02}}
-	// f1 0a0165; f3 bytes 1a02 0102
-	assert.Equal(t, "0a01651a020102", mustHex(t, msg))
 }
