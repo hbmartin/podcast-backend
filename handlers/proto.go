@@ -68,9 +68,12 @@ func bindProtoGzip(r *http.Request, m proto.Message) error {
 		reader = zr
 	}
 
-	body, err := io.ReadAll(io.LimitReader(reader, maxDecompressedProto))
+	body, err := io.ReadAll(io.LimitReader(reader, maxDecompressedProto+1))
 	if err != nil {
 		return errs.E(op, errs.Invalid, err)
+	}
+	if len(body) > maxDecompressedProto {
+		return errs.E(op, errs.Invalid, errs.Code("body_too_large"))
 	}
 	if err := proto.Unmarshal(body, m); err != nil {
 		return errs.E(op, errs.Invalid, errs.Code("invalid_protobuf"), err)
@@ -83,13 +86,13 @@ func bindProtoGzip(r *http.Request, m proto.Message) error {
 // writes 413 when the body exceeds the cap. Used by the attest middleware so
 // the assertion can sign the exact wire bytes while the handler still decodes
 // the body itself.
-func readCappedBody(w http.ResponseWriter, r *http.Request, max int64) ([]byte, bool) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, max+1))
+func readCappedBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, bool) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return nil, false
 	}
-	if int64(len(body)) > max {
+	if int64(len(body)) > limit {
 		w.WriteHeader(http.StatusRequestEntityTooLarge)
 		return nil, false
 	}

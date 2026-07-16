@@ -34,6 +34,10 @@ func TestIsTokenFreeURL(t *testing.T) {
 		{"not a url", false},
 		{"", false},
 		{"https://example.com/t.vtt?expires=1", false},
+		{"http://127.0.0.1/t.vtt", false},             // loopback literal
+		{"http://169.254.169.254/latest/meta", false}, // cloud metadata
+		{"http://10.0.0.5/t.vtt", false},              // RFC1918 literal
+		{"http://[::1]/t.vtt", false},                 // IPv6 loopback
 	}
 	for _, c := range cases {
 		if got := isTokenFreeURL(c.url); got != c.want {

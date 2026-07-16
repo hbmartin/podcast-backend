@@ -5,13 +5,19 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"log/slog"
+	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/metrics"
@@ -68,10 +74,17 @@ func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Reques
 		reject(w, "vtt")
 		return
 	}
-	if end, ok := maxCueEndSeconds(vtt); !ok {
+	d := req.EpisodeDurationSeconds
+	if math.IsNaN(d) || math.IsInf(d, 0) || d < 0 {
+		reject(w, "duration")
+		return
+	}
+	end, ok := maxCueEndSeconds(vtt)
+	if !ok {
 		reject(w, "vtt")
 		return
-	} else if d := req.EpisodeDurationSeconds; d > 0 && (end < d*(1-durationTolerance) || end > d*(1+durationTolerance)) {
+	}
+	if d > 0 && (end < d*(1-durationTolerance) || end > d*(1+durationTolerance)) {
 		reject(w, "duration")
 		return
 	}
@@ -117,11 +130,7 @@ func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	engine := req.Engine
-	if engine == "" {
-		engine = "unknown"
-	}
-	metrics.TranscriptContributions.WithLabelValues(engine).Inc()
+	metrics.TranscriptContributions.WithLabelValues(normalizeEngineLabel(req.Engine)).Inc()
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -153,9 +162,14 @@ func (h Handlers) PostTranscriptSighting(w http.ResponseWriter, r *http.Request)
 		AttributionID: attributionID,
 	})
 	if err != nil {
-		// No row => duplicate (already sighted); accept idempotently.
-		metrics.TranscriptSightings.WithLabelValues("duplicate").Inc()
-		w.WriteHeader(http.StatusAccepted)
+		// Only the ON CONFLICT DO NOTHING no-row result is a duplicate; real
+		// database failures must not be masked as a successful sighting.
+		if errors.Is(err, pgx.ErrNoRows) {
+			metrics.TranscriptSightings.WithLabelValues("duplicate").Inc()
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		writeError(w, r, err)
 		return
 	}
 
@@ -167,18 +181,42 @@ func (h Handlers) PostTranscriptSighting(w http.ResponseWriter, r *http.Request)
 // scheduleSightingFetch enqueues the publisher fetch on the task queue, falling
 // back to a bounded in-process goroutine when the queue is disabled (mirroring
 // the push-delivery pattern).
+// directFetchSem bounds concurrent in-process sighting fetches used when the
+// task queue is disabled, so a burst cannot exhaust goroutines/DB connections.
+var directFetchSem = make(chan struct{}, 8)
+
 func (h Handlers) scheduleSightingFetch(sightingID int64) {
 	if h.Queue != nil {
 		if err := h.Queue.EnqueueSightingFetch(context.Background(), sightingID); err == nil {
 			return
 		}
 	}
+	select {
+	case directFetchSem <- struct{}{}:
+	default:
+		slog.Warn("dropping in-process sighting fetch; concurrency limit reached", "sighting_id", sightingID)
+		return
+	}
 	store := h.Queries
 	go func() {
+		defer func() { <-directFetchSem }()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		_ = transcripts.FetchAndStore(ctx, store, sightingID)
 	}()
+}
+
+// normalizeEngineLabel bounds the Prometheus engine label to a fixed set so an
+// attacker-controlled engine string cannot create unbounded time series.
+func normalizeEngineLabel(engine string) string {
+	switch engine {
+	case "whisperkit", "applespeech", "assemblyai", "openai", "elevenlabs", "gemini", "deepgram", "publisher":
+		return engine
+	case "":
+		return "unknown"
+	default:
+		return "other"
+	}
 }
 
 func reject(w http.ResponseWriter, cause string) {
@@ -231,6 +269,14 @@ func isTokenFreeURL(raw string) bool {
 	if u.User != nil {
 		return false
 	}
+	// Reject obvious non-public IP literals early (the fetcher's dialer also
+	// blocks resolved private addresses as defense in depth).
+	if ip := net.ParseIP(u.Hostname()); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+			ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+			return false
+		}
+	}
 	for name, values := range u.Query() {
 		if tokenishQueryName.MatchString(name) {
 			return false
@@ -244,13 +290,20 @@ func isTokenFreeURL(raw string) bool {
 	return true
 }
 
-func gunzipCapped(data []byte, max int) ([]byte, error) {
+func gunzipCapped(data []byte, limit int) ([]byte, error) {
 	zr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	defer zr.Close()
-	return io.ReadAll(io.LimitReader(zr, int64(max)+1))
+	out, err := io.ReadAll(io.LimitReader(zr, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(out) > limit {
+		return nil, errors.New("decompressed body exceeds limit")
+	}
+	return out, nil
 }
 
 // maxCueEndSeconds returns the latest cue end time in a WebVTT/SRT body, and

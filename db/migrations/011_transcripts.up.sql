@@ -44,3 +44,5 @@ CREATE TABLE transcript_sightings (
     received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (episode_uuid, transcript_url)
 );
+
+CREATE INDEX transcript_sightings_attribution_idx ON transcript_sightings (attribution, attribution_id);

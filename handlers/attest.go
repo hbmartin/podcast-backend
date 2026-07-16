@@ -14,6 +14,8 @@ import (
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/metrics"
 	"github.com/hbmartin/podcast-backend/pcerrors"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // App Attest bootstrap endpoints (docs/AppAttest.md §1.2, §4).
@@ -104,8 +106,13 @@ func (h Handlers) PostAttestEnroll(w http.ResponseWriter, r *http.Request) {
 
 	// Burn the challenge on first presentation; no row means unknown or expired.
 	if _, err := h.Queries.ConsumeChallenge(ctx, challenge); err != nil {
-		metrics.AttestEnrollments.WithLabelValues("rejected").Inc()
-		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "unknown or expired challenge")
+		if errors.Is(err, pgx.ErrNoRows) {
+			metrics.AttestEnrollments.WithLabelValues("rejected").Inc()
+			pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "unknown or expired challenge")
+			return
+		}
+		metrics.AttestEnrollments.WithLabelValues("error").Inc()
+		writeError(w, r, err)
 		return
 	}
 

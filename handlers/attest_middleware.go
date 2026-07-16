@@ -11,6 +11,8 @@ import (
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/metrics"
 	"github.com/hbmartin/podcast-backend/pcerrors"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // AttestVerify wraps a handler with App Attest assertion verification
@@ -74,7 +76,16 @@ func (h Handlers) AttestVerify(mode attest.Mode, maxBody int64, endpoint string,
 		}
 
 		key, err := h.Queries.GetAttestKey(ctx, keyID)
-		if err != nil || key.Status != "active" {
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				deny("invalid_key", pcerrors.InvalidAttestation, http.StatusUnauthorized)
+				return
+			}
+			metrics.AttestAssertions.WithLabelValues(endpoint, "error").Inc()
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if key.Status != "active" {
 			deny("invalid_key", pcerrors.InvalidAttestation, http.StatusUnauthorized)
 			return
 		}
@@ -102,7 +113,13 @@ func (h Handlers) AttestVerify(mode attest.Mode, maxBody int64, endpoint string,
 		if rows == 0 {
 			// Distinguish a revoked/unknown key from a merely non-increasing
 			// counter (out-of-order concurrent requests).
-			if k2, e2 := h.Queries.GetAttestKey(ctx, keyID); e2 != nil || k2.Status != "active" {
+			k2, e2 := h.Queries.GetAttestKey(ctx, keyID)
+			if e2 != nil && !errors.Is(e2, pgx.ErrNoRows) {
+				metrics.AttestAssertions.WithLabelValues(endpoint, "error").Inc()
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			if e2 != nil || k2.Status != "active" {
 				deny("invalid_key", pcerrors.InvalidAttestation, http.StatusUnauthorized)
 				return
 			}

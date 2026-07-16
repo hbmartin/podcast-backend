@@ -8,8 +8,10 @@ package transcripts
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -24,7 +26,51 @@ const (
 	maxRedirects     = 5
 )
 
-var errTooManyRedirects = errors.New("too many redirects")
+var (
+	errTooManyRedirects = errors.New("too many redirects")
+	// ErrRetryable marks a transient sighting-fetch failure so the asynq worker
+	// retries it, distinct from a permanent rejection which returns nil.
+	ErrRetryable = errors.New("retryable sighting fetch failure")
+)
+
+// blockedIP reports whether an address must not be fetched: loopback, private
+// (RFC1918 / IPv6 ULA), link-local (incl. the 169.254.169.254 cloud-metadata
+// endpoint), unspecified, or multicast. This is the SSRF guard.
+func blockedIP(ip net.IP) bool {
+	return ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() ||
+		ip.IsInterfaceLocalMulticast()
+}
+
+// safeDialContext resolves the host and refuses to connect to any non-public
+// address, then dials the resolved IP directly so a later DNS rebind cannot
+// point a validated hostname at an internal address. Because the same transport
+// handles redirects, every redirect target is re-validated here too.
+func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	var lastErr error = fmt.Errorf("no dialable address for %q", host)
+	for _, ip := range ips {
+		if blockedIP(ip.IP) {
+			return nil, fmt.Errorf("refusing to fetch non-public address %s", ip.IP)
+		}
+	}
+	for _, ip := range ips {
+		conn, derr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
+		if derr == nil {
+			return conn, nil
+		}
+		lastErr = derr
+	}
+	return nil, lastErr
+}
 
 var httpClient = &http.Client{
 	Timeout: fetchTimeout,
@@ -33,6 +79,12 @@ var httpClient = &http.Client{
 			return errTooManyRedirects
 		}
 		return nil
+	},
+	Transport: &http.Transport{
+		DialContext:           safeDialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		DisableKeepAlives:     true,
 	},
 }
 
@@ -51,10 +103,11 @@ func contentTypeAllowed(ct string) bool {
 }
 
 // FetchAndStore loads the sighting row, fetches its publisher transcript URL
-// under timeouts/redirect/content-type/size limits, and stores the content
-// (status "fetched"), marking "failed"/"rejected" otherwise. Errors are
-// returned for the worker's retry accounting; storage-state transitions are
-// always persisted first.
+// under SSRF/timeout/redirect/content-type/size limits, and stores the content
+// (status "fetched"). Transient failures (network errors, 429, 5xx, status
+// writes) return an error wrapping ErrRetryable so the worker retries; permanent
+// rejections (non-public target, bad content type, oversize) mark the row and
+// return nil.
 func FetchAndStore(ctx context.Context, store db.Store, sightingID int64) error {
 	s, err := store.GetTranscriptSighting(ctx, sightingID)
 	if err != nil {
@@ -63,34 +116,50 @@ func FetchAndStore(ctx context.Context, store db.Store, sightingID int64) error 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.TranscriptUrl, nil)
 	if err != nil {
-		_ = store.MarkSightingStatus(ctx, db.MarkSightingStatusParams{ID: sightingID, Status: "rejected"})
-		metrics.TranscriptSightings.WithLabelValues("rejected").Inc()
-		return err
+		return rejectSighting(ctx, store, sightingID, "rejected")
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		_ = store.MarkSightingStatus(ctx, db.MarkSightingStatusParams{ID: sightingID, Status: "failed"})
+		// Transport errors include the SSRF guard rejecting a non-public target;
+		// those are permanent, but network blips are transient. Retrying a
+		// blocked address is harmless (it stays blocked), so treat all as
+		// retryable and let the worker's bounded retries give up.
 		metrics.TranscriptSightings.WithLabelValues("fetch_failed").Inc()
-		return err
+		if serr := store.MarkSightingStatus(ctx, db.MarkSightingStatusParams{ID: sightingID, Status: "failed"}); serr != nil {
+			return serr
+		}
+		return fmt.Errorf("%w: %v", ErrRetryable, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		_ = store.MarkSightingStatus(ctx, db.MarkSightingStatusParams{ID: sightingID, Status: "failed"})
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		// proceed
+	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
 		metrics.TranscriptSightings.WithLabelValues("fetch_failed").Inc()
-		return nil
+		if serr := store.MarkSightingStatus(ctx, db.MarkSightingStatusParams{ID: sightingID, Status: "failed"}); serr != nil {
+			return serr
+		}
+		return fmt.Errorf("%w: publisher returned %d", ErrRetryable, resp.StatusCode)
+	default:
+		return rejectSighting(ctx, store, sightingID, "rejected")
 	}
+
 	ct := resp.Header.Get("Content-Type")
 	if !contentTypeAllowed(ct) {
-		_ = store.MarkSightingStatus(ctx, db.MarkSightingStatusParams{ID: sightingID, Status: "rejected"})
-		metrics.TranscriptSightings.WithLabelValues("rejected").Inc()
-		return nil
+		return rejectSighting(ctx, store, sightingID, "rejected")
 	}
 	content, err := io.ReadAll(io.LimitReader(resp.Body, maxSightingBytes+1))
-	if err != nil || len(content) == 0 || int64(len(content)) > maxSightingBytes {
-		_ = store.MarkSightingStatus(ctx, db.MarkSightingStatusParams{ID: sightingID, Status: "rejected"})
-		metrics.TranscriptSightings.WithLabelValues("rejected").Inc()
-		return nil
+	if err != nil {
+		// A partial read is a transient network failure: retry.
+		metrics.TranscriptSightings.WithLabelValues("fetch_failed").Inc()
+		if serr := store.MarkSightingStatus(ctx, db.MarkSightingStatusParams{ID: sightingID, Status: "failed"}); serr != nil {
+			return serr
+		}
+		return fmt.Errorf("%w: %v", ErrRetryable, err)
+	}
+	if len(content) == 0 || int64(len(content)) > maxSightingBytes {
+		return rejectSighting(ctx, store, sightingID, "rejected")
 	}
 
 	if err := store.UpdateSightingContent(ctx, db.UpdateSightingContentParams{
@@ -104,4 +173,9 @@ func FetchAndStore(ctx context.Context, store db.Store, sightingID int64) error 
 	slog.Info("Stored sighted transcript", "sighting_id", sightingID, "bytes", len(content))
 	metrics.TranscriptSightings.WithLabelValues("fetched").Inc()
 	return nil
+}
+
+func rejectSighting(ctx context.Context, store db.Store, sightingID int64, status string) error {
+	metrics.TranscriptSightings.WithLabelValues("rejected").Inc()
+	return store.MarkSightingStatus(ctx, db.MarkSightingStatusParams{ID: sightingID, Status: status})
 }

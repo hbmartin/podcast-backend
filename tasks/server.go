@@ -197,7 +197,13 @@ func (w *WorkerServer) HandleSightingFetchTask(ctx context.Context, t *asynq.Tas
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		return errs.E(op, errs.Internal, fmt.Errorf("%w: %v", asynq.SkipRetry, err))
 	}
+	if payload.SightingID <= 0 {
+		return fmt.Errorf("%w: invalid sighting id %d", asynq.SkipRetry, payload.SightingID)
+	}
 	if err := transcripts.FetchAndStore(ctx, w.db, payload.SightingID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: sighting %d not found", asynq.SkipRetry, payload.SightingID)
+		}
 		return errs.E(op, err)
 	}
 	return nil
