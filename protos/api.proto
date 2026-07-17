@@ -1871,7 +1871,37 @@ message PublicProfileResponse {
   string avatar_url = 5;              // empty if avatar_visibility hides it
   google.protobuf.Timestamp created_at = 6;
   bool has_stats = 7;                 // section presence implies the viewer may see it
-  // Fuller sections (followed shows, top podcasts, heatmap) arrive with Slice 2.
+  // Visibility-gated sections: populated only when the matching field is
+  // visible to this viewer (or the viewer is the owner). Server-capped sizes.
+  // The heatmap grid is deliberately absent: no per-day series exists
+  // server-side; it renders from local data on the owner's own profile only.
+  repeated SocialProfilePodcast followed_shows = 8;
+  repeated SocialProfilePodcast top_podcasts = 9;
+  SocialProfileStats stats = 10;      // set only when has_stats
+  repeated SocialProfileEpisode recently_played = 11;
+}
+
+// A podcast entry in a public-profile section (followed shows / top podcasts).
+message SocialProfilePodcast {
+  string uuid = 1;
+  string title = 2;                   // catalog-resolved; may be empty if uncataloged
+  string author = 3;
+  int64 played_seconds = 4;           // top-podcasts ranking signal; 0 elsewhere
+}
+
+// A recently-played entry in a public-profile section (from listening history).
+message SocialProfileEpisode {
+  string uuid = 1;
+  string podcast_uuid = 2;
+  string title = 3;
+  google.protobuf.Timestamp played_at = 4;
+}
+
+// Aggregate listening totals for a public profile. Totals only — the per-day
+// heatmap series never leaves the device.
+message SocialProfileStats {
+  int64 time_listened_seconds = 1;
+  google.protobuf.Timestamp listening_since = 2;
 }
 
 // POST social/avatar response (request body is raw image bytes; see enum above).

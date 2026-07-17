@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -194,6 +195,24 @@ func (m *socialMock) DeleteRelationshipsForUser(ctx context.Context, userID int6
 		}
 	}
 	return nil
+}
+
+// Section queries: canned rows so visibility gating is observable.
+
+func (m *socialMock) GetPublicFollowedShows(ctx context.Context, arg db.GetPublicFollowedShowsParams) ([]db.GetPublicFollowedShowsRow, error) {
+	return []db.GetPublicFollowedShowsRow{{PodcastUuid: "aaaaaaaa-0000-0000-0000-000000000001", Title: "Followed Show", Author: "An Author"}}, nil
+}
+
+func (m *socialMock) GetPublicTopPodcasts(ctx context.Context, arg db.GetPublicTopPodcastsParams) ([]db.GetPublicTopPodcastsRow, error) {
+	return []db.GetPublicTopPodcastsRow{{PodcastUuid: "aaaaaaaa-0000-0000-0000-000000000002", Title: "Top Podcast", Author: "An Author", PlayedSeconds: 3600}}, nil
+}
+
+func (m *socialMock) GetPublicRecentlyPlayed(ctx context.Context, arg db.GetPublicRecentlyPlayedParams) ([]db.GetPublicRecentlyPlayedRow, error) {
+	return []db.GetPublicRecentlyPlayedRow{{EpisodeUuid: "aaaaaaaa-0000-0000-0000-000000000003", PodcastUuid: "aaaaaaaa-0000-0000-0000-000000000002", Title: "Recent Episode", ModifiedAt: 1700000000000}}, nil
+}
+
+func (m *socialMock) GetUserStatsTotals(ctx context.Context, userID int64) (db.GetUserStatsTotalsRow, error) {
+	return db.GetUserStatsTotalsRow{TimeListened: 7200, EarliestStartedAt: 1600000000}, nil
 }
 
 const otherUserUUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -390,10 +409,19 @@ func TestPublicProfileVisibility(t *testing.T) {
 	assert.Empty(t, resp.Bio)
 	assert.False(t, resp.HasStats)
 
+	// Private sections are absent too.
+	assert.Empty(t, resp.FollowedShows)
+	assert.Empty(t, resp.TopPodcasts)
+	assert.Nil(t, resp.Stats)
+	assert.Empty(t, resp.RecentlyPlayed)
+
 	// Public bio shown, including to anonymous viewers.
 	p := m.profiles[2]
 	p.BioVisibility = 2
 	p.StatsVisibility = 2
+	p.FollowedShowsVisibility = 2
+	p.TopPodcastsVisibility = 2
+	p.HistoryVisibility = 2
 	m.profiles[2] = p
 
 	resp = &pb.PublicProfileResponse{}
@@ -402,6 +430,16 @@ func TestPublicProfileVisibility(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "secret bio", resp.Bio)
 	assert.True(t, resp.HasStats)
+
+	// Public sections populated from the section queries.
+	assert.Len(t, resp.FollowedShows, 1)
+	assert.Equal(t, "Followed Show", resp.FollowedShows[0].Title)
+	assert.Len(t, resp.TopPodcasts, 1)
+	assert.Equal(t, int64(3600), resp.TopPodcasts[0].PlayedSeconds)
+	assert.NotNil(t, resp.Stats)
+	assert.Equal(t, int64(7200), resp.Stats.TimeListenedSeconds)
+	assert.Len(t, resp.RecentlyPlayed, 1)
+	assert.Equal(t, "Recent Episode", resp.RecentlyPlayed[0].Title)
 
 	// Unknown handle: 404.
 	code, _, _ = makeProtoRequest(router, "/social/profile/public",
@@ -518,6 +556,39 @@ func TestEraseTombstonesHandle(t *testing.T) {
 	code, _, _ = makeProtoRequest(router, "/social/erase", &pb.EraseRequest{}, ack)
 	assert.Equal(t, http.StatusOK, code)
 	assert.True(t, ack.Success)
+}
+
+func TestPublicProfilePage(t *testing.T) {
+	m := newSocialMock()
+	m.profiles[2] = db.SocialProfile{
+		UserID: 2, Handle: "webby", DisplayName: "Web <Person>", Bio: "bio & things",
+		BioVisibility: 2, FollowedShowsVisibility: 2,
+	}
+	router := http.NewServeMux()
+	h := Handlers{Queries: m, Config: testAuthConfig}
+	router.HandleFunc("GET /u/{handle}", h.GetPublicProfilePage)
+
+	req, _ := http.NewRequest("GET", "/u/webby", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Header().Get("Content-Type"), "text/html")
+	body := rr.Body.String()
+	// html/template escapes interpolations.
+	assert.Contains(t, body, "Web &lt;Person&gt;")
+	assert.Contains(t, body, "bio &amp; things")
+	assert.Contains(t, body, "@webby")
+	assert.Contains(t, body, "Followed Show")
+	assert.Contains(t, body, "thcast://profile/webby")
+	// Hidden sections absent.
+	assert.NotContains(t, body, "Top podcasts")
+
+	// Unknown handle: HTML 404.
+	req, _ = http.NewRequest("GET", "/u/nobody_home", nil)
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestDeleteAccountErasesSocial(t *testing.T) {

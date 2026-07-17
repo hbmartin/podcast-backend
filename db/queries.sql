@@ -717,3 +717,35 @@ WHERE user_id = $1 AND status = 0;
 
 -- name: DeleteRelationshipsForUser :exec
 DELETE FROM social_relationships WHERE user_id = $1 OR target_user_id = $1;
+
+-- name: GetPublicFollowedShows :many
+-- Followed-shows section of a public profile. LEFT JOIN: subscriptions may
+-- reference feeds the catalog hasn't ingested; they surface with empty titles.
+SELECT up.podcast_uuid, COALESCE(p.title, '') AS title, COALESCE(p.author, '') AS author
+FROM user_podcasts up
+LEFT JOIN podcasts p ON p.uuid = up.podcast_uuid
+WHERE up.user_id = $1 AND up.subscribed AND NOT up.is_deleted
+ORDER BY COALESCE(p.title, '') ASC
+LIMIT $2;
+
+-- name: GetPublicTopPodcasts :many
+-- Top-podcasts section: ranked by summed playback position across episodes —
+-- the best per-podcast listening signal the sync data carries.
+SELECT ue.podcast_uuid, COALESCE(p.title, '') AS title, COALESCE(p.author, '') AS author,
+       SUM(ue.played_up_to)::bigint AS played_seconds
+FROM user_episodes ue
+LEFT JOIN podcasts p ON p.uuid = ue.podcast_uuid
+WHERE ue.user_id = $1
+GROUP BY ue.podcast_uuid, p.title, p.author
+HAVING SUM(ue.played_up_to) > 0
+ORDER BY played_seconds DESC
+LIMIT $2;
+
+-- name: GetPublicRecentlyPlayed :many
+-- Recently-played section, straight from listening history (title is already
+-- denormalized on the history row). modified_at is interaction millis.
+SELECT episode_uuid, podcast_uuid, title, modified_at
+FROM history
+WHERE user_id = $1
+ORDER BY modified_at DESC
+LIMIT $2;

@@ -138,4 +138,7 @@ type Querier interface {
 	DeleteSocialProfile(ctx context.Context, userID int64) (int64, error)
 	TombstoneHandle(ctx context.Context, userID *int64) (int64, error)
 	DeleteRelationshipsForUser(ctx context.Context, userID int64) error
+	GetPublicFollowedShows(ctx context.Context, arg GetPublicFollowedShowsParams) ([]GetPublicFollowedShowsRow, error)
+	GetPublicTopPodcasts(ctx context.Context, arg GetPublicTopPodcastsParams) ([]GetPublicTopPodcastsRow, error)
+	GetPublicRecentlyPlayed(ctx context.Context, arg GetPublicRecentlyPlayedParams) ([]GetPublicRecentlyPlayedRow, error)
 }

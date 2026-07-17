@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"errors"
+	"html/template"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/moderation"
@@ -231,6 +234,13 @@ func (h Handlers) PostSocialProfileUpdate(w http.ResponseWriter, r *http.Request
 	writeProto(w, http.StatusOK, &pb.ProfileResponse{Profile: profileToProto(profile, user.Uuid)})
 }
 
+// Server-side caps on public-profile section sizes.
+const (
+	maxFollowedShows  = 50
+	maxTopPodcasts    = 10
+	maxRecentlyPlayed = 20
+)
+
 // PostSocialProfilePublic handles POST /social/profile/public (optional auth):
 // the visibility-filtered public read. Blocked-either-way, unjoined, and
 // tombstoned all produce the same 404 shape, so a blocked viewer can't
@@ -242,20 +252,34 @@ func (h Handlers) PostSocialProfilePublic(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	handle := normalizeHandle(req.Handle)
-	if !handlePattern.MatchString(handle) {
-		w.WriteHeader(http.StatusNotFound)
+	resp, status, err := h.buildPublicProfile(r, req.Handle)
+	if err != nil {
+		writeError(w, r, err)
 		return
+	}
+	if status != http.StatusOK {
+		w.WriteHeader(status)
+		return
+	}
+	writeProto(w, http.StatusOK, resp)
+}
+
+// buildPublicProfile resolves a handle to its visibility-filtered public
+// profile for the requesting viewer. Returns (nil, 404, nil) for every kind of
+// miss — unknown, tombstoned, or blocked-either-way — so callers can't leak
+// which it was. Shared by the protobuf endpoint and the HTML page.
+func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.PublicProfileResponse, int, error) {
+	handle := normalizeHandle(rawHandle)
+	if !handlePattern.MatchString(handle) {
+		return nil, http.StatusNotFound, nil
 	}
 
 	profile, err := h.Queries.GetSocialProfileByHandle(r.Context(), handle)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			w.WriteHeader(http.StatusNotFound)
-			return
+			return nil, http.StatusNotFound, nil
 		}
-		writeError(w, r, err)
-		return
+		return nil, 0, err
 	}
 
 	// Resolve the (optional) viewer for the block check and the owner case.
@@ -271,24 +295,20 @@ func (h Handlers) PostSocialProfilePublic(w http.ResponseWriter, r *http.Request
 					TargetUserID: profile.UserID,
 				})
 				if err != nil {
-					writeError(w, r, err)
-					return
+					return nil, 0, err
 				}
 				if blocked {
-					w.WriteHeader(http.StatusNotFound)
-					return
+					return nil, http.StatusNotFound, nil
 				}
 			}
 		} else if !errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, r, err)
-			return
+			return nil, 0, err
 		}
 	}
 
 	owner, err := h.Queries.GetUserByID(r.Context(), profile.UserID)
 	if err != nil {
-		writeError(w, r, err)
-		return
+		return nil, 0, err
 	}
 
 	resp := &pb.PublicProfileResponse{
@@ -299,13 +319,123 @@ func (h Handlers) PostSocialProfilePublic(w http.ResponseWriter, r *http.Request
 	}
 	// Phase 1 exposes only the public tier to non-owners; followers-only
 	// unlocks with the Phase-2 graph (ADR-0006). Owners see their own fields.
-	if isOwner || pb.SocialVisibility(profile.BioVisibility) == pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC {
+	visible := func(stored int16) bool {
+		return isOwner || pb.SocialVisibility(stored) == pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC
+	}
+	if visible(profile.BioVisibility) {
 		resp.Bio = profile.Bio
 	}
-	resp.HasStats = isOwner || pb.SocialVisibility(profile.StatsVisibility) == pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC
 	// avatar_url stays empty: avatars are deferred from this slice.
 
-	writeProto(w, http.StatusOK, resp)
+	if visible(profile.FollowedShowsVisibility) {
+		rows, err := h.Queries.GetPublicFollowedShows(r.Context(), db.GetPublicFollowedShowsParams{
+			UserID: profile.UserID, Limit: maxFollowedShows,
+		})
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, row := range rows {
+			resp.FollowedShows = append(resp.FollowedShows, &pb.SocialProfilePodcast{
+				Uuid: row.PodcastUuid, Title: row.Title, Author: row.Author,
+			})
+		}
+	}
+
+	if visible(profile.TopPodcastsVisibility) {
+		rows, err := h.Queries.GetPublicTopPodcasts(r.Context(), db.GetPublicTopPodcastsParams{
+			UserID: profile.UserID, Limit: maxTopPodcasts,
+		})
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, row := range rows {
+			resp.TopPodcasts = append(resp.TopPodcasts, &pb.SocialProfilePodcast{
+				Uuid: row.PodcastUuid, Title: row.Title, Author: row.Author, PlayedSeconds: row.PlayedSeconds,
+			})
+		}
+	}
+
+	if resp.HasStats = visible(profile.StatsVisibility); resp.HasStats {
+		totals, err := h.Queries.GetUserStatsTotals(r.Context(), profile.UserID)
+		if err != nil {
+			return nil, 0, err
+		}
+		since := totals.EarliestCreatedAt
+		if totals.EarliestStartedAt > 0 {
+			since = time.Unix(totals.EarliestStartedAt, 0)
+		}
+		resp.Stats = &pb.SocialProfileStats{
+			TimeListenedSeconds: totals.TimeListened,
+			ListeningSince:      timestamppb.New(since),
+		}
+	}
+
+	if visible(profile.HistoryVisibility) {
+		rows, err := h.Queries.GetPublicRecentlyPlayed(r.Context(), db.GetPublicRecentlyPlayedParams{
+			UserID: profile.UserID, Limit: maxRecentlyPlayed,
+		})
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, row := range rows {
+			resp.RecentlyPlayed = append(resp.RecentlyPlayed, &pb.SocialProfileEpisode{
+				Uuid: row.EpisodeUuid, PodcastUuid: row.PodcastUuid, Title: row.Title,
+				PlayedAt: timestamppb.New(time.UnixMilli(row.ModifiedAt)),
+			})
+		}
+	}
+
+	return resp, http.StatusOK, nil
+}
+
+// profilePageTemplate renders the minimal web Profile Link page
+// (<PUBLIC_BASE_URL>/u/<handle>, ADR-0008 in the iOS repo). html/template
+// escapes every interpolation.
+var profilePageTemplate = template.Must(template.New("profile").Parse(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@{{.Handle}} — Pocket Casts</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;color:#222}h1{margin-bottom:0}.handle{color:#666}.bio{margin:1rem 0}h2{font-size:1rem;margin-top:1.5rem}li{margin:.2rem 0}.muted{color:#888;font-size:.9rem}</style>
+</head><body>
+<h1>{{.DisplayName}}</h1>
+<p class="handle">@{{.Handle}}</p>
+{{if .Bio}}<p class="bio">{{.Bio}}</p>{{end}}
+{{if .Stats}}<p class="muted">{{.HoursListened}} hours listened · listening since {{.Since}}</p>{{end}}
+{{if .FollowedShows}}<h2>Followed shows</h2><ul>{{range .FollowedShows}}<li>{{.Title}}{{if .Author}} <span class="muted">— {{.Author}}</span>{{end}}</li>{{end}}</ul>{{end}}
+{{if .TopPodcasts}}<h2>Top podcasts</h2><ul>{{range .TopPodcasts}}<li>{{.Title}}{{if .Author}} <span class="muted">— {{.Author}}</span>{{end}}</li>{{end}}</ul>{{end}}
+{{if .RecentlyPlayed}}<h2>Recently played</h2><ul>{{range .RecentlyPlayed}}<li>{{.Title}}</li>{{end}}</ul>{{end}}
+<p><a href="thcast://profile/{{.Handle}}">Open in app</a></p>
+</body></html>
+`))
+
+// GetPublicProfilePage handles GET /u/{handle}: the anonymous web view of a
+// public profile — the same visibility-filtered read rendered as minimal HTML.
+func (h Handlers) GetPublicProfilePage(w http.ResponseWriter, r *http.Request) {
+	resp, status, err := h.buildPublicProfile(r, r.PathValue("handle"))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if status != http.StatusOK {
+		http.NotFound(w, r)
+		return
+	}
+
+	data := struct {
+		*pb.PublicProfileResponse
+		HoursListened int64
+		Since         string
+	}{PublicProfileResponse: resp}
+	if resp.Stats != nil {
+		data.HoursListened = resp.Stats.TimeListenedSeconds / 3600
+		data.Since = resp.Stats.ListeningSince.AsTime().Format("January 2006")
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if err := profilePageTemplate.Execute(w, data); err != nil {
+		slog.Warn("Profile page render failed", "handle", resp.Handle, "error", err)
+	}
 }
 
 // PostSocialBlock / PostSocialUnblock — mutual invisibility while blocked.

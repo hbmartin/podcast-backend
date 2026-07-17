@@ -229,6 +229,9 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /social/unmute", authChain(controllers.PostSocialUnmute))
 	router.Handle("POST /social/report", authChain(controllers.PostSocialReport))
 	router.Handle("POST /social/erase", authChain(controllers.PostSocialErase))
+	// The web Profile Link page (ADR-0008 in the iOS repo): anonymous HTML view
+	// of the same visibility-filtered public read.
+	router.Handle("GET /u/{handle}", publicChain(controllers.GetPublicProfilePage))
 
 	// static host role: discover layout + catalog-backed sources (JSON)
 	router.Handle("GET /discover/ios/content_v2.json", publicChain(controllers.GetDiscoverContent))

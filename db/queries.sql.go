@@ -1349,6 +1349,146 @@ func (q *Queries) GetPodcastsByUUIDs(ctx context.Context, dollar_1 []string) ([]
 	return items, nil
 }
 
+const getPublicFollowedShows = `-- name: GetPublicFollowedShows :many
+SELECT up.podcast_uuid, COALESCE(p.title, '') AS title, COALESCE(p.author, '') AS author
+FROM user_podcasts up
+LEFT JOIN podcasts p ON p.uuid = up.podcast_uuid
+WHERE up.user_id = $1 AND up.subscribed AND NOT up.is_deleted
+ORDER BY COALESCE(p.title, '') ASC
+LIMIT $2
+`
+
+type GetPublicFollowedShowsParams struct {
+	UserID int64
+	Limit  int32
+}
+
+type GetPublicFollowedShowsRow struct {
+	PodcastUuid string
+	Title       string
+	Author      string
+}
+
+// Followed-shows section of a public profile. LEFT JOIN: subscriptions may
+// reference feeds the catalog hasn't ingested; they surface with empty titles.
+func (q *Queries) GetPublicFollowedShows(ctx context.Context, arg GetPublicFollowedShowsParams) ([]GetPublicFollowedShowsRow, error) {
+	rows, err := q.db.Query(ctx, getPublicFollowedShows, arg.UserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPublicFollowedShowsRow
+	for rows.Next() {
+		var i GetPublicFollowedShowsRow
+		if err := rows.Scan(&i.PodcastUuid, &i.Title, &i.Author); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPublicRecentlyPlayed = `-- name: GetPublicRecentlyPlayed :many
+SELECT episode_uuid, podcast_uuid, title, modified_at
+FROM history
+WHERE user_id = $1
+ORDER BY modified_at DESC
+LIMIT $2
+`
+
+type GetPublicRecentlyPlayedParams struct {
+	UserID int64
+	Limit  int32
+}
+
+type GetPublicRecentlyPlayedRow struct {
+	EpisodeUuid string
+	PodcastUuid string
+	Title       string
+	ModifiedAt  int64
+}
+
+// Recently-played section, straight from listening history (title is already
+// denormalized on the history row). modified_at is interaction millis.
+func (q *Queries) GetPublicRecentlyPlayed(ctx context.Context, arg GetPublicRecentlyPlayedParams) ([]GetPublicRecentlyPlayedRow, error) {
+	rows, err := q.db.Query(ctx, getPublicRecentlyPlayed, arg.UserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPublicRecentlyPlayedRow
+	for rows.Next() {
+		var i GetPublicRecentlyPlayedRow
+		if err := rows.Scan(
+			&i.EpisodeUuid,
+			&i.PodcastUuid,
+			&i.Title,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPublicTopPodcasts = `-- name: GetPublicTopPodcasts :many
+SELECT ue.podcast_uuid, COALESCE(p.title, '') AS title, COALESCE(p.author, '') AS author,
+       SUM(ue.played_up_to)::bigint AS played_seconds
+FROM user_episodes ue
+LEFT JOIN podcasts p ON p.uuid = ue.podcast_uuid
+WHERE ue.user_id = $1
+GROUP BY ue.podcast_uuid, p.title, p.author
+HAVING SUM(ue.played_up_to) > 0
+ORDER BY played_seconds DESC
+LIMIT $2
+`
+
+type GetPublicTopPodcastsParams struct {
+	UserID int64
+	Limit  int32
+}
+
+type GetPublicTopPodcastsRow struct {
+	PodcastUuid   string
+	Title         string
+	Author        string
+	PlayedSeconds int64
+}
+
+// Top-podcasts section: ranked by summed playback position across episodes —
+// the best per-podcast listening signal the sync data carries.
+func (q *Queries) GetPublicTopPodcasts(ctx context.Context, arg GetPublicTopPodcastsParams) ([]GetPublicTopPodcastsRow, error) {
+	rows, err := q.db.Query(ctx, getPublicTopPodcasts, arg.UserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPublicTopPodcastsRow
+	for rows.Next() {
+		var i GetPublicTopPodcastsRow
+		if err := rows.Scan(
+			&i.PodcastUuid,
+			&i.Title,
+			&i.Author,
+			&i.PlayedSeconds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPushTargetsForPodcast = `-- name: GetPushTargetsForPodcast :many
 SELECT d.user_id, d.device_id, d.push_token
 FROM devices d
