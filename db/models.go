@@ -242,6 +242,14 @@ type SharedList struct {
 	CreatedAt    time.Time
 }
 
+type SocialFollow struct {
+	FollowerUserID int64
+	FolloweeUserID int64
+	Status         int16
+	CreatedAt      time.Time
+	ApprovedAt     *time.Time
+}
+
 type SocialHandle struct {
 	Handle     string
 	UserID     *int64
@@ -265,6 +273,7 @@ type SocialProfile struct {
 	PresenceVisibility      int16
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
+	RequireFollowApproval   bool
 }
 
 type SocialRelationship struct {

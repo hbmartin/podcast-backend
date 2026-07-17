@@ -38,6 +38,10 @@ type socialMock struct {
 
 	// Inbox state (methods in inbox_test.go).
 	inbox []*inboxItem
+
+	// Graph state (methods in graph_test.go).
+	follows  map[followKey]int16
+	feedRows []db.GetFeedItemsRow
 }
 
 type handleRow struct {

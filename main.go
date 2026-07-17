@@ -246,6 +246,14 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /social/inbox/read", authChain(controllers.PostInboxRead))
 	router.Handle("POST /social/inbox/delete", authChain(controllers.PostInboxDelete))
 
+	// api host role: follow graph + activity feed (protobuf; Slice 5, ADR-0009).
+	router.Handle("POST /social/follow", authChain(controllers.PostFollow))
+	router.Handle("POST /social/unfollow", authChain(controllers.PostUnfollow))
+	router.Handle("POST /social/follows", authChain(controllers.PostFollowList))
+	router.Handle("POST /social/follow/requests", authChain(controllers.PostFollowRequests))
+	router.Handle("POST /social/follow/approve", authChain(controllers.PostFollowApprove))
+	router.Handle("POST /social/feed", authChain(controllers.PostFeed))
+
 	// static host role: discover layout + catalog-backed sources (JSON)
 	router.Handle("GET /discover/ios/content_v2.json", publicChain(controllers.GetDiscoverContent))
 	router.Handle("GET /discover/ios/content_v3.json", publicChain(controllers.GetDiscoverContent))

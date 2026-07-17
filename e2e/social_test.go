@@ -359,3 +359,137 @@ func TestSendToFriendAndInbox(t *testing.T) {
 	assert.Empty(t, inbox.Items, "sent items die with the sender's profile")
 	_ = uuidB
 }
+
+// TestFollowGraphAndFeed walks Slice 5 over real HTTP/DB: open follow, the
+// derived feed (finished-episode gated by history_visibility, review event),
+// followers-only unlock, the approval toggle flow, and mute filtering.
+func TestFollowGraphAndFeed(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("graph-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("graph-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_gr_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_gr_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct{ token, handle, name string }{
+		{tokenA, handleA, "Viewer A"}, {tokenB, handleB, "Actor B"},
+	} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// A follows B: open by default, immediately active.
+	follow := &pb.FollowResponse{}
+	status := postProto(t, "/social/follow", tokenA, &pb.FollowRequest{Handle: handleB}, follow)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, pb.FollowState_FOLLOW_STATE_ACTIVE, follow.State)
+
+	// B acts: writes a review (public act) and finishes an episode (history-gated).
+	podcastUUID := ingestFixturePodcast(t)
+	playEpisodesOfPodcast(t, tokenB, podcastUUID, 2)
+	status = postProto(t, "/social/review/submit", tokenB,
+		&pb.PodcastReviewSubmitRequest{PodcastUuid: podcastUUID, Text: "reviewed for the feed"}, nil)
+	require.Equal(t, http.StatusOK, status)
+	// Mark one episode played (playing_status = 3).
+	episode := firstEpisodeUUID(t, podcastUUID)
+	now := time.Now().UnixMilli()
+	status = postProto(t, "/user/sync/update", tokenB, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now,
+		Records: []*pb.Record{{Record: &pb.Record_Episode{Episode: &pb.SyncUserEpisode{
+			Uuid: episode, PodcastUuid: podcastUUID,
+			PlayingStatus: wrapperspb.Int32(3), PlayingStatusModified: wrapperspb.Int64(now),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// A's feed: review + joined visible; finished-episode ABSENT while B's
+	// history_visibility is private.
+	feed := &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenA, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	kinds := map[pb.FeedItemKind]bool{}
+	for _, item := range feed.Items {
+		kinds[item.Kind] = true
+	}
+	assert.True(t, kinds[pb.FeedItemKind_FEED_ITEM_KIND_REVIEWED])
+	assert.True(t, kinds[pb.FeedItemKind_FEED_ITEM_KIND_JOINED])
+	assert.False(t, kinds[pb.FeedItemKind_FEED_ITEM_KIND_FINISHED_EPISODE],
+		"history-gated event hidden while private")
+
+	// B opens history to followers: the finished-episode event appears.
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName:       "Actor B",
+		HistoryVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	feed = &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenA, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	found := false
+	for _, item := range feed.Items {
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_FINISHED_EPISODE {
+			found = true
+			assert.Equal(t, handleB, item.ActorHandle)
+			assert.NotEmpty(t, item.EpisodeTitle)
+		}
+	}
+	assert.True(t, found, "followers-only history event visible to a follower")
+
+	// Followers-only profile field also unlocks for A.
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Actor B", Bio: "for my followers",
+		BioVisibility:     pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
+		HistoryVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+	public := &pb.PublicProfileResponse{}
+	status = postProto(t, "/social/profile/public", tokenA, &pb.PublicProfileRequest{Handle: handleB}, public)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "for my followers", public.Bio)
+	assert.Equal(t, pb.FollowState_FOLLOW_STATE_ACTIVE, public.YourFollowState)
+	assert.Equal(t, int64(1), public.FollowerCount)
+
+	// Mute B: the feed goes quiet without unfollowing.
+	status = postProto(t, "/social/mute", tokenA, &pb.MuteRequest{TargetUserId: public.UserId}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	feed = &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenA, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, feed.Items, "muted actor's events filtered")
+	status = postProto(t, "/social/unmute", tokenA, &pb.MuteRequest{TargetUserId: public.UserId}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	// Approval toggle: a third account's follow pends, then acceptance activates.
+	tokenC, _ := registerUser(t, fmt.Sprintf("graph-c-%d@e2e.test", suffix))
+	handleC := fmt.Sprintf("e2e_gr_c_%d", suffix%1_000_000_000)
+	status = postProto(t, "/social/join", tokenC, &pb.JoinRequest{
+		Handle: handleC, AcceptedTermsVersion: 1, DisplayName: "Requester C",
+	}, &pb.JoinResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Actor B", RequireFollowApproval: true,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	follow = &pb.FollowResponse{}
+	status = postProto(t, "/social/follow", tokenC, &pb.FollowRequest{Handle: handleB}, follow)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, pb.FollowState_FOLLOW_STATE_PENDING, follow.State)
+
+	requests := &pb.FollowListResponse{}
+	status = postProto(t, "/social/follow/requests", tokenB, &pb.FollowRequestsRequest{}, requests)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, requests.Entries, 1)
+	assert.Equal(t, handleC, requests.Entries[0].Handle)
+
+	status = postProto(t, "/social/follow/approve", tokenB,
+		&pb.FollowApprovalRequest{RequesterHandle: handleC, Accept: true}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	public = &pb.PublicProfileResponse{}
+	status = postProto(t, "/social/profile/public", tokenC, &pb.PublicProfileRequest{Handle: handleB}, public)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, pb.FollowState_FOLLOW_STATE_ACTIVE, public.YourFollowState)
+}

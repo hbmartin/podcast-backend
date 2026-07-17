@@ -677,6 +677,7 @@ UPDATE social_profiles SET
     stats_visibility = $8,
     history_visibility = $9,
     presence_visibility = $10,
+    require_follow_approval = $11,
     updated_at = now()
 WHERE user_id = $1
 RETURNING *;
@@ -870,3 +871,125 @@ DELETE FROM shared_items WHERE recipient_user_id = $1 AND id = $2;
 -- GDPR erase: items the erased profile sent disappear from recipients' inboxes
 -- (attributed UGC); their received items go too.
 DELETE FROM shared_items WHERE sender_user_id = $1 OR recipient_user_id = $1;
+
+-- ============================================================================
+-- Follow graph + activity feed (Slice 5; ADR-0009: feed derives at read time)
+-- ============================================================================
+
+-- name: UpsertFollow :exec
+-- Idempotent; re-following while pending keeps pending (no status escalation).
+INSERT INTO social_follows (follower_user_id, followee_user_id, status, approved_at)
+VALUES ($1, $2, $3, CASE WHEN $3::smallint = 1 THEN now() ELSE NULL END)
+ON CONFLICT (follower_user_id, followee_user_id) DO NOTHING;
+
+-- name: DeleteFollow :execrows
+DELETE FROM social_follows WHERE follower_user_id = $1 AND followee_user_id = $2;
+
+-- name: ApproveFollow :execrows
+UPDATE social_follows SET status = 1, approved_at = now()
+WHERE follower_user_id = $1 AND followee_user_id = $2 AND status = 0;
+
+-- name: GetFollowState :one
+SELECT status FROM social_follows WHERE follower_user_id = $1 AND followee_user_id = $2;
+
+-- name: CountFollowers :one
+SELECT count(*) FROM social_follows WHERE followee_user_id = $1 AND status = 1;
+
+-- name: CountFollowing :one
+SELECT count(*) FROM social_follows WHERE follower_user_id = $1 AND status = 1;
+
+-- name: GetFollowers :many
+SELECT u.uuid AS user_uuid, sp.handle, sp.display_name, sf.status
+FROM social_follows sf
+JOIN users u ON u.id = sf.follower_user_id
+JOIN social_profiles sp ON sp.user_id = sf.follower_user_id
+WHERE sf.followee_user_id = $1 AND sf.status = 1
+ORDER BY sf.created_at DESC LIMIT $2 OFFSET $3;
+
+-- name: GetFollowing :many
+SELECT u.uuid AS user_uuid, sp.handle, sp.display_name, sf.status
+FROM social_follows sf
+JOIN users u ON u.id = sf.followee_user_id
+JOIN social_profiles sp ON sp.user_id = sf.followee_user_id
+WHERE sf.follower_user_id = $1
+ORDER BY sf.created_at DESC LIMIT $2 OFFSET $3;
+
+-- name: GetPendingFollowRequests :many
+SELECT u.uuid AS user_uuid, sp.handle, sp.display_name, sf.status
+FROM social_follows sf
+JOIN users u ON u.id = sf.follower_user_id
+JOIN social_profiles sp ON sp.user_id = sf.follower_user_id
+WHERE sf.followee_user_id = $1 AND sf.status = 0
+ORDER BY sf.created_at DESC LIMIT $2 OFFSET $3;
+
+-- name: DeleteFollowsForUser :exec
+DELETE FROM social_follows WHERE follower_user_id = $1 OR followee_user_id = $1;
+
+-- name: GetFeedItems :many
+-- The activity feed (ADR-0009): derived at read time from the caller's ACTIVE
+-- followees' existing rows. Listening-derived kinds obey the actor's
+-- per-field visibility (2 = public, 3 = followers_only — the viewer IS a
+-- follower here, so both pass; 1 = private never appears). Muted actors are
+-- excluded (blocks can't occur: a block severs follows). Kinds mirror the
+-- proto FeedItemKind values.
+WITH followees AS (
+    SELECT sf.followee_user_id AS uid
+    FROM social_follows sf
+    WHERE sf.follower_user_id = $1 AND sf.status = 1
+      AND NOT EXISTS (
+        SELECT 1 FROM social_relationships sr
+        WHERE sr.user_id = $1 AND sr.target_user_id = sf.followee_user_id AND sr.kind = 1)
+)
+SELECT events.kind, events.podcast_uuid, events.podcast_title,
+       events.episode_uuid, events.episode_title, events.target_handle,
+       events.reaction_kind, events.review_excerpt, events.event_at,
+       actor.handle AS actor_handle, actor.display_name AS actor_display_name,
+       au.uuid AS actor_uuid
+FROM (
+    SELECT 1 AS kind, sp.user_id AS actor_id, '' AS podcast_uuid, '' AS podcast_title,
+           '' AS episode_uuid, '' AS episode_title, '' AS target_handle,
+           0 AS reaction_kind, '' AS review_excerpt, sp.created_at AS event_at
+    FROM social_profiles sp JOIN followees f ON f.uid = sp.user_id
+  UNION ALL
+    SELECT 2, sf.follower_user_id, '', '', '', '',
+           tp.handle::text, 0, '', COALESCE(sf.approved_at, sf.created_at)
+    FROM social_follows sf
+    JOIN followees f ON f.uid = sf.follower_user_id
+    JOIN social_profiles tp ON tp.user_id = sf.followee_user_id
+    WHERE sf.status = 1
+  UNION ALL
+    SELECT 3, up.user_id, up.podcast_uuid::text, COALESCE(p.title, ''), '', '', '', 0, '',
+           up.date_added
+    FROM user_podcasts up
+    JOIN followees f ON f.uid = up.user_id
+    JOIN social_profiles sp ON sp.user_id = up.user_id AND sp.followed_shows_visibility IN (2, 3)
+    LEFT JOIN podcasts p ON p.uuid = up.podcast_uuid
+    WHERE up.subscribed AND NOT up.is_deleted AND up.date_added IS NOT NULL
+  UNION ALL
+    SELECT 4, ue.user_id, ue.podcast_uuid::text, COALESCE(p.title, ''),
+           ue.episode_uuid::text, COALESCE(e.title, ''), '', 0, '',
+           to_timestamp(ue.playing_status_modified / 1000.0)
+    FROM user_episodes ue
+    JOIN followees f ON f.uid = ue.user_id
+    JOIN social_profiles sp ON sp.user_id = ue.user_id AND sp.history_visibility IN (2, 3)
+    LEFT JOIN episodes e ON e.uuid = ue.episode_uuid
+    LEFT JOIN podcasts p ON p.uuid = ue.podcast_uuid
+    WHERE ue.playing_status = 3 AND ue.playing_status_modified > 0
+  UNION ALL
+    SELECT 5, pr.user_id, pr.podcast_uuid::text, COALESCE(p.title, ''), '', '', '', 0,
+           left(pr.text, 200), pr.updated_at
+    FROM podcast_reviews pr
+    JOIN followees f ON f.uid = pr.user_id
+    LEFT JOIN podcasts p ON p.uuid = pr.podcast_uuid
+  UNION ALL
+    SELECT 6, er.user_id, '', '', er.episode_uuid, COALESCE(e.title, ''), '',
+           er.kind::int, '', er.created_at
+    FROM episode_reactions er
+    JOIN followees f ON f.uid = er.user_id
+    LEFT JOIN episodes e ON e.uuid::text = er.episode_uuid
+) events
+JOIN social_profiles actor ON actor.user_id = events.actor_id
+JOIN users au ON au.id = events.actor_id
+WHERE (sqlc.narg('before')::timestamptz IS NULL OR events.event_at < sqlc.narg('before')::timestamptz)
+ORDER BY events.event_at DESC
+LIMIT $2;

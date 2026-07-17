@@ -154,6 +154,18 @@ type Querier interface {
 	GetEpisodeReactionCounts(ctx context.Context, episodeUuid string) ([]GetEpisodeReactionCountsRow, error)
 	GetOwnEpisodeReaction(ctx context.Context, arg GetOwnEpisodeReactionParams) (int16, error)
 
+	UpsertFollow(ctx context.Context, arg UpsertFollowParams) error
+	DeleteFollow(ctx context.Context, arg DeleteFollowParams) (int64, error)
+	ApproveFollow(ctx context.Context, arg ApproveFollowParams) (int64, error)
+	GetFollowState(ctx context.Context, arg GetFollowStateParams) (int16, error)
+	CountFollowers(ctx context.Context, followeeUserID int64) (int64, error)
+	CountFollowing(ctx context.Context, followerUserID int64) (int64, error)
+	GetFollowers(ctx context.Context, arg GetFollowersParams) ([]GetFollowersRow, error)
+	GetFollowing(ctx context.Context, arg GetFollowingParams) ([]GetFollowingRow, error)
+	GetPendingFollowRequests(ctx context.Context, arg GetPendingFollowRequestsParams) ([]GetPendingFollowRequestsRow, error)
+	DeleteFollowsForUser(ctx context.Context, userID int64) error
+	GetFeedItems(ctx context.Context, arg GetFeedItemsParams) ([]GetFeedItemsRow, error)
+
 	InsertSharedItem(ctx context.Context, arg InsertSharedItemParams) (int64, error)
 	GetInboxItems(ctx context.Context, arg GetInboxItemsParams) ([]GetInboxItemsRow, error)
 	CountInboxItems(ctx context.Context, recipientUserID int64) (int64, error)
