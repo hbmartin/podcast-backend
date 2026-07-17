@@ -637,3 +637,192 @@ WHERE id = $1;
 
 -- name: MarkSightingStatus :exec
 UPDATE transcript_sightings SET status = $2 WHERE id = $1;
+
+-- ============================================================================
+-- Social identity + moderation (pocket-casts-ios docs/Social.md, ADR-0005/6/7)
+-- ============================================================================
+
+-- name: GetHandleStatus :one
+-- No row means the handle is available (pgx.ErrNoRows at the caller).
+SELECT handle, user_id, status FROM social_handles WHERE handle = $1;
+
+-- name: ClaimHandle :exec
+-- A bare INSERT: the PRIMARY KEY rejects a concurrent duplicate claim and the
+-- user_id UNIQUE rejects a second handle for the same account (both surface as
+-- 23505). Runs inside the join transaction with CreateSocialProfile.
+INSERT INTO social_handles (handle, user_id, status) VALUES ($1, $2, 0);
+
+-- name: CreateSocialProfile :one
+-- Visibility columns keep their private-by-default column defaults (ADR-0006).
+INSERT INTO social_profiles (user_id, handle, display_name, terms_version)
+VALUES ($1, $2, $3, $4)
+RETURNING *;
+
+-- name: GetSocialProfileByUserID :one
+SELECT * FROM social_profiles WHERE user_id = $1;
+
+-- name: GetSocialProfileByHandle :one
+-- Tombstoned/erased handles have no profile row, so this only finds live ones.
+SELECT * FROM social_profiles WHERE handle = $1;
+
+-- name: UpdateSocialProfile :one
+-- The handle is immutable and deliberately absent here (ADR-0005).
+UPDATE social_profiles SET
+    display_name = $2,
+    bio = $3,
+    avatar_visibility = $4,
+    bio_visibility = $5,
+    followed_shows_visibility = $6,
+    top_podcasts_visibility = $7,
+    stats_visibility = $8,
+    history_visibility = $9,
+    presence_visibility = $10,
+    updated_at = now()
+WHERE user_id = $1
+RETURNING *;
+
+-- name: UpsertSocialRelationship :exec
+-- Idempotent block/mute (kind 0 = block, 1 = mute).
+INSERT INTO social_relationships (user_id, target_user_id, kind)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, target_user_id, kind) DO NOTHING;
+
+-- name: DeleteSocialRelationship :execrows
+DELETE FROM social_relationships
+WHERE user_id = $1 AND target_user_id = $2 AND kind = $3;
+
+-- name: IsBlockedEither :one
+-- Mutual invisibility: a block in either direction hides the profile
+-- (docs/SocialModeration.md).
+SELECT EXISTS (
+    SELECT 1 FROM social_relationships
+    WHERE kind = 0
+      AND ((user_id = $1 AND target_user_id = $2)
+        OR (user_id = $2 AND target_user_id = $1))
+) AS blocked;
+
+-- name: InsertModerationReport :exec
+INSERT INTO moderation_reports (target_user_id, reporter_user_id, source, reason, context, target_type, content_ref)
+VALUES ($1, $2, $3, $4, $5, $6, $7);
+
+-- name: DeleteSocialProfile :execrows
+DELETE FROM social_profiles WHERE user_id = $1;
+
+-- name: TombstoneHandle :execrows
+-- GDPR erase: keep the handle string forever as a non-PII reservation, drop
+-- the account association (ADR-0005).
+UPDATE social_handles
+SET status = 1, user_id = NULL, released_at = now()
+WHERE user_id = $1 AND status = 0;
+
+-- name: DeleteRelationshipsForUser :exec
+DELETE FROM social_relationships WHERE user_id = $1 OR target_user_id = $1;
+
+-- name: GetPublicFollowedShows :many
+-- Followed-shows section of a public profile. LEFT JOIN: subscriptions may
+-- reference feeds the catalog hasn't ingested; they surface with empty titles.
+SELECT up.podcast_uuid, COALESCE(p.title, '') AS title, COALESCE(p.author, '') AS author
+FROM user_podcasts up
+LEFT JOIN podcasts p ON p.uuid = up.podcast_uuid
+WHERE up.user_id = $1 AND up.subscribed AND NOT up.is_deleted
+ORDER BY COALESCE(p.title, '') ASC
+LIMIT $2;
+
+-- name: GetPublicTopPodcasts :many
+-- Top-podcasts section: ranked by summed playback position across episodes —
+-- the best per-podcast listening signal the sync data carries.
+SELECT ue.podcast_uuid, COALESCE(p.title, '') AS title, COALESCE(p.author, '') AS author,
+       SUM(ue.played_up_to)::bigint AS played_seconds
+FROM user_episodes ue
+LEFT JOIN podcasts p ON p.uuid = ue.podcast_uuid
+WHERE ue.user_id = $1
+GROUP BY ue.podcast_uuid, p.title, p.author
+HAVING SUM(ue.played_up_to) > 0
+ORDER BY played_seconds DESC
+LIMIT $2;
+
+-- name: GetPublicRecentlyPlayed :many
+-- Recently-played section, straight from listening history (title is already
+-- denormalized on the history row). modified_at is interaction millis.
+SELECT episode_uuid, podcast_uuid, title, modified_at
+FROM history
+WHERE user_id = $1
+ORDER BY modified_at DESC
+LIMIT $2;
+
+-- ============================================================================
+-- Written reviews + episode reactions (Slice 3)
+-- ============================================================================
+
+-- name: UpsertPodcastReview :one
+INSERT INTO podcast_reviews (user_id, podcast_uuid, text)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, podcast_uuid) DO UPDATE SET
+    text = EXCLUDED.text,
+    updated_at = now()
+RETURNING *;
+
+-- name: DeletePodcastReview :execrows
+DELETE FROM podcast_reviews WHERE user_id = $1 AND podcast_uuid = $2;
+
+-- name: DeleteReviewsForUser :exec
+-- GDPR erase: attributed review text dies with the social profile.
+DELETE FROM podcast_reviews WHERE user_id = $1;
+
+-- name: GetPodcastReviews :many
+-- Public review list, newest first. Joins the author's profile (text reviews
+-- require a joined account, so the join always matches live authors) and the
+-- author's star rating when they have one.
+SELECT r.user_id, r.podcast_uuid, r.text, r.created_at, r.updated_at,
+       u.uuid AS author_uuid,
+       sp.handle, sp.display_name,
+       COALESCE(pr.rating, 0)::smallint AS rating
+FROM podcast_reviews r
+JOIN users u ON u.id = r.user_id
+JOIN social_profiles sp ON sp.user_id = r.user_id
+LEFT JOIN podcast_ratings pr ON pr.user_id = r.user_id AND pr.podcast_uuid = r.podcast_uuid
+WHERE r.podcast_uuid = $1
+ORDER BY r.created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountPodcastReviews :one
+SELECT count(*) FROM podcast_reviews WHERE podcast_uuid = $1;
+
+-- name: GetOwnPodcastReview :one
+SELECT r.user_id, r.podcast_uuid, r.text, r.created_at, r.updated_at,
+       u.uuid AS author_uuid,
+       sp.handle, sp.display_name,
+       COALESCE(pr.rating, 0)::smallint AS rating
+FROM podcast_reviews r
+JOIN users u ON u.id = r.user_id
+JOIN social_profiles sp ON sp.user_id = r.user_id
+LEFT JOIN podcast_ratings pr ON pr.user_id = r.user_id AND pr.podcast_uuid = r.podcast_uuid
+WHERE r.user_id = $1 AND r.podcast_uuid = $2;
+
+-- name: CountPlayedEpisodesOfPodcast :one
+-- Server-side listen-gate parity: episodes of this podcast the user has played
+-- at least half of, mirroring the client's played-episode heuristic. Duration
+-- is the client-synced per-episode value on user_episodes itself.
+SELECT count(*) FROM user_episodes ue
+WHERE ue.user_id = $1 AND ue.podcast_uuid = $2
+  AND ue.duration > 0 AND ue.played_up_to > (ue.duration / 2);
+
+-- name: UpsertEpisodeReaction :exec
+INSERT INTO episode_reactions (user_id, episode_uuid, kind)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, episode_uuid) DO UPDATE SET
+    kind = EXCLUDED.kind,
+    created_at = now();
+
+-- name: DeleteEpisodeReaction :execrows
+DELETE FROM episode_reactions WHERE user_id = $1 AND episode_uuid = $2;
+
+-- name: GetEpisodeReactionCounts :many
+SELECT kind, count(*)::bigint AS count
+FROM episode_reactions
+WHERE episode_uuid = $1
+GROUP BY kind
+ORDER BY kind;
+
+-- name: GetOwnEpisodeReaction :one
+SELECT kind FROM episode_reactions WHERE user_id = $1 AND episode_uuid = $2;

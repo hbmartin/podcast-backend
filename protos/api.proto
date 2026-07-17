@@ -949,6 +949,51 @@ message SupportFeedbackRequest {
   string app_version = 9;
 }
 
+// ---- Fork-owned transcript contribution messages (docs/TranscriptContributions.md §3).
+// These are NEW top-level messages, not extensions of shared upstream messages,
+// so field numbering starts at 1 (the >= 1001 rule applies only to fields added
+// inside shared messages).
+
+// Body of POST transcripts/contribute. The request body is this message
+// serialized and gzip-encoded (Content-Encoding: gzip); App Attest assertion
+// headers sign the gzipped body bytes.
+message TranscriptContributionRequest {
+  // Catalog UUIDs or deterministic local-feed identities — indistinguishable by design.
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  // Gzipped VTT bytes, speaker labels included, exactly the on-device artifact.
+  bytes vtt = 3;
+  // Gzipped fingerprint-compact-v2 JSON of the contributor's audio stitch.
+  bytes fingerprint = 4;
+  // "whisperkit" | "applespeech" | remote provider identifier.
+  string engine = 5;
+  // The specific producer, e.g. "whisper-large-v3-turbo", "apple-speech-ios26".
+  string model_id = 6;
+  // BCP-47 as reported by the engine.
+  string language = 7;
+  bool diarized = 8;
+  // Build marketing version.
+  string app_version = 9;
+  // Sanity anchor for server-side validation (cue span ≈ duration, reject > ±20%).
+  double episode_duration_seconds = 10;
+  // Contribution creation time (no listening timestamps).
+  google.protobuf.Timestamp created_at = 11;
+}
+
+// Body of POST transcripts/sighting. Same encoding rules as
+// TranscriptContributionRequest. The server fetches the transcript content
+// itself; the client never uploads publisher transcript bytes.
+message TranscriptSightingRequest {
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  // Token-free publisher URL (enforced client-side, re-validated server-side).
+  string transcript_url = 3;
+  // Mime type of the sighted transcript.
+  string format = 4;
+  // Optional BCP-47 tag; empty when the feed didn't declare one.
+  string language = 5;
+}
+
 message PodcastRating {
   string podcast_uuid = 1;
   // field 2 intentionally unused, matching the client's generated code
@@ -1045,53 +1090,6 @@ message WebFeedCreateResponse {
 // Shapes mirror the iOS types they transport (EpisodeTranscriptionRecord,
 // TranscriptCue/TranscriptSearchSegment, GeneratedChapter).
 // ============================================================================
-
-// ---- Fork-owned transcript contribution messages (docs/TranscriptContributions.md §3).
-// These are NEW top-level messages, not extensions of shared upstream messages,
-// so field numbering starts at 1 (the >= 1001 rule applies only to fields added
-// inside shared messages). Copied verbatim from the iOS client's api.proto —
-// the ACTIVE crowdsourced-transcript endpoints the client posts to today
-// (POST transcripts/contribute, POST transcripts/sighting).
-
-// Body of POST transcripts/contribute. The request body is this message
-// serialized and gzip-encoded (Content-Encoding: gzip); App Attest assertion
-// headers sign the gzipped body bytes.
-message TranscriptContributionRequest {
-  // Catalog UUIDs or deterministic local-feed identities — indistinguishable by design.
-  string episode_uuid = 1;
-  string podcast_uuid = 2;
-  // Gzipped VTT bytes, speaker labels included, exactly the on-device artifact.
-  bytes vtt = 3;
-  // Gzipped fingerprint-compact-v2 JSON of the contributor's audio stitch.
-  bytes fingerprint = 4;
-  // "whisperkit" | "applespeech" | remote provider identifier.
-  string engine = 5;
-  // The specific producer, e.g. "whisper-large-v3-turbo", "apple-speech-ios26".
-  string model_id = 6;
-  // BCP-47 as reported by the engine.
-  string language = 7;
-  bool diarized = 8;
-  // Build marketing version.
-  string app_version = 9;
-  // Sanity anchor for server-side validation (cue span ≈ duration, reject > ±20%).
-  double episode_duration_seconds = 10;
-  // Contribution creation time (no listening timestamps).
-  google.protobuf.Timestamp created_at = 11;
-}
-
-// Body of POST transcripts/sighting. Same encoding rules as
-// TranscriptContributionRequest. The server fetches the transcript content
-// itself; the client never uploads publisher transcript bytes.
-message TranscriptSightingRequest {
-  string episode_uuid = 1;
-  string podcast_uuid = 2;
-  // Token-free publisher URL (enforced client-side, re-validated server-side).
-  string transcript_url = 3;
-  // Mime type of the sighted transcript.
-  string format = 4;
-  // Optional BCP-47 tag; empty when the feed didn't declare one.
-  string language = 5;
-}
 
 // Publisher-provided transcript metadata ({url, type, language} — served via
 // the show-notes JSON endpoint today).
@@ -1746,5 +1744,267 @@ message YearHistoryRequest {
 }
 
 message YearHistoryResponse {
+}
+
+// ============================================================================
+// Fork-owned social identity + moderation messages (docs/Social.md,
+// docs/SocialModeration.md; ADR-0005/0006/0007). NEW top-level messages, so
+// field numbering starts at 1 (the >= 1001 rule applies only to fields added
+// inside shared upstream messages). Schema-only for now: declared ahead of the
+// backend + client wiring, which ships dark behind FeatureFlag.socialProfiles.
+// Identity is keyed to the immutable account uuid; the handle is permanent.
+// ============================================================================
+
+// Per-field profile visibility. Stored three-tier from day one; the Phase-1 UI
+// only writes PRIVATE/PUBLIC, and FOLLOWERS_ONLY unlocks with the Phase-2 graph.
+// UNSPECIFIED (0, the proto3 default) is treated as PRIVATE by every reader.
+enum SocialVisibility {
+  SOCIAL_VISIBILITY_UNSPECIFIED = 0;
+  SOCIAL_VISIBILITY_PRIVATE = 1;
+  SOCIAL_VISIBILITY_PUBLIC = 2;
+  SOCIAL_VISIBILITY_FOLLOWERS_ONLY = 3;
+}
+
+// Result of a handle availability check / claim attempt. TOMBSTONED and RESERVED
+// are permanently unavailable (deleted accounts and the reserved-word blocklist).
+enum HandleStatus {
+  HANDLE_STATUS_UNSPECIFIED = 0;
+  HANDLE_STATUS_AVAILABLE = 1;
+  HANDLE_STATUS_TAKEN = 2;
+  HANDLE_STATUS_RESERVED = 3;
+  HANDLE_STATUS_TOMBSTONED = 4;
+  HANDLE_STATUS_INVALID = 5;
+}
+
+// Why a user or content item is being reported into the triage queue.
+enum ReportReason {
+  REPORT_REASON_UNSPECIFIED = 0;
+  REPORT_REASON_SPAM = 1;
+  REPORT_REASON_HARASSMENT = 2;
+  REPORT_REASON_HATE = 3;
+  REPORT_REASON_SEXUAL = 4;
+  REPORT_REASON_IMPERSONATION = 5;
+  REPORT_REASON_OTHER = 6;
+}
+
+// Result of the mandatory CSAM/nudity scan on an uploaded avatar. This is the
+// response only — the upload request body is raw image bytes (octet-stream),
+// not a protobuf message.
+enum AvatarUploadStatus {
+  AVATAR_UPLOAD_STATUS_UNSPECIFIED = 0;
+  AVATAR_UPLOAD_STATUS_ACCEPTED = 1;
+  AVATAR_UPLOAD_STATUS_REJECTED_SCAN = 2;
+  AVATAR_UPLOAD_STATUS_REJECTED_FORMAT = 3;
+}
+
+// The full social profile of the calling account: every field plus every
+// visibility tier. Keyed to the immutable account uuid; the handle is permanent
+// (immutable in the user UI). display_name has no tier — it is always public
+// once joined, as the addressable identity.
+message SocialProfile {
+  string user_id = 1;                 // immutable account uuid (ServerSettings.userId)
+  string handle = 2;                  // immutable, lowercase [a-z0-9_], 3-30
+  string display_name = 3;            // always public once joined
+  string bio = 4;
+  string avatar_url = 5;              // CDN URL of the scanned avatar; empty if none
+  google.protobuf.Timestamp created_at = 6;
+  int32 terms_version = 7;            // public-identity terms accepted at join
+  SocialVisibility avatar_visibility = 8;
+  SocialVisibility bio_visibility = 9;
+  SocialVisibility followed_shows_visibility = 10;
+  SocialVisibility top_podcasts_visibility = 11;
+  SocialVisibility stats_visibility = 12;
+  SocialVisibility history_visibility = 13;
+  SocialVisibility presence_visibility = 14;
+}
+
+// POST social/handle/availability — the rate-limited typeahead availability check.
+message HandleAvailabilityRequest {
+  string handle = 1;
+}
+message HandleAvailabilityResponse {
+  HandleStatus status = 1;
+  string normalized_handle = 2;       // server-normalized form the client should display
+}
+
+// POST social/join — claims the handle and creates the profile. Every visibility
+// field defaults PRIVATE server-side; display_name is the only public field.
+message JoinRequest {
+  string handle = 1;
+  int32 accepted_terms_version = 2;
+  string display_name = 3;            // candidate, seeded from the device-local Share Profile
+}
+message JoinResponse {
+  SocialProfile profile = 1;
+}
+
+// POST social/profile/get (empty request) and social/profile/update. The handle
+// is never accepted on update (immutable); display_name/bio re-run the text
+// pre-filter server-side.
+message ProfileGetRequest {}
+message ProfileUpdateRequest {
+  string display_name = 1;
+  string bio = 2;
+  SocialVisibility avatar_visibility = 3;
+  SocialVisibility bio_visibility = 4;
+  SocialVisibility followed_shows_visibility = 5;
+  SocialVisibility top_podcasts_visibility = 6;
+  SocialVisibility stats_visibility = 7;
+  SocialVisibility history_visibility = 8;
+  SocialVisibility presence_visibility = 9;
+}
+message ProfileResponse {
+  SocialProfile profile = 1;
+}
+
+// GET social/u/{handle} — optionally authenticated. The server applies per-field
+// visibility AND the viewer's block relationship (a blocked viewer reads as
+// not-found); only fields the viewer may see are populated. Powers pca.st/u/<handle>.
+message PublicProfileRequest {
+  string handle = 1;
+}
+message PublicProfileResponse {
+  string user_id = 1;
+  string handle = 2;
+  string display_name = 3;
+  string bio = 4;                     // empty if bio_visibility hides it from this viewer
+  string avatar_url = 5;              // empty if avatar_visibility hides it
+  google.protobuf.Timestamp created_at = 6;
+  bool has_stats = 7;                 // section presence implies the viewer may see it
+  // Visibility-gated sections: populated only when the matching field is
+  // visible to this viewer (or the viewer is the owner). Server-capped sizes.
+  // The heatmap grid is deliberately absent: no per-day series exists
+  // server-side; it renders from local data on the owner's own profile only.
+  repeated SocialProfilePodcast followed_shows = 8;
+  repeated SocialProfilePodcast top_podcasts = 9;
+  SocialProfileStats stats = 10;      // set only when has_stats
+  repeated SocialProfileEpisode recently_played = 11;
+}
+
+// A podcast entry in a public-profile section (followed shows / top podcasts).
+message SocialProfilePodcast {
+  string uuid = 1;
+  string title = 2;                   // catalog-resolved; may be empty if uncataloged
+  string author = 3;
+  int64 played_seconds = 4;           // top-podcasts ranking signal; 0 elsewhere
+}
+
+// A recently-played entry in a public-profile section (from listening history).
+message SocialProfileEpisode {
+  string uuid = 1;
+  string podcast_uuid = 2;
+  string title = 3;
+  google.protobuf.Timestamp played_at = 4;
+}
+
+// Aggregate listening totals for a public profile. Totals only — the per-day
+// heatmap series never leaves the device.
+message SocialProfileStats {
+  int64 time_listened_seconds = 1;
+  google.protobuf.Timestamp listening_since = 2;
+}
+
+// POST social/avatar response (request body is raw image bytes; see enum above).
+message AvatarUploadResponse {
+  AvatarUploadStatus status = 1;
+  string avatar_url = 2;              // populated only on ACCEPTED
+}
+
+// Moderation + safety. block = mutual invisibility; mute = one-way hide;
+// report = a flag into the triage queue. target_user_id is the immutable uuid.
+message BlockRequest {
+  string target_user_id = 1;
+}
+message MuteRequest {
+  string target_user_id = 1;
+}
+message ReportRequest {
+  string target_user_id = 1;
+  ReportReason reason = 2;
+  string context = 3;                 // pointer/description of the offending content
+  // Content-level reports (additive): what kind of content is being reported
+  // ("user" when empty, "review", ...) and its reference (e.g. the podcast
+  // uuid of the author's review). The moderation queue records both.
+  string target_type = 4;
+  string content_ref = 5;
+}
+
+// POST social/erase — GDPR erasure: clears PII, tombstones the handle.
+message EraseRequest {}
+
+// Simple ack shared by block/unblock/mute/unmute/report/erase.
+message SocialAck {
+  bool success = 1;
+}
+
+// ---- Written reviews + episode reactions (Slice 3; iOS docs/Social.md).
+// A Review = the existing anonymous star rating plus optional PUBLIC text;
+// the text half requires a joined account and is attributed. Reactions are
+// account-recorded but displayed as aggregate counts only.
+
+// POST social/review/submit — upserts the caller's attributed review text for
+// a podcast (stars ride the existing user/podcast_rating endpoints).
+message PodcastReviewSubmitRequest {
+  string podcast_uuid = 1;
+  string text = 2;
+}
+
+message PodcastReview {
+  string user_id = 1;                 // author's account uuid
+  string handle = 2;
+  string display_name = 3;
+  uint32 rating = 4;                  // the author's star rating (0 = none)
+  string text = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// POST podcast/reviews — public, paginated, newest first. your_review is set
+// only for authenticated callers who have one.
+message PodcastReviewsRequest {
+  string podcast_uuid = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+message PodcastReviewsResponse {
+  repeated PodcastReview reviews = 1;
+  int64 total = 2;
+  PodcastReview your_review = 3;
+}
+
+// POST social/review/delete — removes the caller's review text for a podcast.
+message PodcastReviewDeleteRequest {
+  string podcast_uuid = 1;
+}
+
+// The fixed reaction set (❤️ 😂 🤯 👏 🔥).
+enum ReactionKind {
+  REACTION_KIND_UNSPECIFIED = 0;      // in set requests: clear my reaction
+  REACTION_KIND_HEART = 1;
+  REACTION_KIND_LAUGH = 2;
+  REACTION_KIND_MIND_BLOWN = 3;
+  REACTION_KIND_CLAP = 4;
+  REACTION_KIND_FIRE = 5;
+}
+
+// POST social/reaction/set — upserts (or clears, when UNSPECIFIED) the
+// caller's single reaction on an episode.
+message EpisodeReactionSetRequest {
+  string episode_uuid = 1;
+  ReactionKind kind = 2;
+}
+
+// POST episode/reactions — aggregate counts; your_reaction set only for
+// authenticated callers.
+message EpisodeReactionsRequest {
+  string episode_uuid = 1;
+}
+message ReactionCount {
+  ReactionKind kind = 1;
+  int64 count = 2;
+}
+message EpisodeReactionsResponse {
+  repeated ReactionCount counts = 1;
+  ReactionKind your_reaction = 2;
 }
 

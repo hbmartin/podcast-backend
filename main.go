@@ -215,6 +215,31 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	// cache host role: aggregate rating (public JSON)
 	router.Handle("GET /podcast/rating/{uuid}", publicChain(controllers.GetPodcastRatingPublic))
 
+	// api host role: social identity + moderation (protobuf; docs/Social.md).
+	// Availability is the rate-limited typeahead; the public profile read is
+	// optionally authenticated so the viewer's block relationship applies.
+	router.Handle("POST /social/handle/availability", limitedChain(controllers.PostSocialHandleAvailability))
+	router.Handle("POST /social/join", authChain(controllers.PostSocialJoin))
+	router.Handle("POST /social/profile/get", authChain(controllers.PostSocialProfileGet))
+	router.Handle("POST /social/profile/update", authChain(controllers.PostSocialProfileUpdate))
+	router.Handle("POST /social/profile/public", optionalAuthChain(controllers.PostSocialProfilePublic))
+	router.Handle("POST /social/block", authChain(controllers.PostSocialBlock))
+	router.Handle("POST /social/unblock", authChain(controllers.PostSocialUnblock))
+	router.Handle("POST /social/mute", authChain(controllers.PostSocialMute))
+	router.Handle("POST /social/unmute", authChain(controllers.PostSocialUnmute))
+	router.Handle("POST /social/report", authChain(controllers.PostSocialReport))
+	router.Handle("POST /social/erase", authChain(controllers.PostSocialErase))
+	// The web Profile Link page (ADR-0008 in the iOS repo): anonymous HTML view
+	// of the same visibility-filtered public read.
+	router.Handle("GET /u/{handle}", publicChain(controllers.GetPublicProfilePage))
+
+	// api host role: written reviews + episode reactions (protobuf; Slice 3).
+	router.Handle("POST /social/review/submit", authChain(controllers.PostReviewSubmit))
+	router.Handle("POST /social/review/delete", authChain(controllers.PostReviewDelete))
+	router.Handle("POST /podcast/reviews", optionalAuthChain(controllers.PostPodcastReviews))
+	router.Handle("POST /social/reaction/set", authChain(controllers.PostReactionSet))
+	router.Handle("POST /episode/reactions", optionalAuthChain(controllers.PostEpisodeReactions))
+
 	// static host role: discover layout + catalog-backed sources (JSON)
 	router.Handle("GET /discover/ios/content_v2.json", publicChain(controllers.GetDiscoverContent))
 	router.Handle("GET /discover/ios/content_v3.json", publicChain(controllers.GetDiscoverContent))

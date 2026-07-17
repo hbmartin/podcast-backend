@@ -77,6 +77,13 @@ type Episode struct {
 	ChaptersUrl  string
 }
 
+type EpisodeReaction struct {
+	UserID      int64
+	EpisodeUuid string
+	Kind        int16
+	CreatedAt   time.Time
+}
+
 type Feedback struct {
 	ID                int64
 	UserID            *int64
@@ -110,6 +117,19 @@ type History struct {
 	Url         string
 	Published   *time.Time
 	ModifiedAt  int64
+}
+
+type ModerationReport struct {
+	ID             int64
+	TargetUserID   int64
+	ReporterUserID *int64
+	Source         string
+	Reason         int16
+	Context        string
+	State          string
+	CreatedAt      time.Time
+	TargetType     string
+	ContentRef     string
 }
 
 type Playlist struct {
@@ -181,6 +201,14 @@ type PodcastRating struct {
 	ModifiedAt  time.Time
 }
 
+type PodcastReview struct {
+	UserID      int64
+	PodcastUuid string
+	Text        string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type RefreshToken struct {
 	ID        int64
 	UserID    int64
@@ -197,6 +225,38 @@ type SharedList struct {
 	Title        string
 	Description  string
 	PodcastUuids []string
+	CreatedAt    time.Time
+}
+
+type SocialHandle struct {
+	Handle     string
+	UserID     *int64
+	Status     int16
+	ClaimedAt  time.Time
+	ReleasedAt *time.Time
+}
+
+type SocialProfile struct {
+	UserID                  int64
+	Handle                  string
+	DisplayName             string
+	Bio                     string
+	TermsVersion            int32
+	AvatarVisibility        int16
+	BioVisibility           int16
+	FollowedShowsVisibility int16
+	TopPodcastsVisibility   int16
+	StatsVisibility         int16
+	HistoryVisibility       int16
+	PresenceVisibility      int16
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
+type SocialRelationship struct {
+	UserID       int64
+	TargetUserID int64
+	Kind         int16
 	CreatedAt    time.Time
 }
 
