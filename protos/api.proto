@@ -2138,6 +2138,7 @@ enum FeedItemKind {
   FEED_ITEM_KIND_FINISHED_EPISODE = 4;
   FEED_ITEM_KIND_REVIEWED = 5;
   FEED_ITEM_KIND_REACTED = 6;
+  FEED_ITEM_KIND_COMMENTED = 7;
 }
 message FeedItem {
   FeedItemKind kind = 1;
@@ -2150,9 +2151,76 @@ message FeedItem {
   string episode_title = 8;
   string target_handle = 9;           // FOLLOWED_PERSON
   ReactionKind reaction_kind = 10;    // REACTED
-  string review_excerpt = 11;         // REVIEWED (capped)
+  string review_excerpt = 11;         // REVIEWED / COMMENTED excerpt (capped)
   google.protobuf.Timestamp event_at = 12;
 }
 message FeedResponse {
   repeated FeedItem items = 1;
+}
+
+// ---- Slice 6: episode comment tree (docs/Social.md, ADR-0010) ----
+
+message CommentSubmitRequest {
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  string text = 3;
+  int64 parent_id = 4;                 // 0 = top-level
+  optional int32 timestamp_seconds = 5; // top-level only; a set value renders as a Moment
+  string episode_title = 6;            // denormalized at submit (uncataloged feeds)
+  string podcast_title = 7;
+}
+
+message SocialComment {
+  int64 id = 1;
+  int64 parent_id = 2;                 // 0 = top-level
+  string user_id = 3;                  // empty when removed (tombstone)
+  string handle = 4;
+  string display_name = 5;
+  string text = 6;                     // empty when removed
+  optional int32 timestamp_seconds = 7;
+  google.protobuf.Timestamp created_at = 8;
+  bool edited = 9;
+  bool removed = 10;                   // tombstone placeholder
+  int32 reply_count = 11;              // direct children
+  string episode_uuid = 12;            // set on inbox-reply rows
+  string podcast_uuid = 13;
+  string episode_title = 14;
+  string podcast_title = 15;
+}
+
+message CommentEditRequest {
+  int64 id = 1;
+  string text = 2;
+}
+
+message CommentDeleteRequest {
+  int64 id = 1;
+}
+
+message EpisodeCommentsRequest {
+  string episode_uuid = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message CommentRepliesRequest {
+  int64 parent_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message CommentsResponse {
+  repeated SocialComment comments = 1;
+  int32 total = 2;
+}
+
+message InboxRepliesRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message InboxRepliesResponse {
+  repeated SocialComment replies = 1;
+  int32 total = 2;
+  int32 unread = 3;                    // newer than the caller's seen-watermark
 }

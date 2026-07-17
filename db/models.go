@@ -77,6 +77,22 @@ type Episode struct {
 	ChaptersUrl  string
 }
 
+type EpisodeComment struct {
+	ID               int64
+	EpisodeUuid      string
+	PodcastUuid      string
+	EpisodeTitle     string
+	PodcastTitle     string
+	UserID           *int64
+	ParentID         *int64
+	RootID           *int64
+	Text             string
+	TimestampSeconds *int32
+	CreatedAt        time.Time
+	EditedAt         *time.Time
+	RemovedAt        *time.Time
+}
+
 type EpisodeReaction struct {
 	UserID      int64
 	EpisodeUuid string
@@ -274,6 +290,7 @@ type SocialProfile struct {
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	RequireFollowApproval   bool
+	RepliesSeenAt           time.Time
 }
 
 type SocialRelationship struct {

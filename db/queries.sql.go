@@ -92,6 +92,29 @@ func (q *Queries) ConsumeChallenge(ctx context.Context, challenge []byte) ([]byt
 	return challenge_2, err
 }
 
+const countCommentReplies = `-- name: CountCommentReplies :one
+SELECT count(*) FROM episode_comments WHERE parent_id = $1
+`
+
+func (q *Queries) CountCommentReplies(ctx context.Context, parentID *int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countCommentReplies, parentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countEpisodeComments = `-- name: CountEpisodeComments :one
+SELECT count(*) FROM episode_comments
+WHERE episode_uuid = $1 AND parent_id IS NULL
+`
+
+func (q *Queries) CountEpisodeComments(ctx context.Context, episodeUuid string) (int64, error) {
+	row := q.db.QueryRow(ctx, countEpisodeComments, episodeUuid)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countFollowers = `-- name: CountFollowers :one
 SELECT count(*) FROM social_follows WHERE followee_user_id = $1 AND status = 1
 `
@@ -122,6 +145,20 @@ WHERE si.recipient_user_id = $1
 
 func (q *Queries) CountInboxItems(ctx context.Context, recipientUserID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countInboxItems, recipientUserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countInboxReplies = `-- name: CountInboxReplies :one
+SELECT count(*)
+FROM episode_comments c
+JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
+WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
+`
+
+func (q *Queries) CountInboxReplies(ctx context.Context, userID *int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countInboxReplies, userID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -203,6 +240,22 @@ WHERE si.recipient_user_id = $1 AND si.read_at IS NULL
 
 func (q *Queries) CountUnreadInboxItems(ctx context.Context, recipientUserID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countUnreadInboxItems, recipientUserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countUnreadInboxReplies = `-- name: CountUnreadInboxReplies :one
+SELECT count(*)
+FROM episode_comments c
+JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
+JOIN social_profiles caller ON caller.user_id = $1
+WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
+  AND c.created_at > caller.replies_seen_at
+`
+
+func (q *Queries) CountUnreadInboxReplies(ctx context.Context, userID *int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countUnreadInboxReplies, userID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -324,7 +377,7 @@ func (q *Queries) CreateSharedList(ctx context.Context, arg CreateSharedListPara
 const createSocialProfile = `-- name: CreateSocialProfile :one
 INSERT INTO social_profiles (user_id, handle, display_name, terms_version)
 VALUES ($1, $2, $3, $4)
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at
 `
 
 type CreateSocialProfileParams struct {
@@ -359,6 +412,7 @@ func (q *Queries) CreateSocialProfile(ctx context.Context, arg CreateSocialProfi
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RequireFollowApproval,
+		&i.RepliesSeenAt,
 	)
 	return i, err
 }
@@ -619,6 +673,26 @@ func (q *Queries) DistinctCategories(ctx context.Context) ([]DistinctCategoriesR
 	return items, nil
 }
 
+const editComment = `-- name: EditComment :execrows
+UPDATE episode_comments
+SET text = $3, edited_at = now()
+WHERE id = $1 AND user_id = $2 AND removed_at IS NULL
+`
+
+type EditCommentParams struct {
+	ID     int64
+	UserID *int64
+	Text   string
+}
+
+func (q *Queries) EditComment(ctx context.Context, arg EditCommentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, editComment, arg.ID, arg.UserID, arg.Text)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getAttestKey = `-- name: GetAttestKey :one
 SELECT key_id, public_key, counter, receipt, environment, status, created_at, last_used_at FROM attest_keys WHERE key_id = $1
 `
@@ -789,6 +863,122 @@ func (q *Queries) GetBookmarksModifiedSince(ctx context.Context, arg GetBookmark
 	return items, nil
 }
 
+const getCommentByID = `-- name: GetCommentByID :one
+SELECT c.id, c.episode_uuid, c.podcast_uuid, c.episode_title, c.podcast_title,
+       c.user_id, c.parent_id, c.root_id, c.text, c.timestamp_seconds,
+       c.created_at, c.edited_at, c.removed_at,
+       EXISTS (SELECT 1 FROM episode_comments r WHERE r.parent_id = c.id) AS has_replies
+FROM episode_comments c
+WHERE c.id = $1
+`
+
+type GetCommentByIDRow struct {
+	ID               int64
+	EpisodeUuid      string
+	PodcastUuid      string
+	EpisodeTitle     string
+	PodcastTitle     string
+	UserID           *int64
+	ParentID         *int64
+	RootID           *int64
+	Text             string
+	TimestampSeconds *int32
+	CreatedAt        time.Time
+	EditedAt         *time.Time
+	RemovedAt        *time.Time
+	HasReplies       bool
+}
+
+func (q *Queries) GetCommentByID(ctx context.Context, id int64) (GetCommentByIDRow, error) {
+	row := q.db.QueryRow(ctx, getCommentByID, id)
+	var i GetCommentByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.EpisodeUuid,
+		&i.PodcastUuid,
+		&i.EpisodeTitle,
+		&i.PodcastTitle,
+		&i.UserID,
+		&i.ParentID,
+		&i.RootID,
+		&i.Text,
+		&i.TimestampSeconds,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.RemovedAt,
+		&i.HasReplies,
+	)
+	return i, err
+}
+
+const getCommentReplies = `-- name: GetCommentReplies :many
+SELECT c.id, c.parent_id, c.user_id, c.text, c.timestamp_seconds, c.created_at,
+       c.edited_at, c.removed_at,
+       u.uuid AS author_uuid, COALESCE(sp.handle, '')::text AS handle,
+       COALESCE(sp.display_name, '')::text AS display_name,
+       (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
+FROM episode_comments c
+LEFT JOIN users u ON u.id = c.user_id
+LEFT JOIN social_profiles sp ON sp.user_id = c.user_id
+WHERE c.parent_id = $1
+ORDER BY c.created_at ASC
+LIMIT $2 OFFSET $3
+`
+
+type GetCommentRepliesParams struct {
+	ParentID *int64
+	Limit    int32
+	Offset   int32
+}
+
+type GetCommentRepliesRow struct {
+	ID               int64
+	ParentID         *int64
+	UserID           *int64
+	Text             string
+	TimestampSeconds *int32
+	CreatedAt        time.Time
+	EditedAt         *time.Time
+	RemovedAt        *time.Time
+	AuthorUuid       *string
+	Handle           string
+	DisplayName      string
+	ReplyCount       int32
+}
+
+func (q *Queries) GetCommentReplies(ctx context.Context, arg GetCommentRepliesParams) ([]GetCommentRepliesRow, error) {
+	rows, err := q.db.Query(ctx, getCommentReplies, arg.ParentID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetCommentRepliesRow
+	for rows.Next() {
+		var i GetCommentRepliesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ParentID,
+			&i.UserID,
+			&i.Text,
+			&i.TimestampSeconds,
+			&i.CreatedAt,
+			&i.EditedAt,
+			&i.RemovedAt,
+			&i.AuthorUuid,
+			&i.Handle,
+			&i.DisplayName,
+			&i.ReplyCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDevice = `-- name: GetDevice :one
 SELECT user_id, device_id, device_type, times_started_at, time_silence_removal, time_variable_speed, time_intro_skipping, time_skipping, time_listened, updated_at, created_at, push_token, push_on FROM devices WHERE user_id = $1 AND device_id = $2
 `
@@ -903,6 +1093,96 @@ func (q *Queries) GetEpisodeByUUID(ctx context.Context, uuid string) (Episode, e
 		&i.Transcripts,
 		&i.ChaptersUrl,
 	)
+	return i, err
+}
+
+const getEpisodeComments = `-- name: GetEpisodeComments :many
+SELECT c.id, c.user_id, c.text, c.timestamp_seconds, c.created_at, c.edited_at,
+       c.removed_at,
+       u.uuid AS author_uuid, COALESCE(sp.handle, '')::text AS handle,
+       COALESCE(sp.display_name, '')::text AS display_name,
+       (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
+FROM episode_comments c
+LEFT JOIN users u ON u.id = c.user_id
+LEFT JOIN social_profiles sp ON sp.user_id = c.user_id
+WHERE c.episode_uuid = $1 AND c.parent_id IS NULL
+ORDER BY c.created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type GetEpisodeCommentsParams struct {
+	EpisodeUuid string
+	Limit       int32
+	Offset      int32
+}
+
+type GetEpisodeCommentsRow struct {
+	ID               int64
+	UserID           *int64
+	Text             string
+	TimestampSeconds *int32
+	CreatedAt        time.Time
+	EditedAt         *time.Time
+	RemovedAt        *time.Time
+	AuthorUuid       *string
+	Handle           string
+	DisplayName      string
+	ReplyCount       int32
+}
+
+func (q *Queries) GetEpisodeComments(ctx context.Context, arg GetEpisodeCommentsParams) ([]GetEpisodeCommentsRow, error) {
+	rows, err := q.db.Query(ctx, getEpisodeComments, arg.EpisodeUuid, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetEpisodeCommentsRow
+	for rows.Next() {
+		var i GetEpisodeCommentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Text,
+			&i.TimestampSeconds,
+			&i.CreatedAt,
+			&i.EditedAt,
+			&i.RemovedAt,
+			&i.AuthorUuid,
+			&i.Handle,
+			&i.DisplayName,
+			&i.ReplyCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getEpisodePlaybackForGate = `-- name: GetEpisodePlaybackForGate :one
+SELECT played_up_to, duration, playing_status
+FROM user_episodes
+WHERE user_id = $1 AND episode_uuid::text = $2
+`
+
+type GetEpisodePlaybackForGateParams struct {
+	UserID      int64
+	EpisodeUuid string
+}
+
+type GetEpisodePlaybackForGateRow struct {
+	PlayedUpTo    int64
+	Duration      int64
+	PlayingStatus int32
+}
+
+func (q *Queries) GetEpisodePlaybackForGate(ctx context.Context, arg GetEpisodePlaybackForGateParams) (GetEpisodePlaybackForGateRow, error) {
+	row := q.db.QueryRow(ctx, getEpisodePlaybackForGate, arg.UserID, arg.EpisodeUuid)
+	var i GetEpisodePlaybackForGateRow
+	err := row.Scan(&i.PlayedUpTo, &i.Duration, &i.PlayingStatus)
 	return i, err
 }
 
@@ -1100,6 +1380,12 @@ FROM (
     FROM episode_reactions er
     JOIN followees f ON f.uid = er.user_id
     LEFT JOIN episodes e ON e.uuid::text = er.episode_uuid
+  UNION ALL
+    SELECT 7, ec.user_id, ec.podcast_uuid, ec.podcast_title,
+           ec.episode_uuid, ec.episode_title, '', 0, left(ec.text, 200), ec.created_at
+    FROM episode_comments ec
+    JOIN followees f ON f.uid = ec.user_id
+    WHERE ec.parent_id IS NULL AND ec.removed_at IS NULL
 ) events
 JOIN social_profiles actor ON actor.user_id = events.actor_id
 JOIN users au ON au.id = events.actor_id
@@ -1498,6 +1784,80 @@ func (q *Queries) GetInboxItems(ctx context.Context, arg GetInboxItemsParams) ([
 			&i.SenderUuid,
 			&i.SenderHandle,
 			&i.SenderDisplayName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getInboxReplies = `-- name: GetInboxReplies :many
+SELECT c.id, c.parent_id, c.user_id, c.text, c.timestamp_seconds, c.created_at,
+       c.edited_at, c.episode_uuid, c.podcast_uuid, c.episode_title, c.podcast_title,
+       u.uuid AS author_uuid, sp.handle, sp.display_name,
+       (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
+FROM episode_comments c
+JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
+JOIN users u ON u.id = c.user_id
+JOIN social_profiles sp ON sp.user_id = c.user_id
+WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
+ORDER BY c.created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type GetInboxRepliesParams struct {
+	UserID *int64
+	Limit  int32
+	Offset int32
+}
+
+type GetInboxRepliesRow struct {
+	ID               int64
+	ParentID         *int64
+	UserID           *int64
+	Text             string
+	TimestampSeconds *int32
+	CreatedAt        time.Time
+	EditedAt         *time.Time
+	EpisodeUuid      string
+	PodcastUuid      string
+	EpisodeTitle     string
+	PodcastTitle     string
+	AuthorUuid       string
+	Handle           string
+	DisplayName      string
+	ReplyCount       int32
+}
+
+func (q *Queries) GetInboxReplies(ctx context.Context, arg GetInboxRepliesParams) ([]GetInboxRepliesRow, error) {
+	rows, err := q.db.Query(ctx, getInboxReplies, arg.UserID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetInboxRepliesRow
+	for rows.Next() {
+		var i GetInboxRepliesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ParentID,
+			&i.UserID,
+			&i.Text,
+			&i.TimestampSeconds,
+			&i.CreatedAt,
+			&i.EditedAt,
+			&i.EpisodeUuid,
+			&i.PodcastUuid,
+			&i.EpisodeTitle,
+			&i.PodcastTitle,
+			&i.AuthorUuid,
+			&i.Handle,
+			&i.DisplayName,
+			&i.ReplyCount,
 		); err != nil {
 			return nil, err
 		}
@@ -2270,7 +2630,7 @@ func (q *Queries) GetSharedListByCode(ctx context.Context, code string) (SharedL
 }
 
 const getSocialProfileByHandle = `-- name: GetSocialProfileByHandle :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval FROM social_profiles WHERE handle = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at FROM social_profiles WHERE handle = $1
 `
 
 // Tombstoned/erased handles have no profile row, so this only finds live ones.
@@ -2293,12 +2653,13 @@ func (q *Queries) GetSocialProfileByHandle(ctx context.Context, handle string) (
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RequireFollowApproval,
+		&i.RepliesSeenAt,
 	)
 	return i, err
 }
 
 const getSocialProfileByUserID = `-- name: GetSocialProfileByUserID :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval FROM social_profiles WHERE user_id = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at FROM social_profiles WHERE user_id = $1
 `
 
 func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (SocialProfile, error) {
@@ -2320,6 +2681,7 @@ func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (S
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RequireFollowApproval,
+		&i.RepliesSeenAt,
 	)
 	return i, err
 }
@@ -2888,6 +3250,26 @@ func (q *Queries) GetUserStatsTotals(ctx context.Context, userID int64) (GetUser
 	return i, err
 }
 
+const hasSocialRelationship = `-- name: HasSocialRelationship :one
+SELECT EXISTS (
+    SELECT 1 FROM social_relationships
+    WHERE user_id = $1 AND target_user_id = $2 AND kind = $3
+)
+`
+
+type HasSocialRelationshipParams struct {
+	UserID       int64
+	TargetUserID int64
+	Kind         int16
+}
+
+func (q *Queries) HasSocialRelationship(ctx context.Context, arg HasSocialRelationshipParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasSocialRelationship, arg.UserID, arg.TargetUserID, arg.Kind)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const insertAttestKey = `-- name: InsertAttestKey :exec
 INSERT INTO attest_keys (key_id, public_key, counter, receipt, environment)
 VALUES ($1, $2, 0, $3, $4)
@@ -2932,6 +3314,55 @@ type InsertChallengeParams struct {
 func (q *Queries) InsertChallenge(ctx context.Context, arg InsertChallengeParams) error {
 	_, err := q.db.Exec(ctx, insertChallenge, arg.Challenge, arg.ExpiresAt)
 	return err
+}
+
+const insertComment = `-- name: InsertComment :one
+
+INSERT INTO episode_comments (
+    episode_uuid, podcast_uuid, episode_title, podcast_title,
+    user_id, parent_id, root_id, text, timestamp_seconds
+) VALUES (
+    $1, $2, $3, $4, $5,
+    $7, $8, $6, $9
+)
+RETURNING id, created_at
+`
+
+type InsertCommentParams struct {
+	EpisodeUuid      string
+	PodcastUuid      string
+	EpisodeTitle     string
+	PodcastTitle     string
+	UserID           *int64
+	Text             string
+	ParentID         *int64
+	RootID           *int64
+	TimestampSeconds *int32
+}
+
+type InsertCommentRow struct {
+	ID        int64
+	CreatedAt time.Time
+}
+
+// Slice 6 (ADR-0010): the episode comment tree. Tombstones (removed_at set)
+// stay in every list so other people's replies keep their context; their text
+// and author are already wiped.
+func (q *Queries) InsertComment(ctx context.Context, arg InsertCommentParams) (InsertCommentRow, error) {
+	row := q.db.QueryRow(ctx, insertComment,
+		arg.EpisodeUuid,
+		arg.PodcastUuid,
+		arg.EpisodeTitle,
+		arg.PodcastTitle,
+		arg.UserID,
+		arg.Text,
+		arg.ParentID,
+		arg.RootID,
+		arg.TimestampSeconds,
+	)
+	var i InsertCommentRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
 }
 
 const insertFeedback = `-- name: InsertFeedback :exec
@@ -3574,6 +4005,15 @@ func (q *Queries) SetPodcastNotifyFlags(ctx context.Context, arg SetPodcastNotif
 	return err
 }
 
+const setRepliesSeen = `-- name: SetRepliesSeen :exec
+UPDATE social_profiles SET replies_seen_at = now() WHERE user_id = $1
+`
+
+func (q *Queries) SetRepliesSeen(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, setRepliesSeen, userID)
+	return err
+}
+
 const setUserHistoryCleared = `-- name: SetUserHistoryCleared :exec
 UPDATE users SET history_cleared_at_ms = $2, history_modified = $3 WHERE id = $1
 `
@@ -3642,6 +4082,36 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const tombstoneComment = `-- name: TombstoneComment :execrows
+UPDATE episode_comments
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+WHERE id = $1 AND user_id = $2 AND removed_at IS NULL
+`
+
+type TombstoneCommentParams struct {
+	ID     int64
+	UserID *int64
+}
+
+func (q *Queries) TombstoneComment(ctx context.Context, arg TombstoneCommentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, tombstoneComment, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const tombstoneCommentsForUser = `-- name: TombstoneCommentsForUser :exec
+UPDATE episode_comments
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+WHERE user_id = $1 AND removed_at IS NULL
+`
+
+func (q *Queries) TombstoneCommentsForUser(ctx context.Context, userID *int64) error {
+	_, err := q.db.Exec(ctx, tombstoneCommentsForUser, userID)
+	return err
 }
 
 const tombstoneHandle = `-- name: TombstoneHandle :execrows
@@ -3944,7 +4414,7 @@ UPDATE social_profiles SET
     require_follow_approval = $11,
     updated_at = now()
 WHERE user_id = $1
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at
 `
 
 type UpdateSocialProfileParams struct {
@@ -3993,6 +4463,7 @@ func (q *Queries) UpdateSocialProfile(ctx context.Context, arg UpdateSocialProfi
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RequireFollowApproval,
+		&i.RepliesSeenAt,
 	)
 	return i, err
 }

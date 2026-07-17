@@ -692,6 +692,12 @@ ON CONFLICT (user_id, target_user_id, kind) DO NOTHING;
 DELETE FROM social_relationships
 WHERE user_id = $1 AND target_user_id = $2 AND kind = $3;
 
+-- name: HasSocialRelationship :one
+SELECT EXISTS (
+    SELECT 1 FROM social_relationships
+    WHERE user_id = $1 AND target_user_id = $2 AND kind = $3
+);
+
 -- name: IsBlockedEither :one
 -- Mutual invisibility: a block in either direction hides the profile
 -- (docs/SocialModeration.md).
@@ -987,9 +993,120 @@ FROM (
     FROM episode_reactions er
     JOIN followees f ON f.uid = er.user_id
     LEFT JOIN episodes e ON e.uuid::text = er.episode_uuid
+  UNION ALL
+    SELECT 7, ec.user_id, ec.podcast_uuid, ec.podcast_title,
+           ec.episode_uuid, ec.episode_title, '', 0, left(ec.text, 200), ec.created_at
+    FROM episode_comments ec
+    JOIN followees f ON f.uid = ec.user_id
+    WHERE ec.parent_id IS NULL AND ec.removed_at IS NULL
 ) events
 JOIN social_profiles actor ON actor.user_id = events.actor_id
 JOIN users au ON au.id = events.actor_id
 WHERE (sqlc.narg('before')::timestamptz IS NULL OR events.event_at < sqlc.narg('before')::timestamptz)
 ORDER BY events.event_at DESC
 LIMIT $2;
+
+-- Slice 6 (ADR-0010): the episode comment tree. Tombstones (removed_at set)
+-- stay in every list so other people's replies keep their context; their text
+-- and author are already wiped.
+
+-- name: InsertComment :one
+INSERT INTO episode_comments (
+    episode_uuid, podcast_uuid, episode_title, podcast_title,
+    user_id, parent_id, root_id, text, timestamp_seconds
+) VALUES (
+    $1, $2, $3, $4, $5,
+    sqlc.narg('parent_id'), sqlc.narg('root_id'), $6, sqlc.narg('timestamp_seconds')
+)
+RETURNING id, created_at;
+
+-- name: GetCommentByID :one
+SELECT c.id, c.episode_uuid, c.podcast_uuid, c.episode_title, c.podcast_title,
+       c.user_id, c.parent_id, c.root_id, c.text, c.timestamp_seconds,
+       c.created_at, c.edited_at, c.removed_at,
+       EXISTS (SELECT 1 FROM episode_comments r WHERE r.parent_id = c.id) AS has_replies
+FROM episode_comments c
+WHERE c.id = $1;
+
+-- name: GetEpisodeComments :many
+SELECT c.id, c.user_id, c.text, c.timestamp_seconds, c.created_at, c.edited_at,
+       c.removed_at,
+       u.uuid AS author_uuid, COALESCE(sp.handle, '')::text AS handle,
+       COALESCE(sp.display_name, '')::text AS display_name,
+       (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
+FROM episode_comments c
+LEFT JOIN users u ON u.id = c.user_id
+LEFT JOIN social_profiles sp ON sp.user_id = c.user_id
+WHERE c.episode_uuid = $1 AND c.parent_id IS NULL
+ORDER BY c.created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountEpisodeComments :one
+SELECT count(*) FROM episode_comments
+WHERE episode_uuid = $1 AND parent_id IS NULL;
+
+-- name: GetCommentReplies :many
+SELECT c.id, c.parent_id, c.user_id, c.text, c.timestamp_seconds, c.created_at,
+       c.edited_at, c.removed_at,
+       u.uuid AS author_uuid, COALESCE(sp.handle, '')::text AS handle,
+       COALESCE(sp.display_name, '')::text AS display_name,
+       (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
+FROM episode_comments c
+LEFT JOIN users u ON u.id = c.user_id
+LEFT JOIN social_profiles sp ON sp.user_id = c.user_id
+WHERE c.parent_id = $1
+ORDER BY c.created_at ASC
+LIMIT $2 OFFSET $3;
+
+-- name: CountCommentReplies :one
+SELECT count(*) FROM episode_comments WHERE parent_id = $1;
+
+-- name: EditComment :execrows
+UPDATE episode_comments
+SET text = $3, edited_at = now()
+WHERE id = $1 AND user_id = $2 AND removed_at IS NULL;
+
+-- name: TombstoneComment :execrows
+UPDATE episode_comments
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+WHERE id = $1 AND user_id = $2 AND removed_at IS NULL;
+
+-- name: TombstoneCommentsForUser :exec
+UPDATE episode_comments
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+WHERE user_id = $1 AND removed_at IS NULL;
+
+-- name: GetEpisodePlaybackForGate :one
+SELECT played_up_to, duration, playing_status
+FROM user_episodes
+WHERE user_id = $1 AND episode_uuid::text = $2;
+
+-- name: GetInboxReplies :many
+SELECT c.id, c.parent_id, c.user_id, c.text, c.timestamp_seconds, c.created_at,
+       c.edited_at, c.episode_uuid, c.podcast_uuid, c.episode_title, c.podcast_title,
+       u.uuid AS author_uuid, sp.handle, sp.display_name,
+       (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
+FROM episode_comments c
+JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
+JOIN users u ON u.id = c.user_id
+JOIN social_profiles sp ON sp.user_id = c.user_id
+WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
+ORDER BY c.created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountInboxReplies :one
+SELECT count(*)
+FROM episode_comments c
+JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
+WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1;
+
+-- name: CountUnreadInboxReplies :one
+SELECT count(*)
+FROM episode_comments c
+JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
+JOIN social_profiles caller ON caller.user_id = $1
+WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
+  AND c.created_at > caller.replies_seen_at;
+
+-- name: SetRepliesSeen :exec
+UPDATE social_profiles SET replies_seen_at = now() WHERE user_id = $1;

@@ -640,6 +640,11 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 		if err := q.DeleteFollowsForUser(r.Context(), userID); err != nil {
 			return err
 		}
+		// Comments tombstone rather than delete (ADR-0010): text and
+		// authorship wiped, tree positions kept so replies survive.
+		if err := q.TombstoneCommentsForUser(r.Context(), &userID); err != nil {
+			return err
+		}
 		return q.DeleteRelationshipsForUser(r.Context(), userID)
 	})
 }
