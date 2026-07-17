@@ -219,6 +219,20 @@ type RefreshToken struct {
 	RevokedAt *time.Time
 }
 
+type SharedItem struct {
+	ID               int64
+	SenderUserID     int64
+	RecipientUserID  int64
+	EpisodeUuid      string
+	PodcastUuid      string
+	EpisodeTitle     string
+	PodcastTitle     string
+	Note             string
+	TimestampSeconds int32
+	CreatedAt        time.Time
+	ReadAt           *time.Time
+}
+
 type SharedList struct {
 	ID           int64
 	Code         string

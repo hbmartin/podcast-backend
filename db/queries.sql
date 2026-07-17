@@ -826,3 +826,47 @@ ORDER BY kind;
 
 -- name: GetOwnEpisodeReaction :one
 SELECT kind FROM episode_reactions WHERE user_id = $1 AND episode_uuid = $2;
+
+-- ============================================================================
+-- Send-to-friend shared items (Slice 4)
+-- ============================================================================
+
+-- name: InsertSharedItem :one
+INSERT INTO shared_items (sender_user_id, recipient_user_id, episode_uuid, podcast_uuid,
+                          episode_title, podcast_title, note, timestamp_seconds)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id;
+
+-- name: GetInboxItems :many
+-- The recipient's inbox, newest first, with the sender's live attribution.
+SELECT si.id, si.episode_uuid, si.podcast_uuid, si.episode_title, si.podcast_title,
+       si.note, si.timestamp_seconds, si.created_at, (si.read_at IS NOT NULL)::boolean AS read,
+       u.uuid AS sender_uuid, sp.handle AS sender_handle, sp.display_name AS sender_display_name
+FROM shared_items si
+JOIN users u ON u.id = si.sender_user_id
+JOIN social_profiles sp ON sp.user_id = si.sender_user_id
+WHERE si.recipient_user_id = $1
+ORDER BY si.created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountInboxItems :one
+SELECT count(*) FROM shared_items si
+JOIN social_profiles sp ON sp.user_id = si.sender_user_id
+WHERE si.recipient_user_id = $1;
+
+-- name: CountUnreadInboxItems :one
+SELECT count(*) FROM shared_items si
+JOIN social_profiles sp ON sp.user_id = si.sender_user_id
+WHERE si.recipient_user_id = $1 AND si.read_at IS NULL;
+
+-- name: MarkInboxItemsRead :exec
+UPDATE shared_items SET read_at = now()
+WHERE recipient_user_id = $1 AND id = ANY($2::bigint[]) AND read_at IS NULL;
+
+-- name: DeleteInboxItem :execrows
+DELETE FROM shared_items WHERE recipient_user_id = $1 AND id = $2;
+
+-- name: DeleteSharedItemsForUser :exec
+-- GDPR erase: items the erased profile sent disappear from recipients' inboxes
+-- (attributed UGC); their received items go too.
+DELETE FROM shared_items WHERE sender_user_id = $1 OR recipient_user_id = $1;

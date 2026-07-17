@@ -595,6 +595,9 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 		if err := q.DeleteReviewsForUser(r.Context(), userID); err != nil {
 			return err
 		}
+		if err := q.DeleteSharedItemsForUser(r.Context(), userID); err != nil {
+			return err
+		}
 		return q.DeleteRelationshipsForUser(r.Context(), userID)
 	})
 }

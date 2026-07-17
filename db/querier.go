@@ -153,4 +153,12 @@ type Querier interface {
 	DeleteEpisodeReaction(ctx context.Context, arg DeleteEpisodeReactionParams) (int64, error)
 	GetEpisodeReactionCounts(ctx context.Context, episodeUuid string) ([]GetEpisodeReactionCountsRow, error)
 	GetOwnEpisodeReaction(ctx context.Context, arg GetOwnEpisodeReactionParams) (int16, error)
+
+	InsertSharedItem(ctx context.Context, arg InsertSharedItemParams) (int64, error)
+	GetInboxItems(ctx context.Context, arg GetInboxItemsParams) ([]GetInboxItemsRow, error)
+	CountInboxItems(ctx context.Context, recipientUserID int64) (int64, error)
+	CountUnreadInboxItems(ctx context.Context, recipientUserID int64) (int64, error)
+	MarkInboxItemsRead(ctx context.Context, arg MarkInboxItemsReadParams) error
+	DeleteInboxItem(ctx context.Context, arg DeleteInboxItemParams) (int64, error)
+	DeleteSharedItemsForUser(ctx context.Context, userID int64) error
 }

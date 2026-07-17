@@ -74,6 +74,19 @@ func (q *Queries) ConsumeChallenge(ctx context.Context, challenge []byte) ([]byt
 	return challenge_2, err
 }
 
+const countInboxItems = `-- name: CountInboxItems :one
+SELECT count(*) FROM shared_items si
+JOIN social_profiles sp ON sp.user_id = si.sender_user_id
+WHERE si.recipient_user_id = $1
+`
+
+func (q *Queries) CountInboxItems(ctx context.Context, recipientUserID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countInboxItems, recipientUserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countPlayedEpisodesOfPodcast = `-- name: CountPlayedEpisodesOfPodcast :one
 SELECT count(*) FROM user_episodes ue
 WHERE ue.user_id = $1 AND ue.podcast_uuid = $2
@@ -137,6 +150,19 @@ type CountRecentSightingsByAttributionParams struct {
 
 func (q *Queries) CountRecentSightingsByAttribution(ctx context.Context, arg CountRecentSightingsByAttributionParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countRecentSightingsByAttribution, arg.Attribution, arg.AttributionID, arg.ReceivedAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countUnreadInboxItems = `-- name: CountUnreadInboxItems :one
+SELECT count(*) FROM shared_items si
+JOIN social_profiles sp ON sp.user_id = si.sender_user_id
+WHERE si.recipient_user_id = $1 AND si.read_at IS NULL
+`
+
+func (q *Queries) CountUnreadInboxItems(ctx context.Context, recipientUserID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countUnreadInboxItems, recipientUserID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -398,6 +424,23 @@ func (q *Queries) DeleteHistoryItem(ctx context.Context, arg DeleteHistoryItemPa
 	return err
 }
 
+const deleteInboxItem = `-- name: DeleteInboxItem :execrows
+DELETE FROM shared_items WHERE recipient_user_id = $1 AND id = $2
+`
+
+type DeleteInboxItemParams struct {
+	RecipientUserID int64
+	ID              int64
+}
+
+func (q *Queries) DeleteInboxItem(ctx context.Context, arg DeleteInboxItemParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteInboxItem, arg.RecipientUserID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deletePodcastReview = `-- name: DeletePodcastReview :execrows
 DELETE FROM podcast_reviews WHERE user_id = $1 AND podcast_uuid = $2
 `
@@ -431,6 +474,17 @@ DELETE FROM podcast_reviews WHERE user_id = $1
 // GDPR erase: attributed review text dies with the social profile.
 func (q *Queries) DeleteReviewsForUser(ctx context.Context, userID int64) error {
 	_, err := q.db.Exec(ctx, deleteReviewsForUser, userID)
+	return err
+}
+
+const deleteSharedItemsForUser = `-- name: DeleteSharedItemsForUser :exec
+DELETE FROM shared_items WHERE sender_user_id = $1 OR recipient_user_id = $1
+`
+
+// GDPR erase: items the erased profile sent disappear from recipients' inboxes
+// (attributed UGC); their received items go too.
+func (q *Queries) DeleteSharedItemsForUser(ctx context.Context, senderUserID int64) error {
+	_, err := q.db.Exec(ctx, deleteSharedItemsForUser, senderUserID)
 	return err
 }
 
@@ -1076,6 +1130,73 @@ func (q *Queries) GetHistory(ctx context.Context, arg GetHistoryParams) ([]Histo
 			&i.Url,
 			&i.Published,
 			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getInboxItems = `-- name: GetInboxItems :many
+SELECT si.id, si.episode_uuid, si.podcast_uuid, si.episode_title, si.podcast_title,
+       si.note, si.timestamp_seconds, si.created_at, (si.read_at IS NOT NULL)::boolean AS read,
+       u.uuid AS sender_uuid, sp.handle AS sender_handle, sp.display_name AS sender_display_name
+FROM shared_items si
+JOIN users u ON u.id = si.sender_user_id
+JOIN social_profiles sp ON sp.user_id = si.sender_user_id
+WHERE si.recipient_user_id = $1
+ORDER BY si.created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type GetInboxItemsParams struct {
+	RecipientUserID int64
+	Limit           int32
+	Offset          int32
+}
+
+type GetInboxItemsRow struct {
+	ID                int64
+	EpisodeUuid       string
+	PodcastUuid       string
+	EpisodeTitle      string
+	PodcastTitle      string
+	Note              string
+	TimestampSeconds  int32
+	CreatedAt         time.Time
+	Read              bool
+	SenderUuid        string
+	SenderHandle      string
+	SenderDisplayName string
+}
+
+// The recipient's inbox, newest first, with the sender's live attribution.
+func (q *Queries) GetInboxItems(ctx context.Context, arg GetInboxItemsParams) ([]GetInboxItemsRow, error) {
+	rows, err := q.db.Query(ctx, getInboxItems, arg.RecipientUserID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetInboxItemsRow
+	for rows.Next() {
+		var i GetInboxItemsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EpisodeUuid,
+			&i.PodcastUuid,
+			&i.EpisodeTitle,
+			&i.PodcastTitle,
+			&i.Note,
+			&i.TimestampSeconds,
+			&i.CreatedAt,
+			&i.Read,
+			&i.SenderUuid,
+			&i.SenderHandle,
+			&i.SenderDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -2521,6 +2642,44 @@ func (q *Queries) InsertModerationReport(ctx context.Context, arg InsertModerati
 	return err
 }
 
+const insertSharedItem = `-- name: InsertSharedItem :one
+
+INSERT INTO shared_items (sender_user_id, recipient_user_id, episode_uuid, podcast_uuid,
+                          episode_title, podcast_title, note, timestamp_seconds)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id
+`
+
+type InsertSharedItemParams struct {
+	SenderUserID     int64
+	RecipientUserID  int64
+	EpisodeUuid      string
+	PodcastUuid      string
+	EpisodeTitle     string
+	PodcastTitle     string
+	Note             string
+	TimestampSeconds int32
+}
+
+// ============================================================================
+// Send-to-friend shared items (Slice 4)
+// ============================================================================
+func (q *Queries) InsertSharedItem(ctx context.Context, arg InsertSharedItemParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertSharedItem,
+		arg.SenderUserID,
+		arg.RecipientUserID,
+		arg.EpisodeUuid,
+		arg.PodcastUuid,
+		arg.EpisodeTitle,
+		arg.PodcastTitle,
+		arg.Note,
+		arg.TimestampSeconds,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertTranscriptContribution = `-- name: InsertTranscriptContribution :exec
 
 INSERT INTO transcript_contributions (
@@ -2654,6 +2813,21 @@ func (q *Queries) IsBlockedEither(ctx context.Context, arg IsBlockedEitherParams
 	var blocked bool
 	err := row.Scan(&blocked)
 	return blocked, err
+}
+
+const markInboxItemsRead = `-- name: MarkInboxItemsRead :exec
+UPDATE shared_items SET read_at = now()
+WHERE recipient_user_id = $1 AND id = ANY($2::bigint[]) AND read_at IS NULL
+`
+
+type MarkInboxItemsReadParams struct {
+	RecipientUserID int64
+	Column2         []int64
+}
+
+func (q *Queries) MarkInboxItemsRead(ctx context.Context, arg MarkInboxItemsReadParams) error {
+	_, err := q.db.Exec(ctx, markInboxItemsRead, arg.RecipientUserID, arg.Column2)
+	return err
 }
 
 const markSightingStatus = `-- name: MarkSightingStatus :exec

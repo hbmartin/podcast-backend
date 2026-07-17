@@ -240,6 +240,12 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /social/reaction/set", authChain(controllers.PostReactionSet))
 	router.Handle("POST /episode/reactions", optionalAuthChain(controllers.PostEpisodeReactions))
 
+	// api host role: send-to-friend + shared-item inbox (protobuf; Slice 4).
+	router.Handle("POST /social/share/send", authChain(controllers.PostShareSend))
+	router.Handle("POST /social/inbox", authChain(controllers.PostInbox))
+	router.Handle("POST /social/inbox/read", authChain(controllers.PostInboxRead))
+	router.Handle("POST /social/inbox/delete", authChain(controllers.PostInboxDelete))
+
 	// static host role: discover layout + catalog-backed sources (JSON)
 	router.Handle("GET /discover/ios/content_v2.json", publicChain(controllers.GetDiscoverContent))
 	router.Handle("GET /discover/ios/content_v3.json", publicChain(controllers.GetDiscoverContent))

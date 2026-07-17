@@ -35,6 +35,9 @@ type socialMock struct {
 	ratings      map[reviewKey]int16
 	playedCounts map[reviewKey]int64
 	reactions    map[reviewKey]int16
+
+	// Inbox state (methods in inbox_test.go).
+	inbox []*inboxItem
 }
 
 type handleRow struct {

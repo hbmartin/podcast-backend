@@ -2008,3 +2008,58 @@ message EpisodeReactionsResponse {
   ReactionKind your_reaction = 2;
 }
 
+
+// ---- Send-to-friend + shared-item inbox (Slice 4; iOS docs/Social.md).
+// The first directed social object: an episode sent person-to-person. Sender
+// AND recipient must be joined; blocked-either-way sends fail identically to a
+// nonexistent handle. Inbox v1 is read/unread + delete (react deferred until a
+// sender-visible surface exists).
+
+// POST social/share/send. Titles are denormalized at send time so inbox rows
+// render without catalog fetches (works for uncataloged feeds); the server
+// caps and filters them.
+message SharedItemSendRequest {
+  string recipient_handle = 1;
+  string episode_uuid = 2;
+  string podcast_uuid = 3;
+  string episode_title = 4;
+  string podcast_title = 5;
+  string note = 6;                    // optional; <=500 chars, text-filtered
+  int32 timestamp_seconds = 7;        // optional listen-from position (?t= model)
+}
+
+message SharedItem {
+  int64 id = 1;
+  string sender_user_id = 2;
+  string sender_handle = 3;
+  string sender_display_name = 4;
+  string episode_uuid = 5;
+  string podcast_uuid = 6;
+  string episode_title = 7;
+  string podcast_title = 8;
+  string note = 9;
+  int32 timestamp_seconds = 10;
+  google.protobuf.Timestamp created_at = 11;
+  bool read = 12;
+}
+
+// POST social/inbox — the caller's received items, newest first.
+message InboxRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+message InboxResponse {
+  repeated SharedItem items = 1;
+  int64 total = 2;
+  int64 unread = 3;
+}
+
+// POST social/inbox/read — marks the given item ids read (recipient-scoped).
+message InboxMarkReadRequest {
+  repeated int64 ids = 1;
+}
+
+// POST social/inbox/delete — removes one received item (recipient-scoped).
+message InboxDeleteRequest {
+  int64 id = 1;
+}

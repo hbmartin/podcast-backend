@@ -288,3 +288,74 @@ func playEpisodesOfPodcast(t *testing.T, token, podcastUuid string, n int) {
 		&pb.SyncUpdateRequest{DeviceUtcTimeMs: now, Records: records}, &pb.SyncUpdateResponse{})
 	require.Equal(t, http.StatusOK, status)
 }
+
+// TestSendToFriendAndInbox walks the Slice-4 surface: join both ends, send
+// with note+timestamp, inbox unread -> read -> delete, blocked send 404, and
+// sender-erase clearing the recipient's inbox.
+func TestSendToFriendAndInbox(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("send-a-%d@e2e.test", suffix))
+	tokenB, uuidB := registerUser(t, fmt.Sprintf("send-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_send_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_send_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Sender A"}, {tokenB, handleB, "Recipient B"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	send := &pb.SharedItemSendRequest{
+		RecipientHandle:  handleB,
+		EpisodeUuid:      "e2e-episode-1",
+		PodcastUuid:      "e2e-podcast-1",
+		EpisodeTitle:     "A Great Episode",
+		PodcastTitle:     "A Great Podcast",
+		Note:             "listen from here!",
+		TimestampSeconds: 870,
+	}
+	ack := &pb.SocialAck{}
+	status := postProto(t, "/social/share/send", tokenA, send, ack)
+	require.Equal(t, http.StatusOK, status)
+	assert.True(t, ack.Success)
+
+	// B's inbox: one unread item with attribution + note + timestamp.
+	inbox := &pb.InboxResponse{}
+	status = postProto(t, "/social/inbox", tokenB, &pb.InboxRequest{}, inbox)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, inbox.Items, 1)
+	assert.Equal(t, int64(1), inbox.Unread)
+	item := inbox.Items[0]
+	assert.Equal(t, handleA, item.SenderHandle)
+	assert.Equal(t, "listen from here!", item.Note)
+	assert.Equal(t, int32(870), item.TimestampSeconds)
+	assert.False(t, item.Read)
+
+	// Read, then confirm unread drops.
+	status = postProto(t, "/social/inbox/read", tokenB, &pb.InboxMarkReadRequest{Ids: []int64{item.Id}}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	inbox = &pb.InboxResponse{}
+	_ = postProto(t, "/social/inbox", tokenB, &pb.InboxRequest{}, inbox)
+	assert.Equal(t, int64(0), inbox.Unread)
+	assert.True(t, inbox.Items[0].Read)
+
+	// B blocks A: further sends fail like a missing handle.
+	status = postProto(t, "/social/block", tokenB, &pb.BlockRequest{TargetUserId: inbox.Items[0].SenderUserId}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/share/send", tokenA, send, nil)
+	assert.Equal(t, http.StatusNotFound, status)
+	status = postProto(t, "/social/unblock", tokenB, &pb.BlockRequest{TargetUserId: inbox.Items[0].SenderUserId}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	// Sender erases: the delivered item vanishes from B's inbox.
+	status = postProto(t, "/social/erase", tokenA, &pb.EraseRequest{}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	inbox = &pb.InboxResponse{}
+	status = postProto(t, "/social/inbox", tokenB, &pb.InboxRequest{}, inbox)
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, inbox.Items, "sent items die with the sender's profile")
+	_ = uuidB
+}

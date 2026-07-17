@@ -148,6 +148,10 @@ func (m *QuerierMock) DeleteReviewsForUser(ctx context.Context, userID int64) er
 	return nil
 }
 
+func (m *QuerierMock) DeleteSharedItemsForUser(ctx context.Context, userID int64) error {
+	return nil
+}
+
 var testAuthConfig = &config.AuthConfiguration{
 	JWTSecret:       "0123456789abcdef0123456789abcdef",
 	AccessTokenTTL:  time.Hour,
