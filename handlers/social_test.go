@@ -28,6 +28,13 @@ type socialMock struct {
 	profiles  map[int64]db.SocialProfile
 	rels      map[[3]int64]bool // (user, target, kind)
 	reports   []db.InsertModerationReportParams
+
+	// Reviews + reactions state (methods in reviews_test.go; lazily built by
+	// ensureReviewState). reviewKey doubles as (user, episode) for reactions.
+	reviews      map[reviewKey]db.PodcastReview
+	ratings      map[reviewKey]int16
+	playedCounts map[reviewKey]int64
+	reactions    map[reviewKey]int16
 }
 
 type handleRow struct {

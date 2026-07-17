@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 // TestSocialIdentityLoop walks the full social foundation over real HTTP/DB:
@@ -141,4 +143,148 @@ func TestSocialIdentityLoop(t *testing.T) {
 		Handle: handle, AcceptedTermsVersion: 1, DisplayName: "E2E Person B",
 	}, nil)
 	assert.Equal(t, http.StatusConflict, status)
+}
+
+// TestReviewsAndReactions walks the Slice-3 surface over real HTTP/DB:
+// join-gated attributed review text, the listen-gate, public listing with
+// your_review, reaction set/switch/clear with aggregate counts, and erase
+// deleting the attributed review.
+func TestReviewsAndReactions(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("review-a-%d@e2e.test", suffix))
+
+	podcastUUID := ingestFixturePodcast(t)
+
+	// Not joined yet: review submit is forbidden.
+	status := postProto(t, "/social/review/submit", tokenA,
+		&pb.PodcastReviewSubmitRequest{PodcastUuid: podcastUUID, Text: "not yet"}, nil)
+	assert.Equal(t, http.StatusForbidden, status)
+
+	// Join.
+	handle := fmt.Sprintf("e2e_reviewer_%d", suffix%1_000_000_000)
+	joinResp := &pb.JoinResponse{}
+	status = postProto(t, "/social/join", tokenA, &pb.JoinRequest{
+		Handle: handle, AcceptedTermsVersion: 1, DisplayName: "E2E Reviewer",
+	}, joinResp)
+	require.Equal(t, http.StatusOK, status)
+
+	// Joined but below the listen-gate: still forbidden.
+	status = postProto(t, "/social/review/submit", tokenA,
+		&pb.PodcastReviewSubmitRequest{PodcastUuid: podcastUUID, Text: "still too soon"}, nil)
+	assert.Equal(t, http.StatusForbidden, status)
+
+	// Mark two episodes as played via sync so the server-side gate opens.
+	playEpisodesOfPodcast(t, tokenA, podcastUUID, 2)
+
+	review := &pb.PodcastReview{}
+	status = postProto(t, "/social/review/submit", tokenA,
+		&pb.PodcastReviewSubmitRequest{PodcastUuid: podcastUUID, Text: "a fine podcast"}, review)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, handle, review.Handle)
+	assert.Equal(t, "a fine podcast", review.Text)
+
+	// Public listing (anonymous) shows it; authed listing carries your_review.
+	list := &pb.PodcastReviewsResponse{}
+	status = postProto(t, "/podcast/reviews", "",
+		&pb.PodcastReviewsRequest{PodcastUuid: podcastUUID}, list)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, list.Reviews, 1)
+	assert.Equal(t, handle, list.Reviews[0].Handle)
+	assert.Nil(t, list.YourReview)
+
+	list = &pb.PodcastReviewsResponse{}
+	status = postProto(t, "/podcast/reviews", tokenA,
+		&pb.PodcastReviewsRequest{PodcastUuid: podcastUUID}, list)
+	require.Equal(t, http.StatusOK, status)
+	require.NotNil(t, list.YourReview)
+
+	// Reactions: set -> counts + your_reaction, switch, clear.
+	episodeUUID := list.Reviews[0].UserId // placeholder var reuse avoided below
+	_ = episodeUUID
+	episode := firstEpisodeUUID(t, podcastUUID)
+
+	ack := &pb.SocialAck{}
+	status = postProto(t, "/social/reaction/set", tokenA,
+		&pb.EpisodeReactionSetRequest{EpisodeUuid: episode, Kind: pb.ReactionKind_REACTION_KIND_HEART}, ack)
+	require.Equal(t, http.StatusOK, status)
+	assert.True(t, ack.Success)
+
+	reactions := &pb.EpisodeReactionsResponse{}
+	status = postProto(t, "/episode/reactions", tokenA,
+		&pb.EpisodeReactionsRequest{EpisodeUuid: episode}, reactions)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, reactions.Counts, 1)
+	assert.Equal(t, pb.ReactionKind_REACTION_KIND_HEART, reactions.Counts[0].Kind)
+	assert.Equal(t, int64(1), reactions.Counts[0].Count)
+	assert.Equal(t, pb.ReactionKind_REACTION_KIND_HEART, reactions.YourReaction)
+
+	status = postProto(t, "/social/reaction/set", tokenA,
+		&pb.EpisodeReactionSetRequest{EpisodeUuid: episode, Kind: pb.ReactionKind_REACTION_KIND_UNSPECIFIED}, nil)
+	require.Equal(t, http.StatusOK, status)
+	reactions = &pb.EpisodeReactionsResponse{}
+	_ = postProto(t, "/episode/reactions", tokenA,
+		&pb.EpisodeReactionsRequest{EpisodeUuid: episode}, reactions)
+	assert.Empty(t, reactions.Counts)
+
+	// Erase: the attributed review disappears from the public list.
+	status = postProto(t, "/social/erase", tokenA, &pb.EraseRequest{}, nil)
+	require.Equal(t, http.StatusOK, status)
+
+	list = &pb.PodcastReviewsResponse{}
+	status = postProto(t, "/podcast/reviews", "",
+		&pb.PodcastReviewsRequest{PodcastUuid: podcastUUID}, list)
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, list.Reviews)
+}
+
+// episodesOfPodcast returns the fixture podcast's catalog episode uuids.
+func episodesOfPodcast(t *testing.T, podcastUuid string) []string {
+	t.Helper()
+	resp, err := http.Get(baseURL + "/mobile/podcast/full/" + podcastUuid)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var full struct {
+		Podcast struct {
+			Episodes []struct {
+				UUID string `json:"uuid"`
+			} `json:"episodes"`
+		} `json:"podcast"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&full))
+	uuids := make([]string, 0, len(full.Podcast.Episodes))
+	for _, e := range full.Podcast.Episodes {
+		uuids = append(uuids, e.UUID)
+	}
+	return uuids
+}
+
+func firstEpisodeUUID(t *testing.T, podcastUuid string) string {
+	t.Helper()
+	uuids := episodesOfPodcast(t, podcastUuid)
+	require.NotEmpty(t, uuids)
+	return uuids[0]
+}
+
+// playEpisodesOfPodcast syncs n episodes as played beyond half their duration,
+// opening the server-side review listen-gate.
+func playEpisodesOfPodcast(t *testing.T, token, podcastUuid string, n int) {
+	t.Helper()
+	uuids := episodesOfPodcast(t, podcastUuid)
+	require.GreaterOrEqual(t, len(uuids), n)
+	now := time.Now().UnixMilli()
+	var records []*pb.Record
+	for _, uuid := range uuids[:n] {
+		records = append(records, &pb.Record{Record: &pb.Record_Episode{Episode: &pb.SyncUserEpisode{
+			Uuid:               uuid,
+			PodcastUuid:        podcastUuid,
+			Duration:           wrapperspb.Int64(600),
+			DurationModified:   wrapperspb.Int64(now),
+			PlayedUpTo:         wrapperspb.Int64(500),
+			PlayedUpToModified: wrapperspb.Int64(now),
+		}}})
+	}
+	status := postProto(t, "/user/sync/update", token,
+		&pb.SyncUpdateRequest{DeviceUtcTimeMs: now, Records: records}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
 }

@@ -144,6 +144,10 @@ func (m *QuerierMock) DeleteRelationshipsForUser(ctx context.Context, userID int
 	return m.DeleteRelationshipsError
 }
 
+func (m *QuerierMock) DeleteReviewsForUser(ctx context.Context, userID int64) error {
+	return nil
+}
+
 var testAuthConfig = &config.AuthConfiguration{
 	JWTSecret:       "0123456789abcdef0123456789abcdef",
 	AccessTokenTTL:  time.Hour,

@@ -1922,6 +1922,11 @@ message ReportRequest {
   string target_user_id = 1;
   ReportReason reason = 2;
   string context = 3;                 // pointer/description of the offending content
+  // Content-level reports (additive): what kind of content is being reported
+  // ("user" when empty, "review", ...) and its reference (e.g. the podcast
+  // uuid of the author's review). The moderation queue records both.
+  string target_type = 4;
+  string content_ref = 5;
 }
 
 // POST social/erase — GDPR erasure: clears PII, tombstones the handle.
@@ -1930,5 +1935,76 @@ message EraseRequest {}
 // Simple ack shared by block/unblock/mute/unmute/report/erase.
 message SocialAck {
   bool success = 1;
+}
+
+// ---- Written reviews + episode reactions (Slice 3; iOS docs/Social.md).
+// A Review = the existing anonymous star rating plus optional PUBLIC text;
+// the text half requires a joined account and is attributed. Reactions are
+// account-recorded but displayed as aggregate counts only.
+
+// POST social/review/submit — upserts the caller's attributed review text for
+// a podcast (stars ride the existing user/podcast_rating endpoints).
+message PodcastReviewSubmitRequest {
+  string podcast_uuid = 1;
+  string text = 2;
+}
+
+message PodcastReview {
+  string user_id = 1;                 // author's account uuid
+  string handle = 2;
+  string display_name = 3;
+  uint32 rating = 4;                  // the author's star rating (0 = none)
+  string text = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// POST podcast/reviews — public, paginated, newest first. your_review is set
+// only for authenticated callers who have one.
+message PodcastReviewsRequest {
+  string podcast_uuid = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+message PodcastReviewsResponse {
+  repeated PodcastReview reviews = 1;
+  int64 total = 2;
+  PodcastReview your_review = 3;
+}
+
+// POST social/review/delete — removes the caller's review text for a podcast.
+message PodcastReviewDeleteRequest {
+  string podcast_uuid = 1;
+}
+
+// The fixed reaction set (❤️ 😂 🤯 👏 🔥).
+enum ReactionKind {
+  REACTION_KIND_UNSPECIFIED = 0;      // in set requests: clear my reaction
+  REACTION_KIND_HEART = 1;
+  REACTION_KIND_LAUGH = 2;
+  REACTION_KIND_MIND_BLOWN = 3;
+  REACTION_KIND_CLAP = 4;
+  REACTION_KIND_FIRE = 5;
+}
+
+// POST social/reaction/set — upserts (or clears, when UNSPECIFIED) the
+// caller's single reaction on an episode.
+message EpisodeReactionSetRequest {
+  string episode_uuid = 1;
+  ReactionKind kind = 2;
+}
+
+// POST episode/reactions — aggregate counts; your_reaction set only for
+// authenticated callers.
+message EpisodeReactionsRequest {
+  string episode_uuid = 1;
+}
+message ReactionCount {
+  ReactionKind kind = 1;
+  int64 count = 2;
+}
+message EpisodeReactionsResponse {
+  repeated ReactionCount counts = 1;
+  ReactionKind your_reaction = 2;
 }
 

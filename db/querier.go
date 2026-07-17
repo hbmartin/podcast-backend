@@ -141,4 +141,16 @@ type Querier interface {
 	GetPublicFollowedShows(ctx context.Context, arg GetPublicFollowedShowsParams) ([]GetPublicFollowedShowsRow, error)
 	GetPublicTopPodcasts(ctx context.Context, arg GetPublicTopPodcastsParams) ([]GetPublicTopPodcastsRow, error)
 	GetPublicRecentlyPlayed(ctx context.Context, arg GetPublicRecentlyPlayedParams) ([]GetPublicRecentlyPlayedRow, error)
+
+	UpsertPodcastReview(ctx context.Context, arg UpsertPodcastReviewParams) (PodcastReview, error)
+	DeletePodcastReview(ctx context.Context, arg DeletePodcastReviewParams) (int64, error)
+	DeleteReviewsForUser(ctx context.Context, userID int64) error
+	GetPodcastReviews(ctx context.Context, arg GetPodcastReviewsParams) ([]GetPodcastReviewsRow, error)
+	CountPodcastReviews(ctx context.Context, podcastUuid string) (int64, error)
+	GetOwnPodcastReview(ctx context.Context, arg GetOwnPodcastReviewParams) (GetOwnPodcastReviewRow, error)
+	CountPlayedEpisodesOfPodcast(ctx context.Context, arg CountPlayedEpisodesOfPodcastParams) (int64, error)
+	UpsertEpisodeReaction(ctx context.Context, arg UpsertEpisodeReactionParams) error
+	DeleteEpisodeReaction(ctx context.Context, arg DeleteEpisodeReactionParams) (int64, error)
+	GetEpisodeReactionCounts(ctx context.Context, episodeUuid string) ([]GetEpisodeReactionCountsRow, error)
+	GetOwnEpisodeReaction(ctx context.Context, arg GetOwnEpisodeReactionParams) (int16, error)
 }

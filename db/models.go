@@ -77,6 +77,13 @@ type Episode struct {
 	ChaptersUrl  string
 }
 
+type EpisodeReaction struct {
+	UserID      int64
+	EpisodeUuid string
+	Kind        int16
+	CreatedAt   time.Time
+}
+
 type Feedback struct {
 	ID                int64
 	UserID            *int64
@@ -121,6 +128,8 @@ type ModerationReport struct {
 	Context        string
 	State          string
 	CreatedAt      time.Time
+	TargetType     string
+	ContentRef     string
 }
 
 type Playlist struct {
@@ -190,6 +199,14 @@ type PodcastRating struct {
 	PodcastUuid string
 	Rating      int16
 	ModifiedAt  time.Time
+}
+
+type PodcastReview struct {
+	UserID      int64
+	PodcastUuid string
+	Text        string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type RefreshToken struct {

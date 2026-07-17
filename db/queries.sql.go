@@ -74,6 +74,38 @@ func (q *Queries) ConsumeChallenge(ctx context.Context, challenge []byte) ([]byt
 	return challenge_2, err
 }
 
+const countPlayedEpisodesOfPodcast = `-- name: CountPlayedEpisodesOfPodcast :one
+SELECT count(*) FROM user_episodes ue
+WHERE ue.user_id = $1 AND ue.podcast_uuid = $2
+  AND ue.duration > 0 AND ue.played_up_to > (ue.duration / 2)
+`
+
+type CountPlayedEpisodesOfPodcastParams struct {
+	UserID      int64
+	PodcastUuid string
+}
+
+// Server-side listen-gate parity: episodes of this podcast the user has played
+// at least half of, mirroring the client's played-episode heuristic. Duration
+// is the client-synced per-episode value on user_episodes itself.
+func (q *Queries) CountPlayedEpisodesOfPodcast(ctx context.Context, arg CountPlayedEpisodesOfPodcastParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPlayedEpisodesOfPodcast, arg.UserID, arg.PodcastUuid)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPodcastReviews = `-- name: CountPodcastReviews :one
+SELECT count(*) FROM podcast_reviews WHERE podcast_uuid = $1
+`
+
+func (q *Queries) CountPodcastReviews(ctx context.Context, podcastUuid string) (int64, error) {
+	row := q.db.QueryRow(ctx, countPodcastReviews, podcastUuid)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countRecentContributionsByAttribution = `-- name: CountRecentContributionsByAttribution :one
 SELECT count(*) FROM transcript_contributions
 WHERE attribution = $1 AND attribution_id = $2 AND received_at > $3
@@ -312,6 +344,23 @@ func (q *Queries) DeleteAllUpNextItems(ctx context.Context, userID int64) error 
 	return err
 }
 
+const deleteEpisodeReaction = `-- name: DeleteEpisodeReaction :execrows
+DELETE FROM episode_reactions WHERE user_id = $1 AND episode_uuid = $2
+`
+
+type DeleteEpisodeReactionParams struct {
+	UserID      int64
+	EpisodeUuid string
+}
+
+func (q *Queries) DeleteEpisodeReaction(ctx context.Context, arg DeleteEpisodeReactionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteEpisodeReaction, arg.UserID, arg.EpisodeUuid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteExpiredChallenges = `-- name: DeleteExpiredChallenges :exec
 DELETE FROM attest_challenges WHERE expires_at <= now()
 `
@@ -349,12 +398,39 @@ func (q *Queries) DeleteHistoryItem(ctx context.Context, arg DeleteHistoryItemPa
 	return err
 }
 
+const deletePodcastReview = `-- name: DeletePodcastReview :execrows
+DELETE FROM podcast_reviews WHERE user_id = $1 AND podcast_uuid = $2
+`
+
+type DeletePodcastReviewParams struct {
+	UserID      int64
+	PodcastUuid string
+}
+
+func (q *Queries) DeletePodcastReview(ctx context.Context, arg DeletePodcastReviewParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePodcastReview, arg.UserID, arg.PodcastUuid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteRelationshipsForUser = `-- name: DeleteRelationshipsForUser :exec
 DELETE FROM social_relationships WHERE user_id = $1 OR target_user_id = $1
 `
 
 func (q *Queries) DeleteRelationshipsForUser(ctx context.Context, userID int64) error {
 	_, err := q.db.Exec(ctx, deleteRelationshipsForUser, userID)
+	return err
+}
+
+const deleteReviewsForUser = `-- name: DeleteReviewsForUser :exec
+DELETE FROM podcast_reviews WHERE user_id = $1
+`
+
+// GDPR erase: attributed review text dies with the social profile.
+func (q *Queries) DeleteReviewsForUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteReviewsForUser, userID)
 	return err
 }
 
@@ -709,6 +785,39 @@ func (q *Queries) GetEpisodeByUUID(ctx context.Context, uuid string) (Episode, e
 	return i, err
 }
 
+const getEpisodeReactionCounts = `-- name: GetEpisodeReactionCounts :many
+SELECT kind, count(*)::bigint AS count
+FROM episode_reactions
+WHERE episode_uuid = $1
+GROUP BY kind
+ORDER BY kind
+`
+
+type GetEpisodeReactionCountsRow struct {
+	Kind  int16
+	Count int64
+}
+
+func (q *Queries) GetEpisodeReactionCounts(ctx context.Context, episodeUuid string) ([]GetEpisodeReactionCountsRow, error) {
+	rows, err := q.db.Query(ctx, getEpisodeReactionCounts, episodeUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetEpisodeReactionCountsRow
+	for rows.Next() {
+		var i GetEpisodeReactionCountsRow
+		if err := rows.Scan(&i.Kind, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getEpisodesByPodcastID = `-- name: GetEpisodesByPodcastID :many
 SELECT id, uuid, podcast_id, guid, title, audio_url, file_type, file_size, duration_secs, published_at, episode_type, season, number, show_notes, image_url, created_at, updated_at, transcripts, chapters_url FROM episodes
 WHERE podcast_id = $1
@@ -976,6 +1085,68 @@ func (q *Queries) GetHistory(ctx context.Context, arg GetHistoryParams) ([]Histo
 		return nil, err
 	}
 	return items, nil
+}
+
+const getOwnEpisodeReaction = `-- name: GetOwnEpisodeReaction :one
+SELECT kind FROM episode_reactions WHERE user_id = $1 AND episode_uuid = $2
+`
+
+type GetOwnEpisodeReactionParams struct {
+	UserID      int64
+	EpisodeUuid string
+}
+
+func (q *Queries) GetOwnEpisodeReaction(ctx context.Context, arg GetOwnEpisodeReactionParams) (int16, error) {
+	row := q.db.QueryRow(ctx, getOwnEpisodeReaction, arg.UserID, arg.EpisodeUuid)
+	var kind int16
+	err := row.Scan(&kind)
+	return kind, err
+}
+
+const getOwnPodcastReview = `-- name: GetOwnPodcastReview :one
+SELECT r.user_id, r.podcast_uuid, r.text, r.created_at, r.updated_at,
+       u.uuid AS author_uuid,
+       sp.handle, sp.display_name,
+       COALESCE(pr.rating, 0)::smallint AS rating
+FROM podcast_reviews r
+JOIN users u ON u.id = r.user_id
+JOIN social_profiles sp ON sp.user_id = r.user_id
+LEFT JOIN podcast_ratings pr ON pr.user_id = r.user_id AND pr.podcast_uuid = r.podcast_uuid
+WHERE r.user_id = $1 AND r.podcast_uuid = $2
+`
+
+type GetOwnPodcastReviewParams struct {
+	UserID      int64
+	PodcastUuid string
+}
+
+type GetOwnPodcastReviewRow struct {
+	UserID      int64
+	PodcastUuid string
+	Text        string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	AuthorUuid  string
+	Handle      string
+	DisplayName string
+	Rating      int16
+}
+
+func (q *Queries) GetOwnPodcastReview(ctx context.Context, arg GetOwnPodcastReviewParams) (GetOwnPodcastReviewRow, error) {
+	row := q.db.QueryRow(ctx, getOwnPodcastReview, arg.UserID, arg.PodcastUuid)
+	var i GetOwnPodcastReviewRow
+	err := row.Scan(
+		&i.UserID,
+		&i.PodcastUuid,
+		&i.Text,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AuthorUuid,
+		&i.Handle,
+		&i.DisplayName,
+		&i.Rating,
+	)
+	return i, err
 }
 
 const getPlaylist = `-- name: GetPlaylist :one
@@ -1294,6 +1465,71 @@ func (q *Queries) GetPodcastRatingAggregate(ctx context.Context, podcastUuid str
 	var i GetPodcastRatingAggregateRow
 	err := row.Scan(&i.Total, &i.Average)
 	return i, err
+}
+
+const getPodcastReviews = `-- name: GetPodcastReviews :many
+SELECT r.user_id, r.podcast_uuid, r.text, r.created_at, r.updated_at,
+       u.uuid AS author_uuid,
+       sp.handle, sp.display_name,
+       COALESCE(pr.rating, 0)::smallint AS rating
+FROM podcast_reviews r
+JOIN users u ON u.id = r.user_id
+JOIN social_profiles sp ON sp.user_id = r.user_id
+LEFT JOIN podcast_ratings pr ON pr.user_id = r.user_id AND pr.podcast_uuid = r.podcast_uuid
+WHERE r.podcast_uuid = $1
+ORDER BY r.created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type GetPodcastReviewsParams struct {
+	PodcastUuid string
+	Limit       int32
+	Offset      int32
+}
+
+type GetPodcastReviewsRow struct {
+	UserID      int64
+	PodcastUuid string
+	Text        string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	AuthorUuid  string
+	Handle      string
+	DisplayName string
+	Rating      int16
+}
+
+// Public review list, newest first. Joins the author's profile (text reviews
+// require a joined account, so the join always matches live authors) and the
+// author's star rating when they have one.
+func (q *Queries) GetPodcastReviews(ctx context.Context, arg GetPodcastReviewsParams) ([]GetPodcastReviewsRow, error) {
+	rows, err := q.db.Query(ctx, getPodcastReviews, arg.PodcastUuid, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPodcastReviewsRow
+	for rows.Next() {
+		var i GetPodcastReviewsRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.PodcastUuid,
+			&i.Text,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AuthorUuid,
+			&i.Handle,
+			&i.DisplayName,
+			&i.Rating,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getPodcastsByUUIDs = `-- name: GetPodcastsByUUIDs :many
@@ -2258,8 +2494,8 @@ func (q *Queries) InsertFeedback(ctx context.Context, arg InsertFeedbackParams) 
 }
 
 const insertModerationReport = `-- name: InsertModerationReport :exec
-INSERT INTO moderation_reports (target_user_id, reporter_user_id, source, reason, context)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO moderation_reports (target_user_id, reporter_user_id, source, reason, context, target_type, content_ref)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type InsertModerationReportParams struct {
@@ -2268,6 +2504,8 @@ type InsertModerationReportParams struct {
 	Source         string
 	Reason         int16
 	Context        string
+	TargetType     string
+	ContentRef     string
 }
 
 func (q *Queries) InsertModerationReport(ctx context.Context, arg InsertModerationReportParams) error {
@@ -2277,6 +2515,8 @@ func (q *Queries) InsertModerationReport(ctx context.Context, arg InsertModerati
 		arg.Source,
 		arg.Reason,
 		arg.Context,
+		arg.TargetType,
+		arg.ContentRef,
 	)
 	return err
 }
@@ -3449,6 +3689,25 @@ func (q *Queries) UpsertEpisode(ctx context.Context, arg UpsertEpisodeParams) er
 	return err
 }
 
+const upsertEpisodeReaction = `-- name: UpsertEpisodeReaction :exec
+INSERT INTO episode_reactions (user_id, episode_uuid, kind)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, episode_uuid) DO UPDATE SET
+    kind = EXCLUDED.kind,
+    created_at = now()
+`
+
+type UpsertEpisodeReactionParams struct {
+	UserID      int64
+	EpisodeUuid string
+	Kind        int16
+}
+
+func (q *Queries) UpsertEpisodeReaction(ctx context.Context, arg UpsertEpisodeReactionParams) error {
+	_, err := q.db.Exec(ctx, upsertEpisodeReaction, arg.UserID, arg.EpisodeUuid, arg.Kind)
+	return err
+}
+
 const upsertFolder = `-- name: UpsertFolder :exec
 INSERT INTO folders (
     user_id, folder_uuid, name, color, sort_position, podcasts_sort_type,
@@ -3648,6 +3907,38 @@ type UpsertPodcastRatingParams struct {
 func (q *Queries) UpsertPodcastRating(ctx context.Context, arg UpsertPodcastRatingParams) error {
 	_, err := q.db.Exec(ctx, upsertPodcastRating, arg.UserID, arg.PodcastUuid, arg.Rating)
 	return err
+}
+
+const upsertPodcastReview = `-- name: UpsertPodcastReview :one
+
+INSERT INTO podcast_reviews (user_id, podcast_uuid, text)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, podcast_uuid) DO UPDATE SET
+    text = EXCLUDED.text,
+    updated_at = now()
+RETURNING user_id, podcast_uuid, text, created_at, updated_at
+`
+
+type UpsertPodcastReviewParams struct {
+	UserID      int64
+	PodcastUuid string
+	Text        string
+}
+
+// ============================================================================
+// Written reviews + episode reactions (Slice 3)
+// ============================================================================
+func (q *Queries) UpsertPodcastReview(ctx context.Context, arg UpsertPodcastReviewParams) (PodcastReview, error) {
+	row := q.db.QueryRow(ctx, upsertPodcastReview, arg.UserID, arg.PodcastUuid, arg.Text)
+	var i PodcastReview
+	err := row.Scan(
+		&i.UserID,
+		&i.PodcastUuid,
+		&i.Text,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertSocialRelationship = `-- name: UpsertSocialRelationship :exec

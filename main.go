@@ -233,6 +233,13 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	// of the same visibility-filtered public read.
 	router.Handle("GET /u/{handle}", publicChain(controllers.GetPublicProfilePage))
 
+	// api host role: written reviews + episode reactions (protobuf; Slice 3).
+	router.Handle("POST /social/review/submit", authChain(controllers.PostReviewSubmit))
+	router.Handle("POST /social/review/delete", authChain(controllers.PostReviewDelete))
+	router.Handle("POST /podcast/reviews", optionalAuthChain(controllers.PostPodcastReviews))
+	router.Handle("POST /social/reaction/set", authChain(controllers.PostReactionSet))
+	router.Handle("POST /episode/reactions", optionalAuthChain(controllers.PostEpisodeReactions))
+
 	// static host role: discover layout + catalog-backed sources (JSON)
 	router.Handle("GET /discover/ios/content_v2.json", publicChain(controllers.GetDiscoverContent))
 	router.Handle("GET /discover/ios/content_v3.json", publicChain(controllers.GetDiscoverContent))

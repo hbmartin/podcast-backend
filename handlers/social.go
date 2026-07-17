@@ -534,6 +534,10 @@ func (h Handlers) PostSocialReport(w http.ResponseWriter, r *http.Request) {
 	if len(context) > maxReportContextLen {
 		context = context[:maxReportContextLen]
 	}
+	targetType := req.TargetType
+	if targetType == "" {
+		targetType = "user"
+	}
 
 	err = h.Queries.InsertModerationReport(r.Context(), db.InsertModerationReportParams{
 		TargetUserID:   target.ID,
@@ -541,6 +545,8 @@ func (h Handlers) PostSocialReport(w http.ResponseWriter, r *http.Request) {
 		Source:         "community_flag",
 		Reason:         int16(req.Reason),
 		Context:        context,
+		TargetType:     targetType,
+		ContentRef:     req.ContentRef,
 	})
 	if err != nil {
 		writeError(w, r, err)
@@ -574,7 +580,9 @@ func (h Handlers) PostSocialErase(w http.ResponseWriter, r *http.Request) {
 
 // socialErase deletes the profile row (PII), tombstones the handle — the
 // string survives forever as a non-PII reservation with the account link
-// nulled (ADR-0005) — and drops every block/mute edge touching the user.
+// nulled (ADR-0005) — drops every block/mute edge touching the user, and
+// deletes their attributed review text (which only exists because they
+// joined). Account-level reactions survive until account hard-delete.
 // Also invoked from account deletion (PostDeleteAccount).
 func (h Handlers) socialErase(r *http.Request, userID int64) error {
 	return h.Queries.InTx(r.Context(), func(q db.Querier) error {
@@ -582,6 +590,9 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 			return err
 		}
 		if _, err := q.TombstoneHandle(r.Context(), &userID); err != nil {
+			return err
+		}
+		if err := q.DeleteReviewsForUser(r.Context(), userID); err != nil {
 			return err
 		}
 		return q.DeleteRelationshipsForUser(r.Context(), userID)
