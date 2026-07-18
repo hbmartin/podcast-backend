@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -843,4 +845,79 @@ func TestSocialPush(t *testing.T) {
 	}, &pb.SocialAck{})
 	require.Equal(t, http.StatusOK, status)
 	require.True(t, waitFor(`"social_type":"4"`, 1), "other types keep flowing")
+}
+
+// TestFindPeople walks the Slice-9 surface: prefix search with the
+// discoverability opt-out, friends-of-followed suggestions with count-only
+// copy, and transient contacts matching via typed salted hashes.
+func TestFindPeople(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	emailB := fmt.Sprintf("find-b-%d@e2e.test", suffix)
+	tokenA, _ := registerUser(t, fmt.Sprintf("find-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, emailB)
+	tokenC, _ := registerUser(t, fmt.Sprintf("find-c-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_fnd_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_fnd_b_%d", suffix%1_000_000_000)
+	handleC := fmt.Sprintf("e2e_fnd_c_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Finder A"}, {tokenB, handleB, "Findable B"}, {tokenC, handleC, "Suggested C"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// Prefix search finds B; the opt-out removes them; restore brings back.
+	search := &pb.SocialSearchResponse{}
+	status := postProto(t, "/social/search", tokenA, &pb.SocialSearchRequest{Query: handleB[:12]}, search)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, search.Profiles, 1)
+	assert.Equal(t, handleB, search.Profiles[0].Handle)
+
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Findable B", HideFromDiscovery: true,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+	search = &pb.SocialSearchResponse{}
+	postProto(t, "/social/search", tokenA, &pb.SocialSearchRequest{Query: handleB[:12]}, search)
+	assert.Empty(t, search.Profiles, "hidden profiles leave search")
+
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Findable B",
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// A follows B, B follows C: C is suggested to A with one mutual.
+	for _, hop := range []struct {
+		token, handle string
+	}{{tokenA, handleB}, {tokenB, handleC}} {
+		status = postProto(t, "/social/follow", hop.token, &pb.FollowRequest{Handle: hop.handle}, &pb.FollowResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+	suggestions := &pb.SocialSuggestionsResponse{}
+	status = postProto(t, "/social/suggestions", tokenA, &pb.SocialSuggestionsRequest{}, suggestions)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, suggestions.Profiles, 1)
+	assert.Equal(t, handleC, suggestions.Profiles[0].Handle)
+	assert.Equal(t, int32(1), suggestions.Profiles[0].MutualCount)
+
+	// Contacts match: hash B's email with the server salt; phone hash rides
+	// along unmatched (wire-ready).
+	salt := &pb.ContactsSaltResponse{}
+	status = postProto(t, "/social/contacts/salt", tokenA, &pb.SocialSuggestionsRequest{}, salt)
+	require.Equal(t, http.StatusOK, status)
+	sum := sha256.Sum256([]byte(salt.Salt + strings.ToLower(emailB)))
+	phoneSum := sha256.Sum256([]byte(salt.Salt + "+15550001111"))
+	match := &pb.ContactsMatchResponse{}
+	status = postProto(t, "/social/contacts/match", tokenA, &pb.ContactsMatchRequest{
+		Hashes: []*pb.ContactHash{
+			{Kind: pb.ContactHashKind_CONTACT_HASH_KIND_EMAIL, Hash: hex.EncodeToString(sum[:])},
+			{Kind: pb.ContactHashKind_CONTACT_HASH_KIND_PHONE, Hash: hex.EncodeToString(phoneSum[:])},
+		},
+	}, match)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, match.Profiles, 1)
+	assert.Equal(t, handleB, match.Profiles[0].Handle)
 }

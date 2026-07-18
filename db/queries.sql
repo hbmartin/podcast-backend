@@ -680,6 +680,7 @@ UPDATE social_profiles SET
     presence_visibility = $10,
     require_follow_approval = $11,
     social_push_disabled = $12,
+    hide_from_discovery = $13,
     updated_at = now()
 WHERE user_id = $1
 RETURNING *;
@@ -1255,3 +1256,51 @@ UPDATE social_list_entries SET added_by = NULL WHERE added_by = $1;
 SELECT d.user_id, d.device_id, d.push_token
 FROM devices d
 WHERE d.user_id = $1 AND d.push_on AND d.push_token <> '';
+
+-- Slice 9: find people. Search and suggestions exclude hidden profiles and
+-- anyone blocked either way; suggestions also exclude existing follows.
+
+-- name: SearchSocialProfiles :many
+SELECT sp.handle, sp.display_name, sp.user_id,
+       COALESCE((SELECT sf.status FROM social_follows sf
+                 WHERE sf.follower_user_id = $1 AND sf.followee_user_id = sp.user_id), -1)::int AS follow_status
+FROM social_profiles sp
+WHERE NOT sp.hide_from_discovery
+  AND sp.user_id <> $1
+  AND (sp.handle LIKE $2 || '%' OR lower(sp.display_name) LIKE $2 || '%')
+  AND NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE sr.kind = 0
+      AND ((sr.user_id = $1 AND sr.target_user_id = sp.user_id)
+        OR (sr.user_id = sp.user_id AND sr.target_user_id = $1)))
+ORDER BY sp.handle
+LIMIT $3;
+
+-- name: GetSocialSuggestions :many
+-- Friends-of-followed with mutual counts (count only — never names).
+SELECT sp.handle, sp.display_name, sp.user_id, count(*)::int AS mutual_count
+FROM social_follows first_hop
+JOIN social_follows second_hop ON second_hop.follower_user_id = first_hop.followee_user_id
+JOIN social_profiles sp ON sp.user_id = second_hop.followee_user_id
+WHERE first_hop.follower_user_id = $1 AND first_hop.status = 1
+  AND second_hop.status = 1
+  AND second_hop.followee_user_id <> $1
+  AND NOT sp.hide_from_discovery
+  AND NOT EXISTS (
+    SELECT 1 FROM social_follows mine
+    WHERE mine.follower_user_id = $1 AND mine.followee_user_id = sp.user_id)
+  AND NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE ((sr.user_id = $1 AND sr.target_user_id = sp.user_id)
+        OR (sr.user_id = sp.user_id AND sr.target_user_id = $1)))
+GROUP BY sp.handle, sp.display_name, sp.user_id
+ORDER BY mutual_count DESC, sp.handle
+LIMIT $2;
+
+-- name: GetDiscoverableProfileEmails :many
+-- Contact matching happens in Go (salted hashes over these; fork scale keeps
+-- the candidate set small). Only joined + discoverable accounts participate.
+SELECT sp.user_id, sp.handle, sp.display_name, u.email
+FROM social_profiles sp
+JOIN users u ON u.id = sp.user_id
+WHERE NOT sp.hide_from_discovery;

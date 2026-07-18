@@ -431,7 +431,7 @@ func (q *Queries) CreateSocialList(ctx context.Context, arg CreateSocialListPara
 const createSocialProfile = `-- name: CreateSocialProfile :one
 INSERT INTO social_profiles (user_id, handle, display_name, terms_version)
 VALUES ($1, $2, $3, $4)
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery
 `
 
 type CreateSocialProfileParams struct {
@@ -468,6 +468,7 @@ func (q *Queries) CreateSocialProfile(ctx context.Context, arg CreateSocialProfi
 		&i.RequireFollowApproval,
 		&i.RepliesSeenAt,
 		&i.SocialPushDisabled,
+		&i.HideFromDiscovery,
 	)
 	return i, err
 }
@@ -1131,6 +1132,47 @@ func (q *Queries) GetDevice(ctx context.Context, arg GetDeviceParams) (Device, e
 		&i.PushOn,
 	)
 	return i, err
+}
+
+const getDiscoverableProfileEmails = `-- name: GetDiscoverableProfileEmails :many
+SELECT sp.user_id, sp.handle, sp.display_name, u.email
+FROM social_profiles sp
+JOIN users u ON u.id = sp.user_id
+WHERE NOT sp.hide_from_discovery
+`
+
+type GetDiscoverableProfileEmailsRow struct {
+	UserID      int64
+	Handle      string
+	DisplayName string
+	Email       string
+}
+
+// Contact matching happens in Go (salted hashes over these; fork scale keeps
+// the candidate set small). Only joined + discoverable accounts participate.
+func (q *Queries) GetDiscoverableProfileEmails(ctx context.Context) ([]GetDiscoverableProfileEmailsRow, error) {
+	rows, err := q.db.Query(ctx, getDiscoverableProfileEmails)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDiscoverableProfileEmailsRow
+	for rows.Next() {
+		var i GetDiscoverableProfileEmailsRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Handle,
+			&i.DisplayName,
+			&i.Email,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getDuePodcasts = `-- name: GetDuePodcasts :many
@@ -3140,7 +3182,7 @@ func (q *Queries) GetSocialListsForUser(ctx context.Context, ownerUserID int64) 
 }
 
 const getSocialProfileByHandle = `-- name: GetSocialProfileByHandle :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled FROM social_profiles WHERE handle = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery FROM social_profiles WHERE handle = $1
 `
 
 // Tombstoned/erased handles have no profile row, so this only finds live ones.
@@ -3165,12 +3207,13 @@ func (q *Queries) GetSocialProfileByHandle(ctx context.Context, handle string) (
 		&i.RequireFollowApproval,
 		&i.RepliesSeenAt,
 		&i.SocialPushDisabled,
+		&i.HideFromDiscovery,
 	)
 	return i, err
 }
 
 const getSocialProfileByUserID = `-- name: GetSocialProfileByUserID :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled FROM social_profiles WHERE user_id = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery FROM social_profiles WHERE user_id = $1
 `
 
 func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (SocialProfile, error) {
@@ -3194,8 +3237,68 @@ func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (S
 		&i.RequireFollowApproval,
 		&i.RepliesSeenAt,
 		&i.SocialPushDisabled,
+		&i.HideFromDiscovery,
 	)
 	return i, err
+}
+
+const getSocialSuggestions = `-- name: GetSocialSuggestions :many
+SELECT sp.handle, sp.display_name, sp.user_id, count(*)::int AS mutual_count
+FROM social_follows first_hop
+JOIN social_follows second_hop ON second_hop.follower_user_id = first_hop.followee_user_id
+JOIN social_profiles sp ON sp.user_id = second_hop.followee_user_id
+WHERE first_hop.follower_user_id = $1 AND first_hop.status = 1
+  AND second_hop.status = 1
+  AND second_hop.followee_user_id <> $1
+  AND NOT sp.hide_from_discovery
+  AND NOT EXISTS (
+    SELECT 1 FROM social_follows mine
+    WHERE mine.follower_user_id = $1 AND mine.followee_user_id = sp.user_id)
+  AND NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE ((sr.user_id = $1 AND sr.target_user_id = sp.user_id)
+        OR (sr.user_id = sp.user_id AND sr.target_user_id = $1)))
+GROUP BY sp.handle, sp.display_name, sp.user_id
+ORDER BY mutual_count DESC, sp.handle
+LIMIT $2
+`
+
+type GetSocialSuggestionsParams struct {
+	FollowerUserID int64
+	Limit          int32
+}
+
+type GetSocialSuggestionsRow struct {
+	Handle      string
+	DisplayName string
+	UserID      int64
+	MutualCount int32
+}
+
+// Friends-of-followed with mutual counts (count only — never names).
+func (q *Queries) GetSocialSuggestions(ctx context.Context, arg GetSocialSuggestionsParams) ([]GetSocialSuggestionsRow, error) {
+	rows, err := q.db.Query(ctx, getSocialSuggestions, arg.FollowerUserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetSocialSuggestionsRow
+	for rows.Next() {
+		var i GetSocialSuggestionsRow
+		if err := rows.Scan(
+			&i.Handle,
+			&i.DisplayName,
+			&i.UserID,
+			&i.MutualCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getStarredEpisodes = `-- name: GetStarredEpisodes :many
@@ -4531,6 +4634,64 @@ func (q *Queries) SearchPodcasts(ctx context.Context, arg SearchPodcastsParams) 
 	return items, nil
 }
 
+const searchSocialProfiles = `-- name: SearchSocialProfiles :many
+
+SELECT sp.handle, sp.display_name, sp.user_id,
+       COALESCE((SELECT sf.status FROM social_follows sf
+                 WHERE sf.follower_user_id = $1 AND sf.followee_user_id = sp.user_id), -1)::int AS follow_status
+FROM social_profiles sp
+WHERE NOT sp.hide_from_discovery
+  AND sp.user_id <> $1
+  AND (sp.handle LIKE $2 || '%' OR lower(sp.display_name) LIKE $2 || '%')
+  AND NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE sr.kind = 0
+      AND ((sr.user_id = $1 AND sr.target_user_id = sp.user_id)
+        OR (sr.user_id = sp.user_id AND sr.target_user_id = $1)))
+ORDER BY sp.handle
+LIMIT $3
+`
+
+type SearchSocialProfilesParams struct {
+	FollowerUserID int64
+	Column2        *string
+	Limit          int32
+}
+
+type SearchSocialProfilesRow struct {
+	Handle       string
+	DisplayName  string
+	UserID       int64
+	FollowStatus int32
+}
+
+// Slice 9: find people. Search and suggestions exclude hidden profiles and
+// anyone blocked either way; suggestions also exclude existing follows.
+func (q *Queries) SearchSocialProfiles(ctx context.Context, arg SearchSocialProfilesParams) ([]SearchSocialProfilesRow, error) {
+	rows, err := q.db.Query(ctx, searchSocialProfiles, arg.FollowerUserID, arg.Column2, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchSocialProfilesRow
+	for rows.Next() {
+		var i SearchSocialProfilesRow
+		if err := rows.Scan(
+			&i.Handle,
+			&i.DisplayName,
+			&i.UserID,
+			&i.FollowStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setPodcastNotifyFlags = `-- name: SetPodcastNotifyFlags :exec
 UPDATE user_podcasts
 SET notify_enabled = (podcast_uuid = ANY($2::uuid[]))
@@ -4992,9 +5153,10 @@ UPDATE social_profiles SET
     presence_visibility = $10,
     require_follow_approval = $11,
     social_push_disabled = $12,
+    hide_from_discovery = $13,
     updated_at = now()
 WHERE user_id = $1
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery
 `
 
 type UpdateSocialProfileParams struct {
@@ -5010,6 +5172,7 @@ type UpdateSocialProfileParams struct {
 	PresenceVisibility      int16
 	RequireFollowApproval   bool
 	SocialPushDisabled      int64
+	HideFromDiscovery       bool
 }
 
 // The handle is immutable and deliberately absent here (ADR-0005).
@@ -5027,6 +5190,7 @@ func (q *Queries) UpdateSocialProfile(ctx context.Context, arg UpdateSocialProfi
 		arg.PresenceVisibility,
 		arg.RequireFollowApproval,
 		arg.SocialPushDisabled,
+		arg.HideFromDiscovery,
 	)
 	var i SocialProfile
 	err := row.Scan(
@@ -5047,6 +5211,7 @@ func (q *Queries) UpdateSocialProfile(ctx context.Context, arg UpdateSocialProfi
 		&i.RequireFollowApproval,
 		&i.RepliesSeenAt,
 		&i.SocialPushDisabled,
+		&i.HideFromDiscovery,
 	)
 	return i, err
 }

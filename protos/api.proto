@@ -1829,6 +1829,9 @@ message SocialProfile {
   // Bitmask of DISABLED SocialPushType values (bit n = type n+1 off).
   // Default 0 = every social push enabled.
   int64 social_push_disabled = 16;
+  // Inverted discoverability (Slice 9): true removes the profile from people
+  // search and suggestions. Zero-value = discoverable.
+  bool hide_from_discovery = 17;
 }
 
 // POST social/handle/availability — the rate-limited typeahead availability check.
@@ -1867,6 +1870,7 @@ message ProfileUpdateRequest {
   SocialVisibility presence_visibility = 9;
   bool require_follow_approval = 10;
   int64 social_push_disabled = 11;
+  bool hide_from_discovery = 12;
 }
 message ProfileResponse {
   SocialProfile profile = 1;
@@ -2361,4 +2365,53 @@ enum SocialPushType {
   SOCIAL_PUSH_TYPE_SHARED_ITEM = 4;
   SOCIAL_PUSH_TYPE_COMMENT_REPLY = 5;
   SOCIAL_PUSH_TYPE_LIST_INVITE = 6;
+}
+
+// ---- Slice 9: find people (docs/Social.md) ----
+
+message ProfileSummary {
+  string handle = 1;
+  string display_name = 2;
+  FollowState your_follow_state = 3;
+  int32 mutual_count = 4;              // suggestions only; count, never names
+}
+
+message SocialSearchRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message SocialSearchResponse {
+  repeated ProfileSummary profiles = 1;
+}
+
+message SocialSuggestionsRequest {
+  int32 limit = 1;
+}
+
+message SocialSuggestionsResponse {
+  repeated ProfileSummary profiles = 1;
+}
+
+message ContactsSaltResponse {
+  string salt = 1;
+}
+
+enum ContactHashKind {
+  CONTACT_HASH_KIND_UNSPECIFIED = 0;
+  CONTACT_HASH_KIND_EMAIL = 1;
+  CONTACT_HASH_KIND_PHONE = 2;         // wire-ready; unmatched until accounts have phones
+}
+
+message ContactHash {
+  ContactHashKind kind = 1;
+  string hash = 2;                     // hex sha256(salt + normalized identifier)
+}
+
+message ContactsMatchRequest {
+  repeated ContactHash hashes = 1;
+}
+
+message ContactsMatchResponse {
+  repeated ProfileSummary profiles = 1;
 }

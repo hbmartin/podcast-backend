@@ -321,6 +321,7 @@ type SocialProfile struct {
 	RequireFollowApproval   bool
 	RepliesSeenAt           time.Time
 	SocialPushDisabled      int64
+	HideFromDiscovery       bool
 }
 
 type SocialRelationship struct {

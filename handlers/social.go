@@ -223,6 +223,7 @@ func (h Handlers) PostSocialProfileUpdate(w http.ResponseWriter, r *http.Request
 		PresenceVisibility:      visibilityToStored(req.PresenceVisibility),
 		RequireFollowApproval:   req.RequireFollowApproval,
 		SocialPushDisabled:      req.SocialPushDisabled,
+		HideFromDiscovery:       req.HideFromDiscovery,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -716,5 +717,6 @@ func profileToProto(row db.SocialProfile, userUuid string) *pb.SocialProfile {
 		PresenceVisibility:      pb.SocialVisibility(row.PresenceVisibility),
 		RequireFollowApproval:   row.RequireFollowApproval,
 		SocialPushDisabled:      row.SocialPushDisabled,
+		HideFromDiscovery:       row.HideFromDiscovery,
 	}
 }
