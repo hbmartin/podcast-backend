@@ -1304,3 +1304,52 @@ SELECT sp.user_id, sp.handle, sp.display_name, u.email
 FROM social_profiles sp
 JOIN users u ON u.id = sp.user_id
 WHERE NOT sp.hide_from_discovery;
+
+-- Slice 10: social discovery. Trending ranks followees' recently finished
+-- episodes under each actor's HISTORY visibility; proof lists followees who
+-- follow a show under each actor's FOLLOWED-SHOWS visibility. Muted actors
+-- are excluded from both (blocks cannot occur across an active follow).
+
+-- name: GetTrendingWithFriends :many
+WITH followees AS (
+    SELECT sf.followee_user_id AS uid
+    FROM social_follows sf
+    WHERE sf.follower_user_id = $1 AND sf.status = 1
+      AND NOT EXISTS (
+        SELECT 1 FROM social_relationships sr
+        WHERE sr.user_id = $1 AND sr.target_user_id = sf.followee_user_id AND sr.kind = 1)
+)
+SELECT ue.podcast_uuid::text AS podcast_uuid,
+       COALESCE(p.title, '')::text AS title,
+       COALESCE(p.author, '')::text AS author,
+       count(DISTINCT ue.user_id)::int AS listener_count
+FROM user_episodes ue
+JOIN followees f ON f.uid = ue.user_id
+JOIN social_profiles sp ON sp.user_id = ue.user_id AND sp.history_visibility IN (2, 3)
+LEFT JOIN podcasts p ON p.uuid = ue.podcast_uuid
+WHERE ue.playing_status = 3
+  AND ue.playing_status_modified > (extract(epoch FROM now() - interval '30 days') * 1000)::bigint
+  AND NOT EXISTS (
+    SELECT 1 FROM user_podcasts mine
+    WHERE mine.user_id = $1 AND mine.podcast_uuid = ue.podcast_uuid
+      AND mine.subscribed AND NOT mine.is_deleted)
+GROUP BY ue.podcast_uuid, p.title, p.author
+ORDER BY listener_count DESC, podcast_uuid
+LIMIT $2;
+
+-- name: GetPodcastProof :many
+WITH followees AS (
+    SELECT sf.followee_user_id AS uid
+    FROM social_follows sf
+    WHERE sf.follower_user_id = $1 AND sf.status = 1
+      AND NOT EXISTS (
+        SELECT 1 FROM social_relationships sr
+        WHERE sr.user_id = $1 AND sr.target_user_id = sf.followee_user_id AND sr.kind = 1)
+)
+SELECT sp.handle,
+       (sp.followed_shows_visibility IN (2, 3))::bool AS list_visible
+FROM user_podcasts up
+JOIN followees f ON f.uid = up.user_id
+JOIN social_profiles sp ON sp.user_id = up.user_id
+WHERE up.podcast_uuid = $2 AND up.subscribed AND NOT up.is_deleted
+ORDER BY list_visible DESC, sp.handle;

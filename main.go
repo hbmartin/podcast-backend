@@ -280,6 +280,8 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /social/suggestions", authChain(controllers.PostSocialSuggestions))
 	router.Handle("POST /social/contacts/salt", authChain(controllers.PostContactsSalt))
 	router.Handle("POST /social/contacts/match", authChain(controllers.PostContactsMatch))
+	router.Handle("POST /social/trending", authChain(controllers.PostSocialTrending))
+	router.Handle("POST /social/podcast/proof", authChain(controllers.PostPodcastProof))
 
 	// static host role: discover layout + catalog-backed sources (JSON)
 	router.Handle("GET /discover/ios/content_v2.json", publicChain(controllers.GetDiscoverContent))

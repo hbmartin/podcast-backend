@@ -921,3 +921,89 @@ func TestFindPeople(t *testing.T) {
 	require.Len(t, match.Profiles, 1)
 	assert.Equal(t, handleB, match.Profiles[0].Handle)
 }
+
+// TestDiscovery walks the Slice-10 surface: trending ranked by followees'
+// recent finished episodes under history visibility, and podcast proof named
+// only when followed-shows visibility already grants the list.
+func TestDiscovery(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("disc-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("disc-b-%d@e2e.test", suffix))
+
+	handleB := fmt.Sprintf("e2e_dsc_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, fmt.Sprintf("e2e_dsc_a_%d", suffix%1_000_000_000), "Discoverer A"}, {tokenB, handleB, "Listener B"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+	status := postProto(t, "/social/follow", tokenA, &pb.FollowRequest{Handle: handleB}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// B finishes an episode of a podcast A does not follow, history private:
+	// trending stays empty for A.
+	podcastUuid := fmt.Sprintf("dddd%04d-1111-2222-3333-444455556666", suffix%10_000)
+	now := time.Now().UnixMilli()
+	syncStatus := postProto(t, "/user/sync/update", tokenB, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now,
+		Records: []*pb.Record{{Record: &pb.Record_Episode{Episode: &pb.SyncUserEpisode{
+			Uuid:                  fmt.Sprintf("eeee%04d-1111-2222-3333-444455556666", suffix%10_000),
+			PodcastUuid:           podcastUuid,
+			Duration:              wrapperspb.Int64(600),
+			DurationModified:      wrapperspb.Int64(now),
+			PlayedUpTo:            wrapperspb.Int64(600),
+			PlayedUpToModified:    wrapperspb.Int64(now),
+			PlayingStatus:         wrapperspb.Int32(3),
+			PlayingStatusModified: wrapperspb.Int64(now),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, syncStatus)
+
+	trending := &pb.SocialTrendingResponse{}
+	status = postProto(t, "/social/trending", tokenA, &pb.SocialTrendingRequest{}, trending)
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, trending.Podcasts, "private history stays out of trending")
+
+	// History followers-only: A (an active follower) now sees it.
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Listener B", HistoryVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	trending = &pb.SocialTrendingResponse{}
+	status = postProto(t, "/social/trending", tokenA, &pb.SocialTrendingRequest{}, trending)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, trending.Podcasts, 1)
+	assert.Equal(t, podcastUuid, trending.Podcasts[0].PodcastUuid)
+	assert.Equal(t, int32(1), trending.Podcasts[0].ListenerCount)
+
+	// Proof: B follows the show with followed-shows private → count only;
+	// public → named.
+	syncStatus = postProto(t, "/user/sync/update", tokenB, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now + 1,
+		Records: []*pb.Record{{Record: &pb.Record_Podcast{Podcast: &pb.SyncUserPodcast{
+			Uuid: podcastUuid, Subscribed: wrapperspb.Bool(true),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, syncStatus)
+
+	proof := &pb.PodcastProofResponse{}
+	status = postProto(t, "/social/podcast/proof", tokenA, &pb.PodcastProofRequest{PodcastUuid: podcastUuid}, proof)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, int32(1), proof.TotalCount)
+	assert.Empty(t, proof.VisibleHandles, "private followed-shows fold into the count")
+
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Listener B", HistoryVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
+		FollowedShowsVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	proof = &pb.PodcastProofResponse{}
+	status = postProto(t, "/social/podcast/proof", tokenA, &pb.PodcastProofRequest{PodcastUuid: podcastUuid}, proof)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, proof.VisibleHandles, 1)
+	assert.Equal(t, handleB, proof.VisibleHandles[0])
+}

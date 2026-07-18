@@ -170,6 +170,8 @@ type Querier interface {
 	SearchSocialProfiles(ctx context.Context, arg SearchSocialProfilesParams) ([]SearchSocialProfilesRow, error)
 	GetSocialSuggestions(ctx context.Context, arg GetSocialSuggestionsParams) ([]GetSocialSuggestionsRow, error)
 	GetDiscoverableProfileEmails(ctx context.Context) ([]GetDiscoverableProfileEmailsRow, error)
+	GetTrendingWithFriends(ctx context.Context, arg GetTrendingWithFriendsParams) ([]GetTrendingWithFriendsRow, error)
+	GetPodcastProof(ctx context.Context, arg GetPodcastProofParams) ([]GetPodcastProofRow, error)
 	GetSocialList(ctx context.Context, id int64) (GetSocialListRow, error)
 	GetSocialListEntries(ctx context.Context, arg GetSocialListEntriesParams) ([]GetSocialListEntriesRow, error)
 	GetSocialListInvitesForUser(ctx context.Context, userID int64) ([]GetSocialListInvitesForUserRow, error)

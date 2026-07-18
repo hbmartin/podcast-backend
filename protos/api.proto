@@ -2415,3 +2415,29 @@ message ContactsMatchRequest {
 message ContactsMatchResponse {
   repeated ProfileSummary profiles = 1;
 }
+
+// ---- Slice 10: social discovery (docs/Social.md) ----
+
+message SocialTrendingRequest {
+  int32 limit = 1;
+}
+
+message TrendingPodcast {
+  string podcast_uuid = 1;
+  string title = 2;
+  string author = 3;
+  int32 listener_count = 4;            // distinct followees, last 30 days
+}
+
+message SocialTrendingResponse {
+  repeated TrendingPodcast podcasts = 1;
+}
+
+message PodcastProofRequest {
+  string podcast_uuid = 1;
+}
+
+message PodcastProofResponse {
+  repeated string visible_handles = 1; // named-when-visible, capped
+  int32 total_count = 2;               // all followees following the show
+}

@@ -2444,6 +2444,54 @@ func (q *Queries) GetPodcastByUUID(ctx context.Context, uuid string) (Podcast, e
 	return i, err
 }
 
+const getPodcastProof = `-- name: GetPodcastProof :many
+WITH followees AS (
+    SELECT sf.followee_user_id AS uid
+    FROM social_follows sf
+    WHERE sf.follower_user_id = $1 AND sf.status = 1
+      AND NOT EXISTS (
+        SELECT 1 FROM social_relationships sr
+        WHERE sr.user_id = $1 AND sr.target_user_id = sf.followee_user_id AND sr.kind = 1)
+)
+SELECT sp.handle,
+       (sp.followed_shows_visibility IN (2, 3))::bool AS list_visible
+FROM user_podcasts up
+JOIN followees f ON f.uid = up.user_id
+JOIN social_profiles sp ON sp.user_id = up.user_id
+WHERE up.podcast_uuid = $2 AND up.subscribed AND NOT up.is_deleted
+ORDER BY list_visible DESC, sp.handle
+`
+
+type GetPodcastProofParams struct {
+	FollowerUserID int64
+	PodcastUuid    string
+}
+
+type GetPodcastProofRow struct {
+	Handle      string
+	ListVisible bool
+}
+
+func (q *Queries) GetPodcastProof(ctx context.Context, arg GetPodcastProofParams) ([]GetPodcastProofRow, error) {
+	rows, err := q.db.Query(ctx, getPodcastProof, arg.FollowerUserID, arg.PodcastUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPodcastProofRow
+	for rows.Next() {
+		var i GetPodcastProofRow
+		if err := rows.Scan(&i.Handle, &i.ListVisible); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPodcastRating = `-- name: GetPodcastRating :one
 SELECT user_id, podcast_uuid, rating, modified_at FROM podcast_ratings WHERE user_id = $1 AND podcast_uuid = $2
 `
@@ -3441,6 +3489,76 @@ func (q *Queries) GetTranscriptSighting(ctx context.Context, id int64) (Transcri
 		&i.ReceivedAt,
 	)
 	return i, err
+}
+
+const getTrendingWithFriends = `-- name: GetTrendingWithFriends :many
+
+WITH followees AS (
+    SELECT sf.followee_user_id AS uid
+    FROM social_follows sf
+    WHERE sf.follower_user_id = $1 AND sf.status = 1
+      AND NOT EXISTS (
+        SELECT 1 FROM social_relationships sr
+        WHERE sr.user_id = $1 AND sr.target_user_id = sf.followee_user_id AND sr.kind = 1)
+)
+SELECT ue.podcast_uuid::text AS podcast_uuid,
+       COALESCE(p.title, '')::text AS title,
+       COALESCE(p.author, '')::text AS author,
+       count(DISTINCT ue.user_id)::int AS listener_count
+FROM user_episodes ue
+JOIN followees f ON f.uid = ue.user_id
+JOIN social_profiles sp ON sp.user_id = ue.user_id AND sp.history_visibility IN (2, 3)
+LEFT JOIN podcasts p ON p.uuid = ue.podcast_uuid
+WHERE ue.playing_status = 3
+  AND ue.playing_status_modified > (extract(epoch FROM now() - interval '30 days') * 1000)::bigint
+  AND NOT EXISTS (
+    SELECT 1 FROM user_podcasts mine
+    WHERE mine.user_id = $1 AND mine.podcast_uuid = ue.podcast_uuid
+      AND mine.subscribed AND NOT mine.is_deleted)
+GROUP BY ue.podcast_uuid, p.title, p.author
+ORDER BY listener_count DESC, podcast_uuid
+LIMIT $2
+`
+
+type GetTrendingWithFriendsParams struct {
+	UserID int64
+	Limit  int32
+}
+
+type GetTrendingWithFriendsRow struct {
+	PodcastUuid   string
+	Title         string
+	Author        string
+	ListenerCount int32
+}
+
+// Slice 10: social discovery. Trending ranks followees' recently finished
+// episodes under each actor's HISTORY visibility; proof lists followees who
+// follow a show under each actor's FOLLOWED-SHOWS visibility. Muted actors
+// are excluded from both (blocks cannot occur across an active follow).
+func (q *Queries) GetTrendingWithFriends(ctx context.Context, arg GetTrendingWithFriendsParams) ([]GetTrendingWithFriendsRow, error) {
+	rows, err := q.db.Query(ctx, getTrendingWithFriends, arg.UserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTrendingWithFriendsRow
+	for rows.Next() {
+		var i GetTrendingWithFriendsRow
+		if err := rows.Scan(
+			&i.PodcastUuid,
+			&i.Title,
+			&i.Author,
+			&i.ListenerCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getUpNextItems = `-- name: GetUpNextItems :many
