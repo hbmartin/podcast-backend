@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/moderation"
 	"github.com/hbmartin/podcast-backend/pcerrors"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
+	"github.com/hbmartin/podcast-backend/push"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -301,7 +303,7 @@ func (h Handlers) PostSocialListInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, _, ok := h.requireJoined(w, r)
+	user, ownerProfile, ok := h.requireJoined(w, r)
 	if !ok {
 		return
 	}
@@ -345,6 +347,9 @@ func (h Handlers) PostSocialListInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+	h.notifySocial(target.UserID, push.SocialPushListInvite,
+		ownerProfile.Handle, ownerProfile.DisplayName,
+		map[string]string{"list_id": strconv.FormatInt(req.ListId, 10)})
 	writeProto(w, http.StatusOK, &pb.SocialAck{Success: true})
 }
 

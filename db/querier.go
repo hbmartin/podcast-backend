@@ -166,6 +166,7 @@ type Querier interface {
 	DeleteSocialListMembershipsForUser(ctx context.Context, userID int64) error
 	DeleteSocialListsForOwner(ctx context.Context, ownerUserID int64) error
 	GetProfileSocialLists(ctx context.Context, arg GetProfileSocialListsParams) ([]GetProfileSocialListsRow, error)
+	GetPushTargetsForUser(ctx context.Context, userID int64) ([]GetPushTargetsForUserRow, error)
 	GetSocialList(ctx context.Context, id int64) (GetSocialListRow, error)
 	GetSocialListEntries(ctx context.Context, arg GetSocialListEntriesParams) ([]GetSocialListEntriesRow, error)
 	GetSocialListInvitesForUser(ctx context.Context, userID int64) ([]GetSocialListInvitesForUserRow, error)

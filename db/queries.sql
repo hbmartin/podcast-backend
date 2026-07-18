@@ -679,6 +679,7 @@ UPDATE social_profiles SET
     history_visibility = $9,
     presence_visibility = $10,
     require_follow_approval = $11,
+    social_push_disabled = $12,
     updated_at = now()
 WHERE user_id = $1
 RETURNING *;
@@ -1248,3 +1249,9 @@ DELETE FROM social_list_members WHERE user_id = $1;
 
 -- name: ClearSocialListAttributionForUser :exec
 UPDATE social_list_entries SET added_by = NULL WHERE added_by = $1;
+
+-- Slice 8: social push targets — every push-enabled device of one user.
+-- name: GetPushTargetsForUser :many
+SELECT d.user_id, d.device_id, d.push_token
+FROM devices d
+WHERE d.user_id = $1 AND d.push_on AND d.push_token <> '';

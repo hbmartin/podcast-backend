@@ -8,6 +8,7 @@ import (
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/pcerrors"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
+	"github.com/hbmartin/podcast-backend/push"
 
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -85,7 +86,7 @@ func (h Handlers) PostFollow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, _, ok := h.requireJoined(w, r)
+	user, profile, ok := h.requireJoined(w, r)
 	if !ok {
 		return
 	}
@@ -114,9 +115,12 @@ func (h Handlers) PostFollow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := pb.FollowState_FOLLOW_STATE_PENDING
+	pushType := push.SocialPushFollowRequest
 	if stored == followStatusActive {
 		state = pb.FollowState_FOLLOW_STATE_ACTIVE
+		pushType = push.SocialPushNewFollower
 	}
+	h.notifySocial(target.UserID, pushType, profile.Handle, profile.DisplayName, nil)
 	writeProto(w, http.StatusOK, &pb.FollowResponse{State: state})
 }
 
@@ -245,7 +249,7 @@ func (h Handlers) PostFollowApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, _, ok := h.requireJoined(w, r)
+	user, profile, ok := h.requireJoined(w, r)
 	if !ok {
 		return
 	}
@@ -271,6 +275,9 @@ func (h Handlers) PostFollowApprove(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, r, err)
 		return
+	}
+	if req.Accept {
+		h.notifySocial(requester.UserID, push.SocialPushFollowApproved, profile.Handle, profile.DisplayName, nil)
 	}
 	writeProto(w, http.StatusOK, &pb.SocialAck{Success: true})
 }

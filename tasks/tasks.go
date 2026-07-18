@@ -20,6 +20,7 @@ const (
 	TypeOpmlImport         = "opml:import"
 	TypeRefreshDuePodcasts = "podcast:refresh_due"
 	TypeNotifyNewEpisodes  = "push:new_episodes"
+	TypeSocialPush         = "push:social"
 	TypeSightingFetch      = "transcript:sighting_fetch"
 )
 
@@ -46,6 +47,15 @@ type OpmlImportPayload struct {
 type NotifyNewEpisodesPayload struct {
 	PodcastUUID  string   `json:"podcast_uuid"`
 	EpisodeUUIDs []string `json:"episode_uuids"`
+}
+
+// SocialPushPayload carries one social event to push (Slice 8).
+type SocialPushPayload struct {
+	TargetUserID     int64             `json:"target_user_id"`
+	PushType         int               `json:"push_type"`
+	ActorHandle      string            `json:"actor_handle"`
+	ActorDisplayName string            `json:"actor_display_name"`
+	Data             map[string]string `json:"data,omitempty"`
 }
 
 // SightingFetchPayload identifies a transcript sighting whose publisher URL the
@@ -117,6 +127,20 @@ func (qc *QueueClient) EnqueueOpmlImport(ctx context.Context, feedURLs []string)
 
 	task := asynq.NewTask(TypeOpmlImport, payload)
 	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow)); err != nil {
+		return errs.E(op, err)
+	}
+	return nil
+}
+
+// EnqueueSocialPush queues delivery of one social push event (Slice 8).
+func (qc *QueueClient) EnqueueSocialPush(ctx context.Context, payload SocialPushPayload) error {
+	const op errs.Op = "tasks/QueueClient.EnqueueSocialPush"
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return errs.E(op, errs.Internal, err)
+	}
+	if err := qc.Enqueue(ctx, asynq.NewTask(TypeSocialPush, raw)); err != nil {
 		return errs.E(op, err)
 	}
 	return nil

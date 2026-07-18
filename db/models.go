@@ -320,6 +320,7 @@ type SocialProfile struct {
 	UpdatedAt               time.Time
 	RequireFollowApproval   bool
 	RepliesSeenAt           time.Time
+	SocialPushDisabled      int64
 }
 
 type SocialRelationship struct {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -751,4 +752,95 @@ func TestSocialLists(t *testing.T) {
 	status = postProto(t, "/social/list/entries", tokenB,
 		&pb.SharedListEntriesRequest{ListId: list.Id}, nil)
 	require.Equal(t, http.StatusNotFound, status)
+}
+
+// TestSocialPush walks the Slice-8 surface end-to-end: a social event lands
+// on the recipient's registered device via (mock) APNs with the category and
+// typed payload the iOS dispatcher keys on, and the per-type disabled bitmask
+// silences exactly its type. The e2e server runs queue-less, so sends ride
+// the direct goroutine path — assertions poll.
+func TestSocialPush(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("push-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("push-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_psh_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_psh_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Push Actor"}, {tokenB, handleB, "Push Target"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// B registers a push token (piggybacked on user/update).
+	deviceToken := fmt.Sprintf("E2ESOCIAL%d", suffix%1_000_000)
+	var refresh struct {
+		Status string `json:"status"`
+	}
+	status := postJSON(t, "/user/update", tokenB, map[string]string{
+		"podcasts": "", "last_episodes": "", "device": "e2e-device-social",
+		"push_token": deviceToken, "push_on": "true", "push_messages_on": "",
+	}, &refresh)
+	require.Equal(t, http.StatusOK, status)
+
+	countFor := func(devicePath string) int {
+		apnsMu.Lock()
+		defer apnsMu.Unlock()
+		n := 0
+		for _, p := range apnsPushes {
+			if p.path == "/3/device/"+deviceToken && strings.Contains(p.body, devicePath) {
+				n++
+			}
+		}
+		return n
+	}
+	waitFor := func(marker string, want int) bool {
+		for i := 0; i < 40; i++ {
+			if countFor(marker) >= want {
+				return true
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return false
+	}
+
+	// A follows B (open): NEW_FOLLOWER (type 3) arrives with category "so",
+	// the typed payload, and the actor's name in the alert title.
+	status = postProto(t, "/social/follow", tokenA, &pb.FollowRequest{Handle: handleB}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	require.True(t, waitFor(`"social_type":"3"`, 1), "the new-follower push must reach the mock APNs")
+	apnsMu.Lock()
+	var followBody string
+	for _, p := range apnsPushes {
+		if p.path == "/3/device/"+deviceToken && strings.Contains(p.body, `"social_type":"3"`) {
+			followBody = p.body
+		}
+	}
+	apnsMu.Unlock()
+	assert.Contains(t, followBody, `"category":"so"`)
+	assert.Contains(t, followBody, `"actor_handle":"`+handleA+`"`)
+	assert.Contains(t, followBody, `"title":"Push Actor"`)
+
+	// B disables NEW_FOLLOWER (bit 2 = 1<<(3-1) = 4): a refollow stays silent.
+	update := &pb.ProfileUpdateRequest{DisplayName: "Push Target", SocialPushDisabled: 1 << 2}
+	status = postProto(t, "/social/profile/update", tokenB, update, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	status = postProto(t, "/social/unfollow", tokenA, &pb.UnfollowRequest{Handle: handleB}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/follow", tokenA, &pb.FollowRequest{Handle: handleB}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	time.Sleep(400 * time.Millisecond)
+	assert.Equal(t, 1, countFor(`"social_type":"3"`), "a disabled type must stay silent")
+
+	// A different type still flows: a shared item (type 4).
+	status = postProto(t, "/social/share/send", tokenA, &pb.SharedItemSendRequest{
+		RecipientHandle: handleB, EpisodeUuid: fmt.Sprintf("push-ep-%d", suffix),
+		EpisodeTitle: "Pushed Episode",
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	require.True(t, waitFor(`"social_type":"4"`, 1), "other types keep flowing")
 }

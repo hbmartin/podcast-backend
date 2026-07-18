@@ -10,6 +10,7 @@ import (
 	"github.com/hbmartin/podcast-backend/moderation"
 	"github.com/hbmartin/podcast-backend/pcerrors"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
+	"github.com/hbmartin/podcast-backend/push"
 
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -50,7 +51,8 @@ func (h Handlers) PostShareSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sender must be joined (the send is attributed).
-	if _, err := h.Queries.GetSocialProfileByUserID(r.Context(), user.ID); err != nil {
+	senderProfile, err := h.Queries.GetSocialProfileByUserID(r.Context(), user.ID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			pcerrors.Write(w, http.StatusForbidden, pcerrors.AccessDenied, "join required to send")
 			return
@@ -102,6 +104,9 @@ func (h Handlers) PostShareSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.notifySocial(recipientProfile.UserID, push.SocialPushSharedItem,
+		senderProfile.Handle, senderProfile.DisplayName,
+		map[string]string{"episode_uuid": req.EpisodeUuid, "podcast_uuid": req.PodcastUuid})
 	writeProto(w, http.StatusOK, &pb.SocialAck{Success: true})
 }
 

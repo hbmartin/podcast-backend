@@ -217,6 +217,10 @@ func (m *QuerierMock) HasSocialRelationship(ctx context.Context, arg db.HasSocia
 	return false, nil
 }
 
+func (m *QuerierMock) GetPushTargetsForUser(ctx context.Context, userID int64) ([]db.GetPushTargetsForUserRow, error) {
+	return nil, nil
+}
+
 func (m *QuerierMock) ClearSocialListAttributionForUser(ctx context.Context, addedBy *int64) error {
 	return nil
 }

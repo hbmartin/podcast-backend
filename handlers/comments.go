@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/moderation"
 	"github.com/hbmartin/podcast-backend/pcerrors"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
+	"github.com/hbmartin/podcast-backend/push"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -105,6 +107,25 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, r, err)
 		return
+	}
+
+	// A reply notifies the parent's author (Slice 8) — never yourself, and
+	// tombstoned parents have no author to notify.
+	if req.ParentId > 0 {
+		if parent, err := h.Queries.GetCommentByID(r.Context(), req.ParentId); err == nil &&
+			parent.UserID != nil && *parent.UserID != user.ID {
+			focusID := parent.ID
+			if parent.RootID != nil {
+				focusID = *parent.RootID
+			}
+			h.notifySocial(*parent.UserID, push.SocialPushCommentReply,
+				profile.Handle, profile.DisplayName,
+				map[string]string{
+					"episode_uuid": req.EpisodeUuid,
+					"podcast_uuid": params.PodcastUuid,
+					"comment_id":   strconv.FormatInt(focusID, 10),
+				})
+		}
 	}
 
 	resp := &pb.SocialComment{

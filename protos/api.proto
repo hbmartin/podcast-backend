@@ -1826,6 +1826,9 @@ message SocialProfile {
   SocialVisibility presence_visibility = 14;
   // Hybrid follow consent (Slice 5): when true, new follows become requests.
   bool require_follow_approval = 15;
+  // Bitmask of DISABLED SocialPushType values (bit n = type n+1 off).
+  // Default 0 = every social push enabled.
+  int64 social_push_disabled = 16;
 }
 
 // POST social/handle/availability — the rate-limited typeahead availability check.
@@ -1863,6 +1866,7 @@ message ProfileUpdateRequest {
   SocialVisibility history_visibility = 8;
   SocialVisibility presence_visibility = 9;
   bool require_follow_approval = 10;
+  int64 social_push_disabled = 11;
 }
 message ProfileResponse {
   SocialProfile profile = 1;
@@ -2345,4 +2349,16 @@ message SharedListsRequest {
 message SharedListsResponse {
   repeated SharedList lists = 1;       // owned + collaborating + subscribed
   repeated SharedList invites = 2;     // pending invitations to the caller
+}
+
+// ---- Slice 8: social push notifications (docs/Social.md) ----
+
+enum SocialPushType {
+  SOCIAL_PUSH_TYPE_UNSPECIFIED = 0;
+  SOCIAL_PUSH_TYPE_FOLLOW_REQUEST = 1;
+  SOCIAL_PUSH_TYPE_FOLLOW_APPROVED = 2;
+  SOCIAL_PUSH_TYPE_NEW_FOLLOWER = 3;
+  SOCIAL_PUSH_TYPE_SHARED_ITEM = 4;
+  SOCIAL_PUSH_TYPE_COMMENT_REPLY = 5;
+  SOCIAL_PUSH_TYPE_LIST_INVITE = 6;
 }

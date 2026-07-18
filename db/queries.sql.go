@@ -431,7 +431,7 @@ func (q *Queries) CreateSocialList(ctx context.Context, arg CreateSocialListPara
 const createSocialProfile = `-- name: CreateSocialProfile :one
 INSERT INTO social_profiles (user_id, handle, display_name, terms_version)
 VALUES ($1, $2, $3, $4)
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled
 `
 
 type CreateSocialProfileParams struct {
@@ -467,6 +467,7 @@ func (q *Queries) CreateSocialProfile(ctx context.Context, arg CreateSocialProfi
 		&i.UpdatedAt,
 		&i.RequireFollowApproval,
 		&i.RepliesSeenAt,
+		&i.SocialPushDisabled,
 	)
 	return i, err
 }
@@ -2797,6 +2798,39 @@ func (q *Queries) GetPushTargetsForPodcast(ctx context.Context, podcastUuid stri
 	return items, nil
 }
 
+const getPushTargetsForUser = `-- name: GetPushTargetsForUser :many
+SELECT d.user_id, d.device_id, d.push_token
+FROM devices d
+WHERE d.user_id = $1 AND d.push_on AND d.push_token <> ''
+`
+
+type GetPushTargetsForUserRow struct {
+	UserID    int64
+	DeviceID  string
+	PushToken string
+}
+
+// Slice 8: social push targets — every push-enabled device of one user.
+func (q *Queries) GetPushTargetsForUser(ctx context.Context, userID int64) ([]GetPushTargetsForUserRow, error) {
+	rows, err := q.db.Query(ctx, getPushTargetsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPushTargetsForUserRow
+	for rows.Next() {
+		var i GetPushTargetsForUserRow
+		if err := rows.Scan(&i.UserID, &i.DeviceID, &i.PushToken); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRefreshTokenByHash = `-- name: GetRefreshTokenByHash :one
 SELECT id, user_id, token_hash, scope, created_at, expires_at, revoked_at FROM refresh_tokens
 WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
@@ -3106,7 +3140,7 @@ func (q *Queries) GetSocialListsForUser(ctx context.Context, ownerUserID int64) 
 }
 
 const getSocialProfileByHandle = `-- name: GetSocialProfileByHandle :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at FROM social_profiles WHERE handle = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled FROM social_profiles WHERE handle = $1
 `
 
 // Tombstoned/erased handles have no profile row, so this only finds live ones.
@@ -3130,12 +3164,13 @@ func (q *Queries) GetSocialProfileByHandle(ctx context.Context, handle string) (
 		&i.UpdatedAt,
 		&i.RequireFollowApproval,
 		&i.RepliesSeenAt,
+		&i.SocialPushDisabled,
 	)
 	return i, err
 }
 
 const getSocialProfileByUserID = `-- name: GetSocialProfileByUserID :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at FROM social_profiles WHERE user_id = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled FROM social_profiles WHERE user_id = $1
 `
 
 func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (SocialProfile, error) {
@@ -3158,6 +3193,7 @@ func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (S
 		&i.UpdatedAt,
 		&i.RequireFollowApproval,
 		&i.RepliesSeenAt,
+		&i.SocialPushDisabled,
 	)
 	return i, err
 }
@@ -4955,9 +4991,10 @@ UPDATE social_profiles SET
     history_visibility = $9,
     presence_visibility = $10,
     require_follow_approval = $11,
+    social_push_disabled = $12,
     updated_at = now()
 WHERE user_id = $1
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled
 `
 
 type UpdateSocialProfileParams struct {
@@ -4972,6 +5009,7 @@ type UpdateSocialProfileParams struct {
 	HistoryVisibility       int16
 	PresenceVisibility      int16
 	RequireFollowApproval   bool
+	SocialPushDisabled      int64
 }
 
 // The handle is immutable and deliberately absent here (ADR-0005).
@@ -4988,6 +5026,7 @@ func (q *Queries) UpdateSocialProfile(ctx context.Context, arg UpdateSocialProfi
 		arg.HistoryVisibility,
 		arg.PresenceVisibility,
 		arg.RequireFollowApproval,
+		arg.SocialPushDisabled,
 	)
 	var i SocialProfile
 	err := row.Scan(
@@ -5007,6 +5046,7 @@ func (q *Queries) UpdateSocialProfile(ctx context.Context, arg UpdateSocialProfi
 		&i.UpdatedAt,
 		&i.RequireFollowApproval,
 		&i.RepliesSeenAt,
+		&i.SocialPushDisabled,
 	)
 	return i, err
 }
