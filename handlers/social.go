@@ -599,7 +599,7 @@ func (h Handlers) PostSocialReport(w http.ResponseWriter, r *http.Request) {
 
 	context := req.Context
 	if len(context) > maxReportContextLen {
-		context = context[:maxReportContextLen]
+		context = truncateRunes(context, maxReportContextLen)
 	}
 	targetType := req.TargetType
 	if targetType == "" {

@@ -149,14 +149,20 @@ func (h Handlers) PostPodcastReviews(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := max(req.Offset, 0)
 
+	var viewerID int64
+	if ctxUser := getUser(r.Context()); ctxUser != nil {
+		if viewer, err := h.Queries.GetUserByUUID(r.Context(), ctxUser.UUID); err == nil {
+			viewerID = viewer.ID
+		}
+	}
 	rows, err := h.Queries.GetPodcastReviews(r.Context(), db.GetPodcastReviewsParams{
-		PodcastUuid: req.PodcastUuid, Limit: limit, Offset: offset,
+		PodcastUuid: req.PodcastUuid, Limit: limit, Offset: offset, Viewer: viewerRef(viewerID),
 	})
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	total, err := h.Queries.CountPodcastReviews(r.Context(), req.PodcastUuid)
+	total, err := h.Queries.CountPodcastReviews(r.Context(), db.CountPodcastReviewsParams{PodcastUuid: req.PodcastUuid, Viewer: viewerRef(viewerID)})
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -164,16 +170,13 @@ func (h Handlers) PostPodcastReviews(w http.ResponseWriter, r *http.Request) {
 
 	resp := &pb.PodcastReviewsResponse{Total: total}
 
-	// Resolve the optional viewer for block filtering + your_review.
-	var viewerID int64
-	if ctxUser := getUser(r.Context()); ctxUser != nil {
-		if viewer, err := h.Queries.GetUserByUUID(r.Context(), ctxUser.UUID); err == nil {
-			viewerID = viewer.ID
-			if own, err := h.Queries.GetOwnPodcastReview(r.Context(), db.GetOwnPodcastReviewParams{
-				UserID: viewer.ID, PodcastUuid: req.PodcastUuid,
-			}); err == nil {
-				resp.YourReview = reviewToProto(db.GetPodcastReviewsRow(own))
-			}
+	// your_review for the authed viewer (relationship filtering now lives
+	// in the SQL, matching the count).
+	if viewerID != 0 {
+		if own, err := h.Queries.GetOwnPodcastReview(r.Context(), db.GetOwnPodcastReviewParams{
+			UserID: viewerID, PodcastUuid: req.PodcastUuid,
+		}); err == nil {
+			resp.YourReview = reviewToProto(db.GetPodcastReviewsRow(own))
 		}
 	}
 
@@ -218,6 +221,10 @@ func (h Handlers) PostReactionSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := int16(req.Kind)
+	if len(req.EpisodeUuid) > maxUuidFieldLen {
+		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid episode")
+		return
+	}
 	if kind < 0 || kind > reactionKindMax {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "unknown reaction")
 		return

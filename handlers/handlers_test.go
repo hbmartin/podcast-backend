@@ -173,7 +173,7 @@ func (m *QuerierMock) GetEpisodeComments(ctx context.Context, arg db.GetEpisodeC
 	return nil, nil
 }
 
-func (m *QuerierMock) CountEpisodeComments(ctx context.Context, episodeUuid string) (int64, error) {
+func (m *QuerierMock) CountEpisodeComments(ctx context.Context, arg db.CountEpisodeCommentsParams) (int64, error) {
 	return 0, nil
 }
 
@@ -181,7 +181,7 @@ func (m *QuerierMock) GetCommentReplies(ctx context.Context, arg db.GetCommentRe
 	return nil, nil
 }
 
-func (m *QuerierMock) CountCommentReplies(ctx context.Context, parentID *int64) (int64, error) {
+func (m *QuerierMock) CountCommentReplies(ctx context.Context, arg db.CountCommentRepliesParams) (int64, error) {
 	return 0, nil
 }
 
@@ -201,11 +201,11 @@ func (m *QuerierMock) GetInboxReplies(ctx context.Context, arg db.GetInboxReplie
 	return nil, nil
 }
 
-func (m *QuerierMock) CountInboxReplies(ctx context.Context, userID *int64) (int64, error) {
+func (m *QuerierMock) CountInboxReplies(ctx context.Context, arg db.CountInboxRepliesParams) (int64, error) {
 	return 0, nil
 }
 
-func (m *QuerierMock) CountUnreadInboxReplies(ctx context.Context, userID *int64) (int64, error) {
+func (m *QuerierMock) CountUnreadInboxReplies(ctx context.Context, arg db.CountUnreadInboxRepliesParams) (int64, error) {
 	return 0, nil
 }
 
@@ -472,4 +472,13 @@ func TestErrorTranslationServerError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, code)
 
 	assert.Equal(t, "Unknown error", result.Errors[0])
+}
+
+
+func (m *QuerierMock) CountPendingFollowRequests(ctx context.Context, followeeUserID int64) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) ClearPushStateForUser(ctx context.Context, userID int64) error {
+	return nil
 }

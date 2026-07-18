@@ -24,13 +24,14 @@ func (m *socialMock) ensureGraphState() {
 	}
 }
 
-func (m *socialMock) UpsertFollow(ctx context.Context, arg db.UpsertFollowParams) error {
+func (m *socialMock) UpsertFollow(ctx context.Context, arg db.UpsertFollowParams) (int64, error) {
 	m.ensureGraphState()
 	key := followKey{arg.FollowerUserID, arg.FolloweeUserID}
 	if _, exists := m.follows[key]; !exists {
 		m.follows[key] = arg.Status
+		return 1, nil
 	}
-	return nil
+	return 0, nil
 }
 
 func (m *socialMock) DeleteFollow(ctx context.Context, arg db.DeleteFollowParams) (int64, error) {

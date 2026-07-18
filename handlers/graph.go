@@ -99,9 +99,10 @@ func (h Handlers) PostFollow(w http.ResponseWriter, r *http.Request) {
 	if target.RequireFollowApproval {
 		status = followStatusPending
 	}
-	if err := h.Queries.UpsertFollow(r.Context(), db.UpsertFollowParams{
+	inserted, err := h.Queries.UpsertFollow(r.Context(), db.UpsertFollowParams{
 		FollowerUserID: user.ID, FolloweeUserID: target.UserID, Status: status,
-	}); err != nil {
+	})
+	if err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -120,7 +121,11 @@ func (h Handlers) PostFollow(w http.ResponseWriter, r *http.Request) {
 		state = pb.FollowState_FOLLOW_STATE_ACTIVE
 		pushType = push.SocialPushNewFollower
 	}
-	h.notifySocial(target.UserID, pushType, profile.Handle, profile.DisplayName, nil)
+	// Only a NEW row notifies: idempotent re-follows must not re-push, and
+	// the target's mute suppresses the push outright (QA findings).
+	if inserted > 0 && !h.mutedBy(r, target.UserID, user.ID) {
+		h.notifySocial(target.UserID, pushType, profile.Handle, profile.DisplayName, nil)
+	}
 	writeProto(w, http.StatusOK, &pb.FollowResponse{State: state})
 }
 
@@ -233,7 +238,12 @@ func (h Handlers) PostFollowRequests(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	resp := &pb.FollowListResponse{Total: int64(len(rows))}
+	pendingTotal, err := h.Queries.CountPendingFollowRequests(r.Context(), user.ID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	resp := &pb.FollowListResponse{Total: pendingTotal}
 	for _, row := range rows {
 		resp.Entries = append(resp.Entries, followEntry(row.UserUuid, row.Handle, row.DisplayName, row.Status))
 	}
@@ -263,12 +273,13 @@ func (h Handlers) PostFollowApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var affected int64
 	if req.Accept {
-		_, err = h.Queries.ApproveFollow(r.Context(), db.ApproveFollowParams{
+		affected, err = h.Queries.ApproveFollow(r.Context(), db.ApproveFollowParams{
 			FollowerUserID: requester.UserID, FolloweeUserID: user.ID,
 		})
 	} else {
-		_, err = h.Queries.DeleteFollow(r.Context(), db.DeleteFollowParams{
+		affected, err = h.Queries.DeleteFollow(r.Context(), db.DeleteFollowParams{
 			FollowerUserID: requester.UserID, FolloweeUserID: user.ID,
 		})
 	}
@@ -276,7 +287,9 @@ func (h Handlers) PostFollowApprove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	if req.Accept {
+	// Only a real pending→active transition notifies — approving a
+	// nonexistent request must never manufacture a push (QA finding).
+	if req.Accept && affected > 0 {
 		h.notifySocial(requester.UserID, push.SocialPushFollowApproved, profile.Handle, profile.DisplayName, nil)
 	}
 	writeProto(w, http.StatusOK, &pb.SocialAck{Success: true})
@@ -305,7 +318,7 @@ func (h Handlers) PostFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.Queries.GetFeedItems(r.Context(), db.GetFeedItemsParams{
-		FollowerUserID: user.ID, Limit: limit, Before: before,
+		UserID: user.ID, Limit: limit, Before: before,
 	})
 	if err != nil {
 		writeError(w, r, err)

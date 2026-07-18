@@ -30,7 +30,8 @@ const (
 // PostShareSend handles POST /social/share/send.
 func (h Handlers) PostShareSend(w http.ResponseWriter, r *http.Request) {
 	req := &pb.SharedItemSendRequest{}
-	if err := bindProto(r, req); err != nil || req.EpisodeUuid == "" {
+	if err := bindProto(r, req); err != nil || req.EpisodeUuid == "" ||
+		len(req.EpisodeUuid) > maxUuidFieldLen || len(req.PodcastUuid) > maxUuidFieldLen {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
 		return
 	}
@@ -104,6 +105,10 @@ func (h Handlers) PostShareSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.mutedBy(r, recipientProfile.UserID, user.ID) {
+		writeProto(w, http.StatusOK, &pb.SocialAck{Success: true})
+		return
+	}
 	h.notifySocial(recipientProfile.UserID, push.SocialPushSharedItem,
 		senderProfile.Handle, senderProfile.DisplayName,
 		map[string]string{"episode_uuid": req.EpisodeUuid, "podcast_uuid": req.PodcastUuid})
@@ -139,18 +144,18 @@ func (h Handlers) PostInbox(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.Queries.GetInboxItems(r.Context(), db.GetInboxItemsParams{
-		RecipientUserID: user.ID, Limit: limit, Offset: offset,
+		RecipientUserID: user.ID, Viewer: &user.ID, Limit: limit, Offset: offset,
 	})
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	total, err := h.Queries.CountInboxItems(r.Context(), user.ID)
+	total, err := h.Queries.CountInboxItems(r.Context(), db.CountInboxItemsParams{RecipientUserID: user.ID, Viewer: &user.ID})
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	unread, err := h.Queries.CountUnreadInboxItems(r.Context(), user.ID)
+	unread, err := h.Queries.CountUnreadInboxItems(r.Context(), db.CountUnreadInboxItemsParams{RecipientUserID: user.ID, Viewer: &user.ID})
 	if err != nil {
 		writeError(w, r, err)
 		return

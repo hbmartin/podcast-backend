@@ -67,6 +67,16 @@ func (q *Queries) ClaimHandle(ctx context.Context, arg ClaimHandleParams) error 
 	return err
 }
 
+const clearPushStateForUser = `-- name: ClearPushStateForUser :exec
+UPDATE devices SET push_token = '', push_on = false WHERE user_id = $1
+`
+
+// Account deletion must silence the account's devices (QA finding).
+func (q *Queries) ClearPushStateForUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, clearPushStateForUser, userID)
+	return err
+}
+
 const clearPushToken = `-- name: ClearPushToken :exec
 UPDATE devices SET push_token = '', updated_at = now()
 WHERE push_token = $1
@@ -102,23 +112,43 @@ func (q *Queries) ConsumeChallenge(ctx context.Context, challenge []byte) ([]byt
 }
 
 const countCommentReplies = `-- name: CountCommentReplies :one
-SELECT count(*) FROM episode_comments WHERE parent_id = $1
+SELECT count(*) FROM episode_comments c WHERE c.parent_id = $1
+  AND ($2::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $2 AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = $2)))
+       OR (sr.kind = 1 AND sr.user_id = $2 AND sr.target_user_id = c.user_id)))
 `
 
-func (q *Queries) CountCommentReplies(ctx context.Context, parentID *int64) (int64, error) {
-	row := q.db.QueryRow(ctx, countCommentReplies, parentID)
+type CountCommentRepliesParams struct {
+	ParentID *int64
+	Viewer   *int64
+}
+
+func (q *Queries) CountCommentReplies(ctx context.Context, arg CountCommentRepliesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countCommentReplies, arg.ParentID, arg.Viewer)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const countEpisodeComments = `-- name: CountEpisodeComments :one
-SELECT count(*) FROM episode_comments
-WHERE episode_uuid = $1 AND parent_id IS NULL
+SELECT count(*) FROM episode_comments c
+WHERE c.episode_uuid = $1 AND c.parent_id IS NULL
+  AND ($2::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $2 AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = $2)))
+       OR (sr.kind = 1 AND sr.user_id = $2 AND sr.target_user_id = c.user_id)))
 `
 
-func (q *Queries) CountEpisodeComments(ctx context.Context, episodeUuid string) (int64, error) {
-	row := q.db.QueryRow(ctx, countEpisodeComments, episodeUuid)
+type CountEpisodeCommentsParams struct {
+	EpisodeUuid string
+	Viewer      *int64
+}
+
+func (q *Queries) CountEpisodeComments(ctx context.Context, arg CountEpisodeCommentsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countEpisodeComments, arg.EpisodeUuid, arg.Viewer)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -136,7 +166,7 @@ func (q *Queries) CountFollowers(ctx context.Context, followeeUserID int64) (int
 }
 
 const countFollowing = `-- name: CountFollowing :one
-SELECT count(*) FROM social_follows WHERE follower_user_id = $1 AND status = 1
+SELECT count(*) FROM social_follows WHERE follower_user_id = $1
 `
 
 func (q *Queries) CountFollowing(ctx context.Context, followerUserID int64) (int64, error) {
@@ -150,10 +180,20 @@ const countInboxItems = `-- name: CountInboxItems :one
 SELECT count(*) FROM shared_items si
 JOIN social_profiles sp ON sp.user_id = si.sender_user_id
 WHERE si.recipient_user_id = $1
+  AND ($2::bigint IS NULL OR si.sender_user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $2 AND sr.target_user_id = si.sender_user_id)
+                         OR (sr.user_id = si.sender_user_id AND sr.target_user_id = $2)))
+       OR (sr.kind = 1 AND sr.user_id = $2 AND sr.target_user_id = si.sender_user_id)))
 `
 
-func (q *Queries) CountInboxItems(ctx context.Context, recipientUserID int64) (int64, error) {
-	row := q.db.QueryRow(ctx, countInboxItems, recipientUserID)
+type CountInboxItemsParams struct {
+	RecipientUserID int64
+	Viewer          *int64
+}
+
+func (q *Queries) CountInboxItems(ctx context.Context, arg CountInboxItemsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countInboxItems, arg.RecipientUserID, arg.Viewer)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -164,10 +204,32 @@ SELECT count(*)
 FROM episode_comments c
 JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
 WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
+  AND ($2::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $2 AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = $2)))
+       OR (sr.kind = 1 AND sr.user_id = $2 AND sr.target_user_id = c.user_id)))
 `
 
-func (q *Queries) CountInboxReplies(ctx context.Context, userID *int64) (int64, error) {
-	row := q.db.QueryRow(ctx, countInboxReplies, userID)
+type CountInboxRepliesParams struct {
+	UserID *int64
+	Viewer *int64
+}
+
+func (q *Queries) CountInboxReplies(ctx context.Context, arg CountInboxRepliesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countInboxReplies, arg.UserID, arg.Viewer)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPendingFollowRequests = `-- name: CountPendingFollowRequests :one
+SELECT count(*) FROM social_follows
+WHERE followee_user_id = $1 AND status = 0
+`
+
+func (q *Queries) CountPendingFollowRequests(ctx context.Context, followeeUserID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingFollowRequests, followeeUserID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -195,11 +257,21 @@ func (q *Queries) CountPlayedEpisodesOfPodcast(ctx context.Context, arg CountPla
 }
 
 const countPodcastReviews = `-- name: CountPodcastReviews :one
-SELECT count(*) FROM podcast_reviews WHERE podcast_uuid = $1
+SELECT count(*) FROM podcast_reviews r WHERE r.podcast_uuid = $1
+  AND ($2::bigint IS NULL OR r.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $2 AND sr.target_user_id = r.user_id)
+                         OR (sr.user_id = r.user_id AND sr.target_user_id = $2)))
+       OR (sr.kind = 1 AND sr.user_id = $2 AND sr.target_user_id = r.user_id)))
 `
 
-func (q *Queries) CountPodcastReviews(ctx context.Context, podcastUuid string) (int64, error) {
-	row := q.db.QueryRow(ctx, countPodcastReviews, podcastUuid)
+type CountPodcastReviewsParams struct {
+	PodcastUuid string
+	Viewer      *int64
+}
+
+func (q *Queries) CountPodcastReviews(ctx context.Context, arg CountPodcastReviewsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPodcastReviews, arg.PodcastUuid, arg.Viewer)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -256,10 +328,20 @@ const countUnreadInboxItems = `-- name: CountUnreadInboxItems :one
 SELECT count(*) FROM shared_items si
 JOIN social_profiles sp ON sp.user_id = si.sender_user_id
 WHERE si.recipient_user_id = $1 AND si.read_at IS NULL
+  AND ($2::bigint IS NULL OR si.sender_user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $2 AND sr.target_user_id = si.sender_user_id)
+                         OR (sr.user_id = si.sender_user_id AND sr.target_user_id = $2)))
+       OR (sr.kind = 1 AND sr.user_id = $2 AND sr.target_user_id = si.sender_user_id)))
 `
 
-func (q *Queries) CountUnreadInboxItems(ctx context.Context, recipientUserID int64) (int64, error) {
-	row := q.db.QueryRow(ctx, countUnreadInboxItems, recipientUserID)
+type CountUnreadInboxItemsParams struct {
+	RecipientUserID int64
+	Viewer          *int64
+}
+
+func (q *Queries) CountUnreadInboxItems(ctx context.Context, arg CountUnreadInboxItemsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countUnreadInboxItems, arg.RecipientUserID, arg.Viewer)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -272,10 +354,20 @@ JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
 JOIN social_profiles caller ON caller.user_id = $1
 WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
   AND c.created_at > caller.replies_seen_at
+  AND ($2::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $2 AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = $2)))
+       OR (sr.kind = 1 AND sr.user_id = $2 AND sr.target_user_id = c.user_id)))
 `
 
-func (q *Queries) CountUnreadInboxReplies(ctx context.Context, userID *int64) (int64, error) {
-	row := q.db.QueryRow(ctx, countUnreadInboxReplies, userID)
+type CountUnreadInboxRepliesParams struct {
+	UserID *int64
+	Viewer *int64
+}
+
+func (q *Queries) CountUnreadInboxReplies(ctx context.Context, arg CountUnreadInboxRepliesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countUnreadInboxReplies, arg.UserID, arg.Viewer)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -1046,6 +1138,11 @@ FROM episode_comments c
 LEFT JOIN users u ON u.id = c.user_id
 LEFT JOIN social_profiles sp ON sp.user_id = c.user_id
 WHERE c.parent_id = $1
+  AND ($4::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $4 AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = $4)))
+       OR (sr.kind = 1 AND sr.user_id = $4 AND sr.target_user_id = c.user_id)))
 ORDER BY c.created_at ASC
 LIMIT $2 OFFSET $3
 `
@@ -1054,6 +1151,7 @@ type GetCommentRepliesParams struct {
 	ParentID *int64
 	Limit    int32
 	Offset   int32
+	Viewer   *int64
 }
 
 type GetCommentRepliesRow struct {
@@ -1072,7 +1170,12 @@ type GetCommentRepliesRow struct {
 }
 
 func (q *Queries) GetCommentReplies(ctx context.Context, arg GetCommentRepliesParams) ([]GetCommentRepliesRow, error) {
-	rows, err := q.db.Query(ctx, getCommentReplies, arg.ParentID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, getCommentReplies,
+		arg.ParentID,
+		arg.Limit,
+		arg.Offset,
+		arg.Viewer,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1272,6 +1375,11 @@ FROM episode_comments c
 LEFT JOIN users u ON u.id = c.user_id
 LEFT JOIN social_profiles sp ON sp.user_id = c.user_id
 WHERE c.episode_uuid = $1 AND c.parent_id IS NULL
+  AND ($4::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $4 AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = $4)))
+       OR (sr.kind = 1 AND sr.user_id = $4 AND sr.target_user_id = c.user_id)))
 ORDER BY c.created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -1280,6 +1388,7 @@ type GetEpisodeCommentsParams struct {
 	EpisodeUuid string
 	Limit       int32
 	Offset      int32
+	Viewer      *int64
 }
 
 type GetEpisodeCommentsRow struct {
@@ -1297,7 +1406,12 @@ type GetEpisodeCommentsRow struct {
 }
 
 func (q *Queries) GetEpisodeComments(ctx context.Context, arg GetEpisodeCommentsParams) ([]GetEpisodeCommentsRow, error) {
-	rows, err := q.db.Query(ctx, getEpisodeComments, arg.EpisodeUuid, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, getEpisodeComments,
+		arg.EpisodeUuid,
+		arg.Limit,
+		arg.Offset,
+		arg.Viewer,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1519,6 +1633,12 @@ FROM (
     JOIN followees f ON f.uid = sf.follower_user_id
     JOIN social_profiles tp ON tp.user_id = sf.followee_user_id
     WHERE sf.status = 1
+      -- never surface a handle the viewer is blocked with (QA finding)
+      AND NOT EXISTS (
+        SELECT 1 FROM social_relationships br
+        WHERE br.kind = 0
+          AND ((br.user_id = $1 AND br.target_user_id = sf.followee_user_id)
+            OR (br.user_id = sf.followee_user_id AND br.target_user_id = $1)))
   UNION ALL
     SELECT 3, up.user_id, up.podcast_uuid::text, COALESCE(p.title, ''), '', '', '', 0, '',
            up.date_added,
@@ -1552,6 +1672,8 @@ FROM (
            '', 0::bigint
     FROM episode_reactions er
     JOIN followees f ON f.uid = er.user_id
+    -- reactions are listening-derived: same history gate as finished-episode
+    JOIN social_profiles rp ON rp.user_id = er.user_id AND rp.history_visibility IN (2, 3)
     LEFT JOIN episodes e ON e.uuid::text = er.episode_uuid
   UNION ALL
     SELECT 7, ec.user_id, ec.podcast_uuid, ec.podcast_title,
@@ -1569,15 +1691,16 @@ FROM (
 ) events
 JOIN social_profiles actor ON actor.user_id = events.actor_id
 JOIN users au ON au.id = events.actor_id
-WHERE ($3::timestamptz IS NULL OR events.event_at < $3::timestamptz)
-ORDER BY events.event_at DESC
+WHERE ($3::timestamptz IS NULL
+       OR date_trunc('milliseconds', events.event_at) < $3::timestamptz)
+ORDER BY events.event_at DESC, events.actor_id, events.kind
 LIMIT $2
 `
 
 type GetFeedItemsParams struct {
-	FollowerUserID int64
-	Limit          int32
-	Before         *time.Time
+	UserID int64
+	Limit  int32
+	Before *time.Time
 }
 
 type GetFeedItemsRow struct {
@@ -1604,7 +1727,7 @@ type GetFeedItemsRow struct {
 // excluded (blocks can't occur: a block severs follows). Kinds mirror the
 // proto FeedItemKind values.
 func (q *Queries) GetFeedItems(ctx context.Context, arg GetFeedItemsParams) ([]GetFeedItemsRow, error) {
-	rows, err := q.db.Query(ctx, getFeedItems, arg.FollowerUserID, arg.Limit, arg.Before)
+	rows, err := q.db.Query(ctx, getFeedItems, arg.UserID, arg.Limit, arg.Before)
 	if err != nil {
 		return nil, err
 	}
@@ -1920,6 +2043,11 @@ FROM shared_items si
 JOIN users u ON u.id = si.sender_user_id
 JOIN social_profiles sp ON sp.user_id = si.sender_user_id
 WHERE si.recipient_user_id = $1
+  AND ($4::bigint IS NULL OR si.sender_user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $4 AND sr.target_user_id = si.sender_user_id)
+                         OR (sr.user_id = si.sender_user_id AND sr.target_user_id = $4)))
+       OR (sr.kind = 1 AND sr.user_id = $4 AND sr.target_user_id = si.sender_user_id)))
 ORDER BY si.created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -1928,6 +2056,7 @@ type GetInboxItemsParams struct {
 	RecipientUserID int64
 	Limit           int32
 	Offset          int32
+	Viewer          *int64
 }
 
 type GetInboxItemsRow struct {
@@ -1947,7 +2076,12 @@ type GetInboxItemsRow struct {
 
 // The recipient's inbox, newest first, with the sender's live attribution.
 func (q *Queries) GetInboxItems(ctx context.Context, arg GetInboxItemsParams) ([]GetInboxItemsRow, error) {
-	rows, err := q.db.Query(ctx, getInboxItems, arg.RecipientUserID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, getInboxItems,
+		arg.RecipientUserID,
+		arg.Limit,
+		arg.Offset,
+		arg.Viewer,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1989,6 +2123,11 @@ JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
 JOIN users u ON u.id = c.user_id
 JOIN social_profiles sp ON sp.user_id = c.user_id
 WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
+  AND ($4::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $4 AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = $4)))
+       OR (sr.kind = 1 AND sr.user_id = $4 AND sr.target_user_id = c.user_id)))
 ORDER BY c.created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -1997,6 +2136,7 @@ type GetInboxRepliesParams struct {
 	UserID *int64
 	Limit  int32
 	Offset int32
+	Viewer *int64
 }
 
 type GetInboxRepliesRow struct {
@@ -2018,7 +2158,12 @@ type GetInboxRepliesRow struct {
 }
 
 func (q *Queries) GetInboxReplies(ctx context.Context, arg GetInboxRepliesParams) ([]GetInboxRepliesRow, error) {
-	rows, err := q.db.Query(ctx, getInboxReplies, arg.UserID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, getInboxReplies,
+		arg.UserID,
+		arg.Limit,
+		arg.Offset,
+		arg.Viewer,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2453,13 +2598,14 @@ WITH followees AS (
         SELECT 1 FROM social_relationships sr
         WHERE sr.user_id = $1 AND sr.target_user_id = sf.followee_user_id AND sr.kind = 1)
 )
-SELECT sp.handle,
-       (sp.followed_shows_visibility IN (2, 3))::bool AS list_visible
+SELECT sp.handle
 FROM user_podcasts up
 JOIN followees f ON f.uid = up.user_id
 JOIN social_profiles sp ON sp.user_id = up.user_id
 WHERE up.podcast_uuid = $2 AND up.subscribed AND NOT up.is_deleted
-ORDER BY list_visible DESC, sp.handle
+  -- private followed-shows never appear, not even in the count (QA finding)
+  AND sp.followed_shows_visibility IN (2, 3)
+ORDER BY sp.handle
 `
 
 type GetPodcastProofParams struct {
@@ -2467,24 +2613,19 @@ type GetPodcastProofParams struct {
 	PodcastUuid    string
 }
 
-type GetPodcastProofRow struct {
-	Handle      string
-	ListVisible bool
-}
-
-func (q *Queries) GetPodcastProof(ctx context.Context, arg GetPodcastProofParams) ([]GetPodcastProofRow, error) {
+func (q *Queries) GetPodcastProof(ctx context.Context, arg GetPodcastProofParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, getPodcastProof, arg.FollowerUserID, arg.PodcastUuid)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetPodcastProofRow
+	var items []string
 	for rows.Next() {
-		var i GetPodcastProofRow
-		if err := rows.Scan(&i.Handle, &i.ListVisible); err != nil {
+		var handle string
+		if err := rows.Scan(&handle); err != nil {
 			return nil, err
 		}
-		items = append(items, i)
+		items = append(items, handle)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -2541,6 +2682,11 @@ JOIN users u ON u.id = r.user_id
 JOIN social_profiles sp ON sp.user_id = r.user_id
 LEFT JOIN podcast_ratings pr ON pr.user_id = r.user_id AND pr.podcast_uuid = r.podcast_uuid
 WHERE r.podcast_uuid = $1
+  AND ($4::bigint IS NULL OR r.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $4 AND sr.target_user_id = r.user_id)
+                         OR (sr.user_id = r.user_id AND sr.target_user_id = $4)))
+       OR (sr.kind = 1 AND sr.user_id = $4 AND sr.target_user_id = r.user_id)))
 ORDER BY r.created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -2549,6 +2695,7 @@ type GetPodcastReviewsParams struct {
 	PodcastUuid string
 	Limit       int32
 	Offset      int32
+	Viewer      *int64
 }
 
 type GetPodcastReviewsRow struct {
@@ -2567,7 +2714,12 @@ type GetPodcastReviewsRow struct {
 // require a joined account, so the join always matches live authors) and the
 // author's star rating when they have one.
 func (q *Queries) GetPodcastReviews(ctx context.Context, arg GetPodcastReviewsParams) ([]GetPodcastReviewsRow, error) {
-	rows, err := q.db.Query(ctx, getPodcastReviews, arg.PodcastUuid, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, getPodcastReviews,
+		arg.PodcastUuid,
+		arg.Limit,
+		arg.Offset,
+		arg.Viewer,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -4760,7 +4912,7 @@ SELECT sp.handle, sp.display_name, sp.user_id,
 FROM social_profiles sp
 WHERE NOT sp.hide_from_discovery
   AND sp.user_id <> $1
-  AND (sp.handle LIKE $2 || '%' OR lower(sp.display_name) LIKE $2 || '%')
+  AND (sp.handle LIKE $2 || '%' ESCAPE '\' OR lower(sp.display_name) LIKE $2 || '%' ESCAPE '\')
   AND NOT EXISTS (
     SELECT 1 FROM social_relationships sr
     WHERE sr.kind = 0
@@ -5615,7 +5767,7 @@ func (q *Queries) UpsertFolder(ctx context.Context, arg UpsertFolderParams) erro
 	return err
 }
 
-const upsertFollow = `-- name: UpsertFollow :exec
+const upsertFollow = `-- name: UpsertFollow :execrows
 
 INSERT INTO social_follows (follower_user_id, followee_user_id, status, approved_at)
 VALUES ($1, $2, $3, CASE WHEN $3::smallint = 1 THEN now() ELSE NULL END)
@@ -5632,9 +5784,12 @@ type UpsertFollowParams struct {
 // Follow graph + activity feed (Slice 5; ADR-0009: feed derives at read time)
 // ============================================================================
 // Idempotent; re-following while pending keeps pending (no status escalation).
-func (q *Queries) UpsertFollow(ctx context.Context, arg UpsertFollowParams) error {
-	_, err := q.db.Exec(ctx, upsertFollow, arg.FollowerUserID, arg.FolloweeUserID, arg.Status)
-	return err
+func (q *Queries) UpsertFollow(ctx context.Context, arg UpsertFollowParams) (int64, error) {
+	result, err := q.db.Exec(ctx, upsertFollow, arg.FollowerUserID, arg.FolloweeUserID, arg.Status)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertHistoryItem = `-- name: UpsertHistoryItem :exec

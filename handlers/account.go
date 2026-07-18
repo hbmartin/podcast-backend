@@ -316,6 +316,11 @@ func (h Handlers) PostDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A deleted account's devices must stop receiving pushes (QA finding).
+	if err := h.Queries.ClearPushStateForUser(r.Context(), user.ID); err != nil {
+		writeError(w, r, err)
+		return
+	}
 	if err := h.socialErase(r, user.ID); err != nil {
 		writeError(w, r, err)
 		return

@@ -56,7 +56,7 @@ func (h Handlers) PostSocialTrending(w http.ResponseWriter, r *http.Request) {
 // PostPodcastProof handles POST /social/podcast/proof (joined required).
 func (h Handlers) PostPodcastProof(w http.ResponseWriter, r *http.Request) {
 	req := &pb.PodcastProofRequest{}
-	if err := bindProto(r, req); err != nil || req.PodcastUuid == "" {
+	if err := bindProto(r, req); err != nil || !uuidPattern.MatchString(req.PodcastUuid) {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
 		return
 	}
@@ -73,10 +73,12 @@ func (h Handlers) PostPodcastProof(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Every row is already visibility-filtered in SQL — private lists never
+	// reach the count at all (QA finding).
 	resp := &pb.PodcastProofResponse{TotalCount: int32(len(rows))}
-	for _, row := range rows {
-		if row.ListVisible && len(resp.VisibleHandles) < maxProofNames {
-			resp.VisibleHandles = append(resp.VisibleHandles, row.Handle)
+	for _, handle := range rows {
+		if len(resp.VisibleHandles) < maxProofNames {
+			resp.VisibleHandles = append(resp.VisibleHandles, handle)
 		}
 	}
 	writeProto(w, http.StatusOK, resp)

@@ -146,7 +146,7 @@ type Querier interface {
 	DeletePodcastReview(ctx context.Context, arg DeletePodcastReviewParams) (int64, error)
 	DeleteReviewsForUser(ctx context.Context, userID int64) error
 	GetPodcastReviews(ctx context.Context, arg GetPodcastReviewsParams) ([]GetPodcastReviewsRow, error)
-	CountPodcastReviews(ctx context.Context, podcastUuid string) (int64, error)
+	CountPodcastReviews(ctx context.Context, arg CountPodcastReviewsParams) (int64, error)
 	GetOwnPodcastReview(ctx context.Context, arg GetOwnPodcastReviewParams) (GetOwnPodcastReviewRow, error)
 	CountPlayedEpisodesOfPodcast(ctx context.Context, arg CountPlayedEpisodesOfPodcastParams) (int64, error)
 	UpsertEpisodeReaction(ctx context.Context, arg UpsertEpisodeReactionParams) error
@@ -154,7 +154,7 @@ type Querier interface {
 	GetEpisodeReactionCounts(ctx context.Context, episodeUuid string) ([]GetEpisodeReactionCountsRow, error)
 	GetOwnEpisodeReaction(ctx context.Context, arg GetOwnEpisodeReactionParams) (int16, error)
 
-	UpsertFollow(ctx context.Context, arg UpsertFollowParams) error
+	UpsertFollow(ctx context.Context, arg UpsertFollowParams) (int64, error)
 	DeleteFollow(ctx context.Context, arg DeleteFollowParams) (int64, error)
 	ApproveFollow(ctx context.Context, arg ApproveFollowParams) (int64, error)
 	ClearSocialListAttributionForUser(ctx context.Context, addedBy *int64) error
@@ -171,7 +171,7 @@ type Querier interface {
 	GetSocialSuggestions(ctx context.Context, arg GetSocialSuggestionsParams) ([]GetSocialSuggestionsRow, error)
 	GetDiscoverableProfileEmails(ctx context.Context) ([]GetDiscoverableProfileEmailsRow, error)
 	GetTrendingWithFriends(ctx context.Context, arg GetTrendingWithFriendsParams) ([]GetTrendingWithFriendsRow, error)
-	GetPodcastProof(ctx context.Context, arg GetPodcastProofParams) ([]GetPodcastProofRow, error)
+	GetPodcastProof(ctx context.Context, arg GetPodcastProofParams) ([]string, error)
 	GetSocialList(ctx context.Context, id int64) (GetSocialListRow, error)
 	GetSocialListEntries(ctx context.Context, arg GetSocialListEntriesParams) ([]GetSocialListEntriesRow, error)
 	GetSocialListInvitesForUser(ctx context.Context, userID int64) ([]GetSocialListInvitesForUserRow, error)
@@ -184,10 +184,10 @@ type Querier interface {
 	UpdateSocialList(ctx context.Context, arg UpdateSocialListParams) (int64, error)
 	UpsertSocialListEntry(ctx context.Context, arg UpsertSocialListEntryParams) error
 	UpsertSocialListMember(ctx context.Context, arg UpsertSocialListMemberParams) error
-	CountCommentReplies(ctx context.Context, parentID *int64) (int64, error)
-	CountEpisodeComments(ctx context.Context, episodeUuid string) (int64, error)
-	CountInboxReplies(ctx context.Context, userID *int64) (int64, error)
-	CountUnreadInboxReplies(ctx context.Context, userID *int64) (int64, error)
+	CountCommentReplies(ctx context.Context, arg CountCommentRepliesParams) (int64, error)
+	CountEpisodeComments(ctx context.Context, arg CountEpisodeCommentsParams) (int64, error)
+	CountInboxReplies(ctx context.Context, arg CountInboxRepliesParams) (int64, error)
+	CountUnreadInboxReplies(ctx context.Context, arg CountUnreadInboxRepliesParams) (int64, error)
 	EditComment(ctx context.Context, arg EditCommentParams) (int64, error)
 	GetCommentByID(ctx context.Context, id int64) (GetCommentByIDRow, error)
 	GetCommentReplies(ctx context.Context, arg GetCommentRepliesParams) ([]GetCommentRepliesRow, error)
@@ -200,6 +200,8 @@ type Querier interface {
 	TombstoneComment(ctx context.Context, arg TombstoneCommentParams) (int64, error)
 	TombstoneCommentsForUser(ctx context.Context, userID *int64) error
 	GetFollowState(ctx context.Context, arg GetFollowStateParams) (int16, error)
+	CountPendingFollowRequests(ctx context.Context, followeeUserID int64) (int64, error)
+	ClearPushStateForUser(ctx context.Context, userID int64) error
 	CountFollowers(ctx context.Context, followeeUserID int64) (int64, error)
 	CountFollowing(ctx context.Context, followerUserID int64) (int64, error)
 	GetFollowers(ctx context.Context, arg GetFollowersParams) ([]GetFollowersRow, error)
@@ -210,8 +212,8 @@ type Querier interface {
 
 	InsertSharedItem(ctx context.Context, arg InsertSharedItemParams) (int64, error)
 	GetInboxItems(ctx context.Context, arg GetInboxItemsParams) ([]GetInboxItemsRow, error)
-	CountInboxItems(ctx context.Context, recipientUserID int64) (int64, error)
-	CountUnreadInboxItems(ctx context.Context, recipientUserID int64) (int64, error)
+	CountInboxItems(ctx context.Context, arg CountInboxItemsParams) (int64, error)
+	CountUnreadInboxItems(ctx context.Context, arg CountUnreadInboxItemsParams) (int64, error)
 	MarkInboxItemsRead(ctx context.Context, arg MarkInboxItemsReadParams) error
 	DeleteInboxItem(ctx context.Context, arg DeleteInboxItemParams) (int64, error)
 	DeleteSharedItemsForUser(ctx context.Context, userID int64) error

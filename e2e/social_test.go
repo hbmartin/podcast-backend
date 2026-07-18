@@ -992,8 +992,10 @@ func TestDiscovery(t *testing.T) {
 	proof := &pb.PodcastProofResponse{}
 	status = postProto(t, "/social/podcast/proof", tokenA, &pb.PodcastProofRequest{PodcastUuid: podcastUuid}, proof)
 	require.Equal(t, http.StatusOK, status)
-	assert.Equal(t, int32(1), proof.TotalCount)
-	assert.Empty(t, proof.VisibleHandles, "private followed-shows fold into the count")
+	// QA-corrected contract: a private followed-shows list contributes
+	// NOTHING to proof — not even the count.
+	assert.Equal(t, int32(0), proof.TotalCount)
+	assert.Empty(t, proof.VisibleHandles)
 
 	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
 		DisplayName: "Listener B", HistoryVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
@@ -1006,4 +1008,5 @@ func TestDiscovery(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	require.Len(t, proof.VisibleHandles, 1)
 	assert.Equal(t, handleB, proof.VisibleHandles[0])
+	assert.Equal(t, int32(1), proof.TotalCount)
 }

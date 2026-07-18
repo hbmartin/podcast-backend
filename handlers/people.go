@@ -37,6 +37,9 @@ func (h Handlers) PostSocialSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(req.Query, "@")))
+	// Escape LIKE metacharacters: '%' must not enumerate the directory and
+	// '_' is a legal handle character, not a wildcard (QA finding).
+	query = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	if query == "" {
 		writeProto(w, http.StatusOK, &pb.SocialSearchResponse{})
 		return

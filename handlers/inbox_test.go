@@ -56,22 +56,22 @@ func (m *socialMock) GetInboxItems(ctx context.Context, arg db.GetInboxItemsPara
 	return rows, nil
 }
 
-func (m *socialMock) CountInboxItems(ctx context.Context, recipientUserID int64) (int64, error) {
+func (m *socialMock) CountInboxItems(ctx context.Context, arg db.CountInboxItemsParams) (int64, error) {
 	m.ensureInboxState()
 	var n int64
 	for _, item := range m.inbox {
-		if item.recipient == recipientUserID {
+		if item.recipient == arg.RecipientUserID {
 			n++
 		}
 	}
 	return n, nil
 }
 
-func (m *socialMock) CountUnreadInboxItems(ctx context.Context, recipientUserID int64) (int64, error) {
+func (m *socialMock) CountUnreadInboxItems(ctx context.Context, arg db.CountUnreadInboxItemsParams) (int64, error) {
 	m.ensureInboxState()
 	var n int64
 	for _, item := range m.inbox {
-		if item.recipient == recipientUserID && !item.read {
+		if item.recipient == arg.RecipientUserID && !item.read {
 			n++
 		}
 	}

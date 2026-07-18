@@ -91,6 +91,12 @@ func (e *Engine) UpdateEpisode(ctx context.Context, userID int64, req *pb.Update
 		if req.Podcast != "" {
 			params.PodcastUuid = req.Podcast
 		}
+		if params.PodcastUuid == "" {
+			return nil
+		}
+		if params.PodcastUuid == "" {
+			return nil
+		}
 		if req.Position != nil {
 			params.PlayedUpTo = int64(req.Position.Value)
 			params.PlayedUpToModified = token

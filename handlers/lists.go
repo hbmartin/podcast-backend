@@ -63,7 +63,8 @@ func (h Handlers) PostSocialListCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Initial snapshot (materialize-to-share): positions follow given order.
 	for index, entry := range req.Entries {
-		if entry.EpisodeUuid == "" {
+		if entry.EpisodeUuid == "" || len(entry.EpisodeUuid) > maxUuidFieldLen ||
+			len(entry.PodcastUuid) > maxUuidFieldLen {
 			continue
 		}
 		if err := h.Queries.UpsertSocialListEntry(r.Context(), db.UpsertSocialListEntryParams{
@@ -219,7 +220,8 @@ func (h Handlers) PostSocialListEntries(w http.ResponseWriter, r *http.Request) 
 // the owner or a collaborator. Last write wins; MOVE sets the raw position.
 func (h Handlers) PostSocialListEntryOp(w http.ResponseWriter, r *http.Request) {
 	req := &pb.SharedListEntryOpRequest{}
-	if err := bindProto(r, req); err != nil || req.ListId <= 0 || req.EpisodeUuid == "" {
+	if err := bindProto(r, req); err != nil || req.ListId <= 0 || req.EpisodeUuid == "" ||
+		len(req.EpisodeUuid) > maxUuidFieldLen || len(req.PodcastUuid) > maxUuidFieldLen {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
 		return
 	}
@@ -236,6 +238,10 @@ func (h Handlers) PostSocialListEntryOp(w http.ResponseWriter, r *http.Request) 
 	role := h.socialListRole(r, list.OwnerUserID, req.ListId, user.ID)
 	if role != pb.SharedListRole_SHARED_LIST_ROLE_OWNER && role != pb.SharedListRole_SHARED_LIST_ROLE_COLLABORATOR {
 		pcerrors.Write(w, http.StatusForbidden, pcerrors.AccessDenied, "not an editor")
+		return
+	}
+	if !h.canViewSocialList(r, list.OwnerUserID, list.Visibility, user.ID, role) {
+		pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "list not found")
 		return
 	}
 
@@ -347,6 +353,10 @@ func (h Handlers) PostSocialListInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+	if h.mutedBy(r, target.UserID, user.ID) {
+		writeProto(w, http.StatusOK, &pb.SocialAck{Success: true})
+		return
+	}
 	h.notifySocial(target.UserID, push.SocialPushListInvite,
 		ownerProfile.Handle, ownerProfile.DisplayName,
 		map[string]string{"list_id": strconv.FormatInt(req.ListId, 10)})
@@ -370,6 +380,15 @@ func (h Handlers) PostSocialListInviteRespond(w http.ResponseWriter, r *http.Req
 	if err != nil || role != listRoleInvited {
 		pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "invite not found")
 		return
+	}
+	if list, err := h.Queries.GetSocialList(r.Context(), req.ListId); err == nil {
+		blocked, berr := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
+			UserID: user.ID, TargetUserID: list.OwnerUserID,
+		})
+		if berr == nil && blocked {
+			pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "invite not found")
+			return
+		}
 	}
 	if req.Accept {
 		err = h.Queries.UpsertSocialListMember(r.Context(), db.UpsertSocialListMemberParams{
@@ -520,7 +539,7 @@ func (h Handlers) PostSocialListMemberRemove(w http.ResponseWriter, r *http.Requ
 		pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "list not found")
 		return
 	}
-	target, err := h.Queries.GetSocialProfileByHandle(r.Context(), req.Handle)
+	target, err := h.Queries.GetSocialProfileByHandle(r.Context(), normalizeHandle(req.Handle))
 	if err != nil {
 		pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "member not found")
 		return
@@ -565,16 +584,18 @@ func (h Handlers) socialListRole(r *http.Request, ownerID, listID, viewerID int6
 // list; private = members only; public = anyone not blocked-either-way with
 // the owner; followers = active followers.
 func (h Handlers) canViewSocialList(r *http.Request, ownerID int64, visibility int16, viewerID int64, role pb.SharedListRole) bool {
-	if role != pb.SharedListRole_SHARED_LIST_ROLE_NONE {
-		return true
-	}
-	if viewerID != 0 {
+	// A block severs everything, member roles included (QA finding) — only
+	// the owner is exempt from the check against themselves.
+	if viewerID != 0 && viewerID != ownerID {
 		blocked, err := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
 			UserID: viewerID, TargetUserID: ownerID,
 		})
 		if err == nil && blocked {
 			return false
 		}
+	}
+	if role != pb.SharedListRole_SHARED_LIST_ROLE_NONE {
+		return true
 	}
 	switch visibility {
 	case 2: // public

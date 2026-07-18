@@ -111,11 +111,27 @@ func (m *socialMock) authorBits(c *mockComment) (uuid *string, handle, name stri
 	return uuid, handle, name
 }
 
+
+// viewerHidden mirrors the SQL relationship guard: blocked either way, or
+// muted by the viewer; tombstones (nil author) always visible.
+func (m *socialMock) viewerHidden(viewer *int64, author *int64) bool {
+	if viewer == nil || author == nil {
+		return false
+	}
+	if m.rels[[3]int64{*viewer, *author, 0}] || m.rels[[3]int64{*author, *viewer, 0}] {
+		return true
+	}
+	return m.rels[[3]int64{*viewer, *author, 1}]
+}
+
 func (m *socialMock) GetEpisodeComments(ctx context.Context, arg db.GetEpisodeCommentsParams) ([]db.GetEpisodeCommentsRow, error) {
 	var rows []db.GetEpisodeCommentsRow
 	for i := len(m.comments) - 1; i >= 0; i-- { // insertion order ≈ created ASC; reverse for DESC
 		c := m.comments[i]
 		if c.episodeUuid != arg.EpisodeUuid || c.parentID != nil {
+			continue
+		}
+		if m.viewerHidden(arg.Viewer, c.userID) {
 			continue
 		}
 		uuid, handle, name := m.authorBits(c)
@@ -129,10 +145,10 @@ func (m *socialMock) GetEpisodeComments(ctx context.Context, arg db.GetEpisodeCo
 	return rows, nil
 }
 
-func (m *socialMock) CountEpisodeComments(ctx context.Context, episodeUuid string) (int64, error) {
+func (m *socialMock) CountEpisodeComments(ctx context.Context, arg db.CountEpisodeCommentsParams) (int64, error) {
 	var n int64
 	for _, c := range m.comments {
-		if c.episodeUuid == episodeUuid && c.parentID == nil {
+		if c.episodeUuid == arg.EpisodeUuid && c.parentID == nil {
 			n++
 		}
 	}
@@ -143,6 +159,9 @@ func (m *socialMock) GetCommentReplies(ctx context.Context, arg db.GetCommentRep
 	var rows []db.GetCommentRepliesRow
 	for _, c := range m.comments {
 		if c.parentID == nil || arg.ParentID == nil || *c.parentID != *arg.ParentID {
+			continue
+		}
+		if m.viewerHidden(arg.Viewer, c.userID) {
 			continue
 		}
 		uuid, handle, name := m.authorBits(c)
@@ -156,11 +175,11 @@ func (m *socialMock) GetCommentReplies(ctx context.Context, arg db.GetCommentRep
 	return rows, nil
 }
 
-func (m *socialMock) CountCommentReplies(ctx context.Context, parentID *int64) (int64, error) {
-	if parentID == nil {
+func (m *socialMock) CountCommentReplies(ctx context.Context, arg db.CountCommentRepliesParams) (int64, error) {
+	if arg.ParentID == nil {
 		return 0, nil
 	}
-	return int64(m.childCount(*parentID)), nil
+	return int64(m.childCount(*arg.ParentID)), nil
 }
 
 func (m *socialMock) EditComment(ctx context.Context, arg db.EditCommentParams) (int64, error) {
@@ -240,21 +259,21 @@ func (m *socialMock) GetInboxReplies(ctx context.Context, arg db.GetInboxReplies
 	return rows, nil
 }
 
-func (m *socialMock) CountInboxReplies(ctx context.Context, userID *int64) (int64, error) {
-	if userID == nil {
+func (m *socialMock) CountInboxReplies(ctx context.Context, arg db.CountInboxRepliesParams) (int64, error) {
+	if arg.UserID == nil {
 		return 0, nil
 	}
-	return int64(len(m.inboxReplyRows(*userID))), nil
+	return int64(len(m.inboxReplyRows(*arg.UserID))), nil
 }
 
-func (m *socialMock) CountUnreadInboxReplies(ctx context.Context, userID *int64) (int64, error) {
-	if userID == nil {
+func (m *socialMock) CountUnreadInboxReplies(ctx context.Context, arg db.CountUnreadInboxRepliesParams) (int64, error) {
+	if arg.UserID == nil {
 		return 0, nil
 	}
 	m.ensureCommentState()
-	seen := m.repliesSeenAt[*userID]
+	seen := m.repliesSeenAt[*arg.UserID]
 	var n int64
-	for _, c := range m.inboxReplyRows(*userID) {
+	for _, c := range m.inboxReplyRows(*arg.UserID) {
 		if c.createdAt.After(seen) {
 			n++
 		}

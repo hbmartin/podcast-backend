@@ -174,6 +174,12 @@ func applyEpisodeRecord(ctx context.Context, q db.Querier, userID int64, token i
 	if rec.PodcastUuid != "" {
 		params.PodcastUuid = rec.PodcastUuid
 	}
+	// A brand-new row with no podcast uuid cannot satisfy the NOT NULL uuid
+	// column — skip the record instead of poisoning the whole batch (QA
+	// finding; the client will resend once it knows the podcast).
+	if params.PodcastUuid == "" {
+		return nil
+	}
 
 	if rec.PlayingStatus != nil && modifiedAfter(rec.PlayingStatusModified, existing.PlayingStatusModified) {
 		params.PlayingStatus = rec.PlayingStatus.Value
@@ -245,10 +251,10 @@ func applyPlaylistRecord(ctx context.Context, q db.Querier, userID int64, token 
 		ShowArchived:    boolPtr(rec.ShowArchived),
 		// nil (absent) repeated fields must not become SQL NULL — smart and
 		// custom playlists carry no episode order at all.
-		EpisodeOrder:    append([]string{}, rec.EpisodeOrder...),
-		Episodes:        episodes,
-		CustomQuery:     rec.GetCustomQuery().GetValue(),
-		ModifiedAt:      token,
+		EpisodeOrder: append([]string{}, rec.EpisodeOrder...),
+		Episodes:     episodes,
+		CustomQuery:  rec.GetCustomQuery().GetValue(),
+		ModifiedAt:   token,
 	}
 	return q.UpsertPlaylist(ctx, params)
 }

@@ -87,11 +87,11 @@ func (m *socialMock) GetPodcastReviews(ctx context.Context, arg db.GetPodcastRev
 	return rows, nil
 }
 
-func (m *socialMock) CountPodcastReviews(ctx context.Context, podcastUuid string) (int64, error) {
+func (m *socialMock) CountPodcastReviews(ctx context.Context, arg db.CountPodcastReviewsParams) (int64, error) {
 	m.ensureReviewState()
 	var n int64
 	for key := range m.reviews {
-		if key.podcastUuid == podcastUuid {
+		if key.podcastUuid == arg.PodcastUuid {
 			n++
 		}
 	}

@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/hbmartin/podcast-backend/db"
-	"github.com/hbmartin/podcast-backend/push"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
+	"github.com/hbmartin/podcast-backend/push"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
