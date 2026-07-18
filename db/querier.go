@@ -153,4 +153,39 @@ type Querier interface {
 	DeleteEpisodeReaction(ctx context.Context, arg DeleteEpisodeReactionParams) (int64, error)
 	GetEpisodeReactionCounts(ctx context.Context, episodeUuid string) ([]GetEpisodeReactionCountsRow, error)
 	GetOwnEpisodeReaction(ctx context.Context, arg GetOwnEpisodeReactionParams) (int16, error)
+
+	UpsertFollow(ctx context.Context, arg UpsertFollowParams) error
+	DeleteFollow(ctx context.Context, arg DeleteFollowParams) (int64, error)
+	ApproveFollow(ctx context.Context, arg ApproveFollowParams) (int64, error)
+	CountCommentReplies(ctx context.Context, parentID *int64) (int64, error)
+	CountEpisodeComments(ctx context.Context, episodeUuid string) (int64, error)
+	CountInboxReplies(ctx context.Context, userID *int64) (int64, error)
+	CountUnreadInboxReplies(ctx context.Context, userID *int64) (int64, error)
+	EditComment(ctx context.Context, arg EditCommentParams) (int64, error)
+	GetCommentByID(ctx context.Context, id int64) (GetCommentByIDRow, error)
+	GetCommentReplies(ctx context.Context, arg GetCommentRepliesParams) ([]GetCommentRepliesRow, error)
+	GetEpisodeComments(ctx context.Context, arg GetEpisodeCommentsParams) ([]GetEpisodeCommentsRow, error)
+	GetEpisodePlaybackForGate(ctx context.Context, arg GetEpisodePlaybackForGateParams) (GetEpisodePlaybackForGateRow, error)
+	GetInboxReplies(ctx context.Context, arg GetInboxRepliesParams) ([]GetInboxRepliesRow, error)
+	HasSocialRelationship(ctx context.Context, arg HasSocialRelationshipParams) (bool, error)
+	InsertComment(ctx context.Context, arg InsertCommentParams) (InsertCommentRow, error)
+	SetRepliesSeen(ctx context.Context, userID int64) error
+	TombstoneComment(ctx context.Context, arg TombstoneCommentParams) (int64, error)
+	TombstoneCommentsForUser(ctx context.Context, userID *int64) error
+	GetFollowState(ctx context.Context, arg GetFollowStateParams) (int16, error)
+	CountFollowers(ctx context.Context, followeeUserID int64) (int64, error)
+	CountFollowing(ctx context.Context, followerUserID int64) (int64, error)
+	GetFollowers(ctx context.Context, arg GetFollowersParams) ([]GetFollowersRow, error)
+	GetFollowing(ctx context.Context, arg GetFollowingParams) ([]GetFollowingRow, error)
+	GetPendingFollowRequests(ctx context.Context, arg GetPendingFollowRequestsParams) ([]GetPendingFollowRequestsRow, error)
+	DeleteFollowsForUser(ctx context.Context, userID int64) error
+	GetFeedItems(ctx context.Context, arg GetFeedItemsParams) ([]GetFeedItemsRow, error)
+
+	InsertSharedItem(ctx context.Context, arg InsertSharedItemParams) (int64, error)
+	GetInboxItems(ctx context.Context, arg GetInboxItemsParams) ([]GetInboxItemsRow, error)
+	CountInboxItems(ctx context.Context, recipientUserID int64) (int64, error)
+	CountUnreadInboxItems(ctx context.Context, recipientUserID int64) (int64, error)
+	MarkInboxItemsRead(ctx context.Context, arg MarkInboxItemsReadParams) error
+	DeleteInboxItem(ctx context.Context, arg DeleteInboxItemParams) (int64, error)
+	DeleteSharedItemsForUser(ctx context.Context, userID int64) error
 }

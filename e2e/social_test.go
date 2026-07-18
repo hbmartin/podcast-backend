@@ -288,3 +288,330 @@ func playEpisodesOfPodcast(t *testing.T, token, podcastUuid string, n int) {
 		&pb.SyncUpdateRequest{DeviceUtcTimeMs: now, Records: records}, &pb.SyncUpdateResponse{})
 	require.Equal(t, http.StatusOK, status)
 }
+
+// TestSendToFriendAndInbox walks the Slice-4 surface: join both ends, send
+// with note+timestamp, inbox unread -> read -> delete, blocked send 404, and
+// sender-erase clearing the recipient's inbox.
+func TestSendToFriendAndInbox(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("send-a-%d@e2e.test", suffix))
+	tokenB, uuidB := registerUser(t, fmt.Sprintf("send-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_send_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_send_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Sender A"}, {tokenB, handleB, "Recipient B"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	send := &pb.SharedItemSendRequest{
+		RecipientHandle:  handleB,
+		EpisodeUuid:      "e2e-episode-1",
+		PodcastUuid:      "e2e-podcast-1",
+		EpisodeTitle:     "A Great Episode",
+		PodcastTitle:     "A Great Podcast",
+		Note:             "listen from here!",
+		TimestampSeconds: 870,
+	}
+	ack := &pb.SocialAck{}
+	status := postProto(t, "/social/share/send", tokenA, send, ack)
+	require.Equal(t, http.StatusOK, status)
+	assert.True(t, ack.Success)
+
+	// B's inbox: one unread item with attribution + note + timestamp.
+	inbox := &pb.InboxResponse{}
+	status = postProto(t, "/social/inbox", tokenB, &pb.InboxRequest{}, inbox)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, inbox.Items, 1)
+	assert.Equal(t, int64(1), inbox.Unread)
+	item := inbox.Items[0]
+	assert.Equal(t, handleA, item.SenderHandle)
+	assert.Equal(t, "listen from here!", item.Note)
+	assert.Equal(t, int32(870), item.TimestampSeconds)
+	assert.False(t, item.Read)
+
+	// Read, then confirm unread drops.
+	status = postProto(t, "/social/inbox/read", tokenB, &pb.InboxMarkReadRequest{Ids: []int64{item.Id}}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	inbox = &pb.InboxResponse{}
+	_ = postProto(t, "/social/inbox", tokenB, &pb.InboxRequest{}, inbox)
+	assert.Equal(t, int64(0), inbox.Unread)
+	assert.True(t, inbox.Items[0].Read)
+
+	// B blocks A: further sends fail like a missing handle.
+	status = postProto(t, "/social/block", tokenB, &pb.BlockRequest{TargetUserId: inbox.Items[0].SenderUserId}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/share/send", tokenA, send, nil)
+	assert.Equal(t, http.StatusNotFound, status)
+	status = postProto(t, "/social/unblock", tokenB, &pb.BlockRequest{TargetUserId: inbox.Items[0].SenderUserId}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	// Sender erases: the delivered item vanishes from B's inbox.
+	status = postProto(t, "/social/erase", tokenA, &pb.EraseRequest{}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	inbox = &pb.InboxResponse{}
+	status = postProto(t, "/social/inbox", tokenB, &pb.InboxRequest{}, inbox)
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, inbox.Items, "sent items die with the sender's profile")
+	_ = uuidB
+}
+
+// TestFollowGraphAndFeed walks Slice 5 over real HTTP/DB: open follow, the
+// derived feed (finished-episode gated by history_visibility, review event),
+// followers-only unlock, the approval toggle flow, and mute filtering.
+func TestFollowGraphAndFeed(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("graph-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("graph-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_gr_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_gr_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct{ token, handle, name string }{
+		{tokenA, handleA, "Viewer A"}, {tokenB, handleB, "Actor B"},
+	} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// A follows B: open by default, immediately active.
+	follow := &pb.FollowResponse{}
+	status := postProto(t, "/social/follow", tokenA, &pb.FollowRequest{Handle: handleB}, follow)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, pb.FollowState_FOLLOW_STATE_ACTIVE, follow.State)
+
+	// B acts: writes a review (public act) and finishes an episode (history-gated).
+	podcastUUID := ingestFixturePodcast(t)
+	playEpisodesOfPodcast(t, tokenB, podcastUUID, 2)
+	status = postProto(t, "/social/review/submit", tokenB,
+		&pb.PodcastReviewSubmitRequest{PodcastUuid: podcastUUID, Text: "reviewed for the feed"}, nil)
+	require.Equal(t, http.StatusOK, status)
+	// Mark one episode played (playing_status = 3).
+	episode := firstEpisodeUUID(t, podcastUUID)
+	now := time.Now().UnixMilli()
+	status = postProto(t, "/user/sync/update", tokenB, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now,
+		Records: []*pb.Record{{Record: &pb.Record_Episode{Episode: &pb.SyncUserEpisode{
+			Uuid: episode, PodcastUuid: podcastUUID,
+			PlayingStatus: wrapperspb.Int32(3), PlayingStatusModified: wrapperspb.Int64(now),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// A's feed: review + joined visible; finished-episode ABSENT while B's
+	// history_visibility is private.
+	feed := &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenA, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	kinds := map[pb.FeedItemKind]bool{}
+	for _, item := range feed.Items {
+		kinds[item.Kind] = true
+	}
+	assert.True(t, kinds[pb.FeedItemKind_FEED_ITEM_KIND_REVIEWED])
+	assert.True(t, kinds[pb.FeedItemKind_FEED_ITEM_KIND_JOINED])
+	assert.False(t, kinds[pb.FeedItemKind_FEED_ITEM_KIND_FINISHED_EPISODE],
+		"history-gated event hidden while private")
+
+	// B opens history to followers: the finished-episode event appears.
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName:       "Actor B",
+		HistoryVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	feed = &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenA, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	found := false
+	for _, item := range feed.Items {
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_FINISHED_EPISODE {
+			found = true
+			assert.Equal(t, handleB, item.ActorHandle)
+			assert.NotEmpty(t, item.EpisodeTitle)
+		}
+	}
+	assert.True(t, found, "followers-only history event visible to a follower")
+
+	// Followers-only profile field also unlocks for A.
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Actor B", Bio: "for my followers",
+		BioVisibility:     pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
+		HistoryVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+	public := &pb.PublicProfileResponse{}
+	status = postProto(t, "/social/profile/public", tokenA, &pb.PublicProfileRequest{Handle: handleB}, public)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "for my followers", public.Bio)
+	assert.Equal(t, pb.FollowState_FOLLOW_STATE_ACTIVE, public.YourFollowState)
+	assert.Equal(t, int64(1), public.FollowerCount)
+
+	// Mute B: the feed goes quiet without unfollowing.
+	status = postProto(t, "/social/mute", tokenA, &pb.MuteRequest{TargetUserId: public.UserId}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	feed = &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenA, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, feed.Items, "muted actor's events filtered")
+	status = postProto(t, "/social/unmute", tokenA, &pb.MuteRequest{TargetUserId: public.UserId}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	// Approval toggle: a third account's follow pends, then acceptance activates.
+	tokenC, _ := registerUser(t, fmt.Sprintf("graph-c-%d@e2e.test", suffix))
+	handleC := fmt.Sprintf("e2e_gr_c_%d", suffix%1_000_000_000)
+	status = postProto(t, "/social/join", tokenC, &pb.JoinRequest{
+		Handle: handleC, AcceptedTermsVersion: 1, DisplayName: "Requester C",
+	}, &pb.JoinResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Actor B", RequireFollowApproval: true,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	follow = &pb.FollowResponse{}
+	status = postProto(t, "/social/follow", tokenC, &pb.FollowRequest{Handle: handleB}, follow)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, pb.FollowState_FOLLOW_STATE_PENDING, follow.State)
+
+	requests := &pb.FollowListResponse{}
+	status = postProto(t, "/social/follow/requests", tokenB, &pb.FollowRequestsRequest{}, requests)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, requests.Entries, 1)
+	assert.Equal(t, handleC, requests.Entries[0].Handle)
+
+	status = postProto(t, "/social/follow/approve", tokenB,
+		&pb.FollowApprovalRequest{RequesterHandle: handleC, Accept: true}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	public = &pb.PublicProfileResponse{}
+	status = postProto(t, "/social/profile/public", tokenC, &pb.PublicProfileRequest{Handle: handleB}, public)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, pb.FollowState_FOLLOW_STATE_ACTIVE, public.YourFollowState)
+}
+
+// TestCommentTree walks the Slice-6 surface (ADR-0010): gate on seeds, free
+// replies, grace-window edit, tombstoned delete, inbox replies watermark,
+// the commented feed item, and erase tombstoning.
+func TestCommentTree(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("comment-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("comment-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_cmt_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_cmt_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Commenter A"}, {tokenB, handleB, "Replier B"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	podcastUUID := ingestFixturePodcast(t)
+	episodeUUID := episodesOfPodcast(t, podcastUUID)[0]
+
+	// Ungated: A hasn't played the episode yet.
+	status := postProto(t, "/social/comment/submit", tokenA,
+		&pb.CommentSubmitRequest{EpisodeUuid: episodeUUID, PodcastUuid: podcastUUID, Text: "too soon"}, nil)
+	require.Equal(t, http.StatusForbidden, status)
+
+	// A plays past the gate and posts a timestamped seed (a Moment).
+	playEpisodesOfPodcast(t, tokenA, podcastUUID, 1)
+	ts := int32(125)
+	seed := &pb.SocialComment{}
+	status = postProto(t, "/social/comment/submit", tokenA, &pb.CommentSubmitRequest{
+		EpisodeUuid: episodeUUID, PodcastUuid: podcastUUID,
+		EpisodeTitle: "Fixture Episode", PodcastTitle: "Fixture Podcast",
+		Text: "this bit at two minutes", TimestampSeconds: &ts,
+	}, seed)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, handleA, seed.Handle)
+	require.NotNil(t, seed.TimestampSeconds)
+	assert.Equal(t, int32(125), *seed.TimestampSeconds)
+
+	// B replies without ever playing: no gate on replies.
+	reply := &pb.SocialComment{}
+	status = postProto(t, "/social/comment/submit", tokenB, &pb.CommentSubmitRequest{
+		EpisodeUuid: episodeUUID, PodcastUuid: podcastUUID, Text: "agreed!", ParentId: seed.Id,
+	}, reply)
+	require.Equal(t, http.StatusOK, status)
+
+	// The public list shows one seed with one reply; anonymous read works.
+	list := &pb.CommentsResponse{}
+	status = postProto(t, "/episode/comments", "",
+		&pb.EpisodeCommentsRequest{EpisodeUuid: episodeUUID}, list)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, list.Comments, 1)
+	assert.Equal(t, int32(1), list.Comments[0].ReplyCount)
+
+	replies := &pb.CommentsResponse{}
+	status = postProto(t, "/social/comment/replies", "",
+		&pb.CommentRepliesRequest{ParentId: seed.Id}, replies)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, replies.Comments, 1)
+	assert.Equal(t, handleB, replies.Comments[0].Handle)
+
+	// Edit after reply: the grace window is shut.
+	status = postProto(t, "/social/comment/edit", tokenA,
+		&pb.CommentEditRequest{Id: seed.Id, Text: "revised"}, nil)
+	require.Equal(t, http.StatusConflict, status)
+
+	// B's fresh reply is editable inside the window.
+	status = postProto(t, "/social/comment/edit", tokenB,
+		&pb.CommentEditRequest{Id: reply.Id, Text: "agreed — loudly"}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	// A's inbox: one unread reply; seen clears it.
+	inbox := &pb.InboxRepliesResponse{}
+	status = postProto(t, "/social/inbox/replies", tokenA, &pb.InboxRepliesRequest{}, inbox)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, inbox.Replies, 1)
+	assert.Equal(t, handleB, inbox.Replies[0].Handle)
+	assert.True(t, inbox.Replies[0].Edited)
+	assert.Equal(t, int32(1), inbox.Unread)
+
+	status = postProto(t, "/social/inbox/replies/seen", tokenA, &pb.InboxRepliesRequest{}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	postProto(t, "/social/inbox/replies", tokenA, &pb.InboxRepliesRequest{}, inbox)
+	assert.Equal(t, int32(0), inbox.Unread)
+
+	// B follows A: A's seed appears in B's feed as a commented item.
+	status = postProto(t, "/social/follow", tokenB, &pb.FollowRequest{Handle: handleA}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	feed := &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenB, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	foundCommented := false
+	for _, item := range feed.Items {
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_COMMENTED && item.ActorHandle == handleA {
+			foundCommented = true
+			assert.Equal(t, episodeUUID, item.EpisodeUuid)
+			assert.Contains(t, item.ReviewExcerpt, "two minutes")
+		}
+	}
+	assert.True(t, foundCommented, "the seed must surface as a commented feed item")
+
+	// A deletes the seed: tombstone stays, B's reply survives.
+	status = postProto(t, "/social/comment/delete", tokenA, &pb.CommentDeleteRequest{Id: seed.Id}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	postProto(t, "/episode/comments", "", &pb.EpisodeCommentsRequest{EpisodeUuid: episodeUUID}, list)
+	require.Len(t, list.Comments, 1)
+	assert.True(t, list.Comments[0].Removed)
+	assert.Empty(t, list.Comments[0].Text)
+	assert.Equal(t, int32(1), list.Comments[0].ReplyCount)
+
+	// B erases: the reply tombstones too (ADR-0010), the row itself remains.
+	status = postProto(t, "/social/erase", tokenB, &pb.EraseRequest{}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	postProto(t, "/social/comment/replies", "", &pb.CommentRepliesRequest{ParentId: seed.Id}, replies)
+	require.Len(t, replies.Comments, 1)
+	assert.True(t, replies.Comments[0].Removed)
+	assert.Empty(t, replies.Comments[0].Text)
+	assert.Empty(t, replies.Comments[0].Handle)
+}

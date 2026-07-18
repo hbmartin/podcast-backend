@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hbmartin/podcast-backend/db"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
@@ -35,6 +36,19 @@ type socialMock struct {
 	ratings      map[reviewKey]int16
 	playedCounts map[reviewKey]int64
 	reactions    map[reviewKey]int16
+
+	// Inbox state (methods in inbox_test.go).
+	inbox []*inboxItem
+
+	// Graph state (methods in graph_test.go).
+	follows  map[followKey]int16
+	feedRows []db.GetFeedItemsRow
+
+	// Comment-tree state (methods in comments_test.go).
+	comments      []*mockComment
+	commentSeq    int64
+	playback      map[reviewKey]db.GetEpisodePlaybackForGateRow
+	repliesSeenAt map[int64]time.Time
 }
 
 type handleRow struct {

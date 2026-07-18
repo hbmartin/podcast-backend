@@ -240,6 +240,27 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /social/reaction/set", authChain(controllers.PostReactionSet))
 	router.Handle("POST /episode/reactions", optionalAuthChain(controllers.PostEpisodeReactions))
 
+	// api host role: send-to-friend + shared-item inbox (protobuf; Slice 4).
+	router.Handle("POST /social/share/send", authChain(controllers.PostShareSend))
+	router.Handle("POST /social/inbox", authChain(controllers.PostInbox))
+	router.Handle("POST /social/inbox/read", authChain(controllers.PostInboxRead))
+	router.Handle("POST /social/inbox/delete", authChain(controllers.PostInboxDelete))
+
+	// api host role: follow graph + activity feed (protobuf; Slice 5, ADR-0009).
+	router.Handle("POST /social/follow", authChain(controllers.PostFollow))
+	router.Handle("POST /social/unfollow", authChain(controllers.PostUnfollow))
+	router.Handle("POST /social/follows", authChain(controllers.PostFollowList))
+	router.Handle("POST /social/follow/requests", authChain(controllers.PostFollowRequests))
+	router.Handle("POST /social/follow/approve", authChain(controllers.PostFollowApprove))
+	router.Handle("POST /social/feed", authChain(controllers.PostFeed))
+	router.Handle("POST /social/comment/submit", authChain(controllers.PostCommentSubmit))
+	router.Handle("POST /social/comment/edit", authChain(controllers.PostCommentEdit))
+	router.Handle("POST /social/comment/delete", authChain(controllers.PostCommentDelete))
+	router.Handle("POST /social/comment/replies", optionalAuthChain(controllers.PostCommentReplies))
+	router.Handle("POST /episode/comments", optionalAuthChain(controllers.PostEpisodeComments))
+	router.Handle("POST /social/inbox/replies", authChain(controllers.PostInboxReplies))
+	router.Handle("POST /social/inbox/replies/seen", authChain(controllers.PostInboxRepliesSeen))
+
 	// static host role: discover layout + catalog-backed sources (JSON)
 	router.Handle("GET /discover/ios/content_v2.json", publicChain(controllers.GetDiscoverContent))
 	router.Handle("GET /discover/ios/content_v3.json", publicChain(controllers.GetDiscoverContent))

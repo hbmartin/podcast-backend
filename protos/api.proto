@@ -1816,6 +1816,8 @@ message SocialProfile {
   SocialVisibility stats_visibility = 12;
   SocialVisibility history_visibility = 13;
   SocialVisibility presence_visibility = 14;
+  // Hybrid follow consent (Slice 5): when true, new follows become requests.
+  bool require_follow_approval = 15;
 }
 
 // POST social/handle/availability — the rate-limited typeahead availability check.
@@ -1852,6 +1854,7 @@ message ProfileUpdateRequest {
   SocialVisibility stats_visibility = 7;
   SocialVisibility history_visibility = 8;
   SocialVisibility presence_visibility = 9;
+  bool require_follow_approval = 10;
 }
 message ProfileResponse {
   SocialProfile profile = 1;
@@ -1879,6 +1882,9 @@ message PublicProfileResponse {
   repeated SocialProfilePodcast top_podcasts = 9;
   SocialProfileStats stats = 10;      // set only when has_stats
   repeated SocialProfileEpisode recently_played = 11;
+  int64 follower_count = 12;
+  int64 following_count = 13;
+  FollowState your_follow_state = 14; // authenticated viewers only
 }
 
 // A podcast entry in a public-profile section (followed shows / top podcasts).
@@ -2008,3 +2014,213 @@ message EpisodeReactionsResponse {
   ReactionKind your_reaction = 2;
 }
 
+
+// ---- Send-to-friend + shared-item inbox (Slice 4; iOS docs/Social.md).
+// The first directed social object: an episode sent person-to-person. Sender
+// AND recipient must be joined; blocked-either-way sends fail identically to a
+// nonexistent handle. Inbox v1 is read/unread + delete (react deferred until a
+// sender-visible surface exists).
+
+// POST social/share/send. Titles are denormalized at send time so inbox rows
+// render without catalog fetches (works for uncataloged feeds); the server
+// caps and filters them.
+message SharedItemSendRequest {
+  string recipient_handle = 1;
+  string episode_uuid = 2;
+  string podcast_uuid = 3;
+  string episode_title = 4;
+  string podcast_title = 5;
+  string note = 6;                    // optional; <=500 chars, text-filtered
+  int32 timestamp_seconds = 7;        // optional listen-from position (?t= model)
+}
+
+message SharedItem {
+  int64 id = 1;
+  string sender_user_id = 2;
+  string sender_handle = 3;
+  string sender_display_name = 4;
+  string episode_uuid = 5;
+  string podcast_uuid = 6;
+  string episode_title = 7;
+  string podcast_title = 8;
+  string note = 9;
+  int32 timestamp_seconds = 10;
+  google.protobuf.Timestamp created_at = 11;
+  bool read = 12;
+}
+
+// POST social/inbox — the caller's received items, newest first.
+message InboxRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+message InboxResponse {
+  repeated SharedItem items = 1;
+  int64 total = 2;
+  int64 unread = 3;
+}
+
+// POST social/inbox/read — marks the given item ids read (recipient-scoped).
+message InboxMarkReadRequest {
+  repeated int64 ids = 1;
+}
+
+// POST social/inbox/delete — removes one received item (recipient-scoped).
+message InboxDeleteRequest {
+  int64 id = 1;
+}
+
+// ---- Follow graph + activity feed (Slice 5; iOS docs/Social.md, ADR-0009).
+// Follows are open/instant by default; a followee with require_follow_approval
+// turns new follows into PENDING requests. Blocked-either-way follows fail
+// like a nonexistent handle. The feed is derived at read time from followees'
+// existing rows (no events table); listening-derived items obey the actor's
+// per-field visibility.
+
+enum FollowState {
+  FOLLOW_STATE_NONE = 0;
+  FOLLOW_STATE_PENDING = 1;
+  FOLLOW_STATE_ACTIVE = 2;
+}
+
+// POST social/follow — returns the resulting state (ACTIVE or PENDING).
+message FollowRequest {
+  string handle = 1;
+}
+message FollowResponse {
+  FollowState state = 1;
+}
+
+// POST social/unfollow — also cancels a pending request. Ack via SocialAck.
+message UnfollowRequest {
+  string handle = 1;
+}
+
+// POST social/follows — either side of the caller's graph.
+message FollowListRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  bool followers = 3;                 // true = my followers, false = who I follow
+}
+message FollowEntry {
+  string handle = 1;
+  string display_name = 2;
+  string user_id = 3;
+  FollowState state = 4;
+}
+message FollowListResponse {
+  repeated FollowEntry entries = 1;
+  int64 total = 2;
+}
+
+// POST social/follow/requests — pending requests awaiting the caller's
+// approval. POST social/follow/approve accepts or declines one.
+message FollowRequestsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+message FollowApprovalRequest {
+  string requester_handle = 1;
+  bool accept = 2;
+}
+
+// POST social/feed — the caller's activity feed, newest first, paginated by
+// event time.
+message FeedRequest {
+  int32 limit = 1;
+  int64 before_unix_ms = 2;           // 0 = newest page
+}
+enum FeedItemKind {
+  FEED_ITEM_KIND_UNSPECIFIED = 0;
+  FEED_ITEM_KIND_JOINED = 1;
+  FEED_ITEM_KIND_FOLLOWED_PERSON = 2;
+  FEED_ITEM_KIND_FOLLOWED_SHOW = 3;
+  FEED_ITEM_KIND_FINISHED_EPISODE = 4;
+  FEED_ITEM_KIND_REVIEWED = 5;
+  FEED_ITEM_KIND_REACTED = 6;
+  FEED_ITEM_KIND_COMMENTED = 7;
+}
+message FeedItem {
+  FeedItemKind kind = 1;
+  string actor_handle = 2;
+  string actor_display_name = 3;
+  string actor_user_id = 4;
+  string podcast_uuid = 5;
+  string podcast_title = 6;
+  string episode_uuid = 7;
+  string episode_title = 8;
+  string target_handle = 9;           // FOLLOWED_PERSON
+  ReactionKind reaction_kind = 10;    // REACTED
+  string review_excerpt = 11;         // REVIEWED / COMMENTED excerpt (capped)
+  google.protobuf.Timestamp event_at = 12;
+}
+message FeedResponse {
+  repeated FeedItem items = 1;
+}
+
+// ---- Slice 6: episode comment tree (docs/Social.md, ADR-0010) ----
+
+message CommentSubmitRequest {
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  string text = 3;
+  int64 parent_id = 4;                 // 0 = top-level
+  optional int32 timestamp_seconds = 5; // top-level only; a set value renders as a Moment
+  string episode_title = 6;            // denormalized at submit (uncataloged feeds)
+  string podcast_title = 7;
+}
+
+message SocialComment {
+  int64 id = 1;
+  int64 parent_id = 2;                 // 0 = top-level
+  string user_id = 3;                  // empty when removed (tombstone)
+  string handle = 4;
+  string display_name = 5;
+  string text = 6;                     // empty when removed
+  optional int32 timestamp_seconds = 7;
+  google.protobuf.Timestamp created_at = 8;
+  bool edited = 9;
+  bool removed = 10;                   // tombstone placeholder
+  int32 reply_count = 11;              // direct children
+  string episode_uuid = 12;            // set on inbox-reply rows
+  string podcast_uuid = 13;
+  string episode_title = 14;
+  string podcast_title = 15;
+}
+
+message CommentEditRequest {
+  int64 id = 1;
+  string text = 2;
+}
+
+message CommentDeleteRequest {
+  int64 id = 1;
+}
+
+message EpisodeCommentsRequest {
+  string episode_uuid = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message CommentRepliesRequest {
+  int64 parent_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message CommentsResponse {
+  repeated SocialComment comments = 1;
+  int32 total = 2;
+}
+
+message InboxRepliesRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message InboxRepliesResponse {
+  repeated SocialComment replies = 1;
+  int32 total = 2;
+  int32 unread = 3;                    // newer than the caller's seen-watermark
+}

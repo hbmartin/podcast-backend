@@ -13,6 +13,7 @@ import (
 	"github.com/hbmartin/podcast-backend/auth"
 	"github.com/hbmartin/podcast-backend/config"
 	"github.com/hbmartin/podcast-backend/db"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
@@ -146,6 +147,74 @@ func (m *QuerierMock) DeleteRelationshipsForUser(ctx context.Context, userID int
 
 func (m *QuerierMock) DeleteReviewsForUser(ctx context.Context, userID int64) error {
 	return nil
+}
+
+func (m *QuerierMock) DeleteSharedItemsForUser(ctx context.Context, userID int64) error {
+	return nil
+}
+
+func (m *QuerierMock) DeleteFollowsForUser(ctx context.Context, userID int64) error {
+	return nil
+}
+
+func (m *QuerierMock) TombstoneCommentsForUser(ctx context.Context, userID *int64) error {
+	return nil
+}
+
+func (m *QuerierMock) InsertComment(ctx context.Context, arg db.InsertCommentParams) (db.InsertCommentRow, error) {
+	return db.InsertCommentRow{}, nil
+}
+
+func (m *QuerierMock) GetCommentByID(ctx context.Context, id int64) (db.GetCommentByIDRow, error) {
+	return db.GetCommentByIDRow{}, pgx.ErrNoRows
+}
+
+func (m *QuerierMock) GetEpisodeComments(ctx context.Context, arg db.GetEpisodeCommentsParams) ([]db.GetEpisodeCommentsRow, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) CountEpisodeComments(ctx context.Context, episodeUuid string) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) GetCommentReplies(ctx context.Context, arg db.GetCommentRepliesParams) ([]db.GetCommentRepliesRow, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) CountCommentReplies(ctx context.Context, parentID *int64) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) EditComment(ctx context.Context, arg db.EditCommentParams) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) TombstoneComment(ctx context.Context, arg db.TombstoneCommentParams) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) GetEpisodePlaybackForGate(ctx context.Context, arg db.GetEpisodePlaybackForGateParams) (db.GetEpisodePlaybackForGateRow, error) {
+	return db.GetEpisodePlaybackForGateRow{}, pgx.ErrNoRows
+}
+
+func (m *QuerierMock) GetInboxReplies(ctx context.Context, arg db.GetInboxRepliesParams) ([]db.GetInboxRepliesRow, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) CountInboxReplies(ctx context.Context, userID *int64) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) CountUnreadInboxReplies(ctx context.Context, userID *int64) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) SetRepliesSeen(ctx context.Context, userID int64) error {
+	return nil
+}
+
+func (m *QuerierMock) HasSocialRelationship(ctx context.Context, arg db.HasSocialRelationshipParams) (bool, error) {
+	return false, nil
 }
 
 var testAuthConfig = &config.AuthConfiguration{

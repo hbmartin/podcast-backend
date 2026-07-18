@@ -77,6 +77,22 @@ type Episode struct {
 	ChaptersUrl  string
 }
 
+type EpisodeComment struct {
+	ID               int64
+	EpisodeUuid      string
+	PodcastUuid      string
+	EpisodeTitle     string
+	PodcastTitle     string
+	UserID           *int64
+	ParentID         *int64
+	RootID           *int64
+	Text             string
+	TimestampSeconds *int32
+	CreatedAt        time.Time
+	EditedAt         *time.Time
+	RemovedAt        *time.Time
+}
+
 type EpisodeReaction struct {
 	UserID      int64
 	EpisodeUuid string
@@ -219,6 +235,20 @@ type RefreshToken struct {
 	RevokedAt *time.Time
 }
 
+type SharedItem struct {
+	ID               int64
+	SenderUserID     int64
+	RecipientUserID  int64
+	EpisodeUuid      string
+	PodcastUuid      string
+	EpisodeTitle     string
+	PodcastTitle     string
+	Note             string
+	TimestampSeconds int32
+	CreatedAt        time.Time
+	ReadAt           *time.Time
+}
+
 type SharedList struct {
 	ID           int64
 	Code         string
@@ -226,6 +256,14 @@ type SharedList struct {
 	Description  string
 	PodcastUuids []string
 	CreatedAt    time.Time
+}
+
+type SocialFollow struct {
+	FollowerUserID int64
+	FolloweeUserID int64
+	Status         int16
+	CreatedAt      time.Time
+	ApprovedAt     *time.Time
 }
 
 type SocialHandle struct {
@@ -251,6 +289,8 @@ type SocialProfile struct {
 	PresenceVisibility      int16
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
+	RequireFollowApproval   bool
+	RepliesSeenAt           time.Time
 }
 
 type SocialRelationship struct {

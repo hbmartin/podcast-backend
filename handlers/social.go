@@ -221,6 +221,7 @@ func (h Handlers) PostSocialProfileUpdate(w http.ResponseWriter, r *http.Request
 		StatsVisibility:         visibilityToStored(req.StatsVisibility),
 		HistoryVisibility:       visibilityToStored(req.HistoryVisibility),
 		PresenceVisibility:      visibilityToStored(req.PresenceVisibility),
+		RequireFollowApproval:   req.RequireFollowApproval,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -282,8 +283,11 @@ func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.Pub
 		return nil, 0, err
 	}
 
-	// Resolve the (optional) viewer for the block check and the owner case.
+	// Resolve the (optional) viewer for the block check, the owner case, and
+	// (Slice 5) the follower relationship that unlocks followers-only fields.
 	isOwner := false
+	isActiveFollower := false
+	viewerFollowState := pb.FollowState_FOLLOW_STATE_NONE
 	if ctxUser := getUser(r.Context()); ctxUser != nil {
 		viewer, err := h.Queries.GetUserByUUID(r.Context(), ctxUser.UUID)
 		if err == nil {
@@ -299,6 +303,18 @@ func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.Pub
 				}
 				if blocked {
 					return nil, http.StatusNotFound, nil
+				}
+				if status, err := h.Queries.GetFollowState(r.Context(), db.GetFollowStateParams{
+					FollowerUserID: viewer.ID, FolloweeUserID: profile.UserID,
+				}); err == nil {
+					if status == followStatusActive {
+						isActiveFollower = true
+						viewerFollowState = pb.FollowState_FOLLOW_STATE_ACTIVE
+					} else {
+						viewerFollowState = pb.FollowState_FOLLOW_STATE_PENDING
+					}
+				} else if !errors.Is(err, pgx.ErrNoRows) {
+					return nil, 0, err
 				}
 			}
 		} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -320,7 +336,10 @@ func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.Pub
 	// Phase 1 exposes only the public tier to non-owners; followers-only
 	// unlocks with the Phase-2 graph (ADR-0006). Owners see their own fields.
 	visible := func(stored int16) bool {
-		return isOwner || pb.SocialVisibility(stored) == pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC
+		if isOwner || pb.SocialVisibility(stored) == pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC {
+			return true
+		}
+		return isActiveFollower && pb.SocialVisibility(stored) == pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY
 	}
 	if visible(profile.BioVisibility) {
 		resp.Bio = profile.Bio
@@ -354,6 +373,14 @@ func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.Pub
 			})
 		}
 	}
+
+	if followerCount, err := h.Queries.CountFollowers(r.Context(), profile.UserID); err == nil {
+		resp.FollowerCount = followerCount
+	}
+	if followingCount, err := h.Queries.CountFollowing(r.Context(), profile.UserID); err == nil {
+		resp.FollowingCount = followingCount
+	}
+	resp.YourFollowState = viewerFollowState
 
 	if resp.HasStats = visible(profile.StatsVisibility); resp.HasStats {
 		totals, err := h.Queries.GetUserStatsTotals(r.Context(), profile.UserID)
@@ -489,6 +516,18 @@ func (h Handlers) setRelationship(w http.ResponseWriter, r *http.Request, kind i
 		err = h.Queries.UpsertSocialRelationship(r.Context(), db.UpsertSocialRelationshipParams{
 			UserID: user.ID, TargetUserID: target.ID, Kind: kind,
 		})
+		// A block severs the follow graph in both directions (mutual
+		// invisibility; the feed query relies on this).
+		if err == nil && kind == relationshipBlock {
+			_, err = h.Queries.DeleteFollow(r.Context(), db.DeleteFollowParams{
+				FollowerUserID: user.ID, FolloweeUserID: target.ID,
+			})
+			if err == nil {
+				_, err = h.Queries.DeleteFollow(r.Context(), db.DeleteFollowParams{
+					FollowerUserID: target.ID, FolloweeUserID: user.ID,
+				})
+			}
+		}
 	} else {
 		_, err = h.Queries.DeleteSocialRelationship(r.Context(), db.DeleteSocialRelationshipParams{
 			UserID: user.ID, TargetUserID: target.ID, Kind: kind,
@@ -595,6 +634,17 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 		if err := q.DeleteReviewsForUser(r.Context(), userID); err != nil {
 			return err
 		}
+		if err := q.DeleteSharedItemsForUser(r.Context(), userID); err != nil {
+			return err
+		}
+		if err := q.DeleteFollowsForUser(r.Context(), userID); err != nil {
+			return err
+		}
+		// Comments tombstone rather than delete (ADR-0010): text and
+		// authorship wiped, tree positions kept so replies survive.
+		if err := q.TombstoneCommentsForUser(r.Context(), &userID); err != nil {
+			return err
+		}
 		return q.DeleteRelationshipsForUser(r.Context(), userID)
 	})
 }
@@ -626,5 +676,6 @@ func profileToProto(row db.SocialProfile, userUuid string) *pb.SocialProfile {
 		StatsVisibility:         pb.SocialVisibility(row.StatsVisibility),
 		HistoryVisibility:       pb.SocialVisibility(row.HistoryVisibility),
 		PresenceVisibility:      pb.SocialVisibility(row.PresenceVisibility),
+		RequireFollowApproval:   row.RequireFollowApproval,
 	}
 }
