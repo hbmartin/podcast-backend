@@ -574,6 +574,8 @@ func TestCommentTree(t *testing.T) {
 	require.Len(t, inbox.Replies, 1)
 	assert.Equal(t, handleB, inbox.Replies[0].Handle)
 	assert.True(t, inbox.Replies[0].Edited)
+	assert.Equal(t, "Fixture Episode", inbox.Replies[0].EpisodeTitle,
+		"replies inherit the seed's denormalized titles")
 	assert.Equal(t, int32(1), inbox.Unread)
 
 	status = postProto(t, "/social/inbox/replies/seen", tokenA, &pb.InboxRepliesRequest{}, &pb.SocialAck{})

@@ -72,6 +72,17 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 			rootID = *parent.RootID
 		}
 		params.RootID = &rootID
+		// Replies inherit the seed's denormalized context so inbox rows
+		// render titles without the client re-sending them.
+		if params.PodcastUuid == "" {
+			params.PodcastUuid = parent.PodcastUuid
+		}
+		if params.EpisodeTitle == "" {
+			params.EpisodeTitle = parent.EpisodeTitle
+		}
+		if params.PodcastTitle == "" {
+			params.PodcastTitle = parent.PodcastTitle
+		}
 	} else {
 		// Top-level comment (or Moment when timestamped): the caller must
 		// have played >=25% of the episode, per the reaction-gate precedent.
