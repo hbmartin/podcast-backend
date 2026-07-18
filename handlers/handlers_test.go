@@ -217,6 +217,90 @@ func (m *QuerierMock) HasSocialRelationship(ctx context.Context, arg db.HasSocia
 	return false, nil
 }
 
+func (m *QuerierMock) ClearSocialListAttributionForUser(ctx context.Context, addedBy *int64) error {
+	return nil
+}
+
+func (m *QuerierMock) CountSocialListEntries(ctx context.Context, listID int64) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) CreateSocialList(ctx context.Context, arg db.CreateSocialListParams) (db.CreateSocialListRow, error) {
+	return db.CreateSocialListRow{}, nil
+}
+
+func (m *QuerierMock) DeleteSocialList(ctx context.Context, arg db.DeleteSocialListParams) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) DeleteSocialListEntry(ctx context.Context, arg db.DeleteSocialListEntryParams) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) DeleteSocialListMember(ctx context.Context, arg db.DeleteSocialListMemberParams) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) DeleteSocialListMembershipsForUser(ctx context.Context, userID int64) error {
+	return nil
+}
+
+func (m *QuerierMock) DeleteSocialListsForOwner(ctx context.Context, ownerUserID int64) error {
+	return nil
+}
+
+func (m *QuerierMock) GetProfileSocialLists(ctx context.Context, arg db.GetProfileSocialListsParams) ([]db.GetProfileSocialListsRow, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) GetSocialList(ctx context.Context, id int64) (db.GetSocialListRow, error) {
+	return db.GetSocialListRow{}, pgx.ErrNoRows
+}
+
+func (m *QuerierMock) GetSocialListEntries(ctx context.Context, arg db.GetSocialListEntriesParams) ([]db.GetSocialListEntriesRow, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) GetSocialListInvitesForUser(ctx context.Context, userID int64) ([]db.GetSocialListInvitesForUserRow, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) GetSocialListMember(ctx context.Context, arg db.GetSocialListMemberParams) (int16, error) {
+	return 0, pgx.ErrNoRows
+}
+
+func (m *QuerierMock) GetSocialListMembers(ctx context.Context, listID int64) ([]db.GetSocialListMembersRow, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) GetSocialListsForUser(ctx context.Context, ownerUserID int64) ([]db.GetSocialListsForUserRow, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) MaxSocialListPosition(ctx context.Context, listID int64) (int32, error) {
+	return -1, nil
+}
+
+func (m *QuerierMock) MoveSocialListEntry(ctx context.Context, arg db.MoveSocialListEntryParams) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) TouchSocialList(ctx context.Context, id int64) error {
+	return nil
+}
+
+func (m *QuerierMock) UpdateSocialList(ctx context.Context, arg db.UpdateSocialListParams) (int64, error) {
+	return 0, nil
+}
+
+func (m *QuerierMock) UpsertSocialListEntry(ctx context.Context, arg db.UpsertSocialListEntryParams) error {
+	return nil
+}
+
+func (m *QuerierMock) UpsertSocialListMember(ctx context.Context, arg db.UpsertSocialListMemberParams) error {
+	return nil
+}
+
 var testAuthConfig = &config.AuthConfiguration{
 	JWTSecret:       "0123456789abcdef0123456789abcdef",
 	AccessTokenTTL:  time.Hour,

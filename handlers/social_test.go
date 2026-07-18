@@ -49,6 +49,12 @@ type socialMock struct {
 	commentSeq    int64
 	playback      map[reviewKey]db.GetEpisodePlaybackForGateRow
 	repliesSeenAt map[int64]time.Time
+
+	// Shared-list state (methods in lists_test.go).
+	lists       map[int64]*mockList
+	listSeq     int64
+	listEntries map[int64][]*mockListEntry
+	listMembers map[int64]map[int64]int16
 }
 
 type handleRow struct {

@@ -157,6 +157,27 @@ type Querier interface {
 	UpsertFollow(ctx context.Context, arg UpsertFollowParams) error
 	DeleteFollow(ctx context.Context, arg DeleteFollowParams) (int64, error)
 	ApproveFollow(ctx context.Context, arg ApproveFollowParams) (int64, error)
+	ClearSocialListAttributionForUser(ctx context.Context, addedBy *int64) error
+	CountSocialListEntries(ctx context.Context, listID int64) (int64, error)
+	CreateSocialList(ctx context.Context, arg CreateSocialListParams) (CreateSocialListRow, error)
+	DeleteSocialList(ctx context.Context, arg DeleteSocialListParams) (int64, error)
+	DeleteSocialListEntry(ctx context.Context, arg DeleteSocialListEntryParams) (int64, error)
+	DeleteSocialListMember(ctx context.Context, arg DeleteSocialListMemberParams) (int64, error)
+	DeleteSocialListMembershipsForUser(ctx context.Context, userID int64) error
+	DeleteSocialListsForOwner(ctx context.Context, ownerUserID int64) error
+	GetProfileSocialLists(ctx context.Context, arg GetProfileSocialListsParams) ([]GetProfileSocialListsRow, error)
+	GetSocialList(ctx context.Context, id int64) (GetSocialListRow, error)
+	GetSocialListEntries(ctx context.Context, arg GetSocialListEntriesParams) ([]GetSocialListEntriesRow, error)
+	GetSocialListInvitesForUser(ctx context.Context, userID int64) ([]GetSocialListInvitesForUserRow, error)
+	GetSocialListMember(ctx context.Context, arg GetSocialListMemberParams) (int16, error)
+	GetSocialListMembers(ctx context.Context, listID int64) ([]GetSocialListMembersRow, error)
+	GetSocialListsForUser(ctx context.Context, ownerUserID int64) ([]GetSocialListsForUserRow, error)
+	MaxSocialListPosition(ctx context.Context, listID int64) (int32, error)
+	MoveSocialListEntry(ctx context.Context, arg MoveSocialListEntryParams) (int64, error)
+	TouchSocialList(ctx context.Context, id int64) error
+	UpdateSocialList(ctx context.Context, arg UpdateSocialListParams) (int64, error)
+	UpsertSocialListEntry(ctx context.Context, arg UpsertSocialListEntryParams) error
+	UpsertSocialListMember(ctx context.Context, arg UpsertSocialListMemberParams) error
 	CountCommentReplies(ctx context.Context, parentID *int64) (int64, error)
 	CountEpisodeComments(ctx context.Context, episodeUuid string) (int64, error)
 	CountInboxReplies(ctx context.Context, userID *int64) (int64, error)

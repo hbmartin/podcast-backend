@@ -150,6 +150,7 @@ func playlistToProto(row db.Playlist) *pb.SyncUserPlaylist {
 		ShowArchived:    wrapBool(row.ShowArchived),
 		EpisodeOrder:    row.EpisodeOrder,
 		Episodes:        decodePlaylistEpisodes(row.Episodes),
+		CustomQuery:     wrapString(&row.CustomQuery),
 	}
 }
 
@@ -181,6 +182,7 @@ func playlistToSyncResponse(row db.Playlist) *pb.PlaylistSyncResponse {
 		ShowArchived:    wrapBool(row.ShowArchived),
 		EpisodeOrder:    row.EpisodeOrder,
 		Episodes:        decodePlaylistEpisodes(row.Episodes),
+		CustomQuery:     wrapString(&row.CustomQuery),
 	}
 }
 

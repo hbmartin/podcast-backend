@@ -200,6 +200,11 @@ message SyncUserPlaylist {
   repeated string episode_order = 24;
   repeated SyncPlaylistEpisode episodes = 25;
   google.protobuf.BoolValue show_archived = 26;
+
+  // Fork-owned (>=1001): the custom-playlist query envelope (JSON
+  // CustomPlaylistQuery). Empty for smart/manual playlists. Slice 7 overturns
+  // the device-local exclusion — see iOS ADR-0011.
+  google.protobuf.StringValue custom_query = 1001;
 }
 
 message SyncUserFolder {
@@ -441,6 +446,9 @@ message PlaylistSyncResponse {
   repeated string episode_order = 24;
   repeated SyncPlaylistEpisode episodes = 25;
   google.protobuf.BoolValue show_archived = 26;
+
+  // Fork-owned (>=1001): mirrors SyncUserPlaylist.custom_query.
+  google.protobuf.StringValue custom_query = 1001;
 }
 
 message UpNextSyncRequest {
@@ -1884,7 +1892,8 @@ message PublicProfileResponse {
   repeated SocialProfileEpisode recently_played = 11;
   int64 follower_count = 12;
   int64 following_count = 13;
-  FollowState your_follow_state = 14; // authenticated viewers only
+  FollowState your_follow_state = 14;
+  repeated SharedList lists = 15;      // visibility-filtered for this viewer // authenticated viewers only
 }
 
 // A podcast entry in a public-profile section (followed shows / top podcasts).
@@ -2139,6 +2148,7 @@ enum FeedItemKind {
   FEED_ITEM_KIND_REVIEWED = 5;
   FEED_ITEM_KIND_REACTED = 6;
   FEED_ITEM_KIND_COMMENTED = 7;
+  FEED_ITEM_KIND_PUBLISHED_LIST = 8;
 }
 message FeedItem {
   FeedItemKind kind = 1;
@@ -2153,6 +2163,8 @@ message FeedItem {
   ReactionKind reaction_kind = 10;    // REACTED
   string review_excerpt = 11;         // REVIEWED / COMMENTED excerpt (capped)
   google.protobuf.Timestamp event_at = 12;
+  string list_title = 13;             // PUBLISHED_LIST
+  int64 list_id = 14;                 // PUBLISHED_LIST
 }
 message FeedResponse {
   repeated FeedItem items = 1;
@@ -2223,4 +2235,114 @@ message InboxRepliesResponse {
   repeated SocialComment replies = 1;
   int32 total = 2;
   int32 unread = 3;                    // newer than the caller's seen-watermark
+}
+
+// ---- Slice 7: collaborative + subscribable lists (docs/Social.md, ADR-0011) ----
+
+enum SharedListRole {
+  SHARED_LIST_ROLE_NONE = 0;
+  SHARED_LIST_ROLE_OWNER = 1;
+  SHARED_LIST_ROLE_COLLABORATOR = 2;
+  SHARED_LIST_ROLE_SUBSCRIBER = 3;
+  SHARED_LIST_ROLE_INVITED = 4;
+}
+
+message SharedListMember {
+  string handle = 1;
+  string display_name = 2;
+  SharedListRole role = 3;
+}
+
+message SharedList {
+  int64 id = 1;
+  string owner_handle = 2;
+  string owner_display_name = 3;
+  string title = 4;
+  string description = 5;
+  SocialVisibility visibility = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  int32 entry_count = 9;
+  SharedListRole your_role = 10;
+  repeated SharedListMember members = 11; // collaborators + pending invites (owner view)
+}
+
+message SharedListEntry {
+  string episode_uuid = 1;
+  string podcast_uuid = 2;
+  string episode_title = 3;
+  string podcast_title = 4;
+  int32 position = 5;
+  string added_by_handle = 6;          // empty when the adder was erased
+  google.protobuf.Timestamp added_at = 7;
+}
+
+message SharedListCreateRequest {
+  string title = 1;
+  string description = 2;
+  SocialVisibility visibility = 3;
+  repeated SharedListEntry entries = 4; // initial snapshot (materialize-to-share)
+}
+
+message SharedListUpdateRequest {
+  int64 list_id = 1;
+  string title = 2;
+  string description = 3;
+  SocialVisibility visibility = 4;
+}
+
+message SharedListDeleteRequest {
+  int64 list_id = 1;
+}
+
+message SharedListEntriesRequest {
+  int64 list_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message SharedListEntriesResponse {
+  SharedList list = 1;
+  repeated SharedListEntry entries = 2;
+  int32 total = 3;
+}
+
+enum SharedListOp {
+  SHARED_LIST_OP_UNSPECIFIED = 0;
+  SHARED_LIST_OP_ADD = 1;
+  SHARED_LIST_OP_REMOVE = 2;
+  SHARED_LIST_OP_MOVE = 3;
+}
+
+message SharedListEntryOpRequest {
+  int64 list_id = 1;
+  SharedListOp op = 2;
+  string episode_uuid = 3;
+  string podcast_uuid = 4;
+  string episode_title = 5;
+  string podcast_title = 6;
+  int32 position = 7;                  // ADD append when < 0; MOVE target
+}
+
+message SharedListInviteRequest {
+  int64 list_id = 1;
+  string handle = 2;
+}
+
+message SharedListInviteRespondRequest {
+  int64 list_id = 1;
+  bool accept = 2;
+}
+
+message SharedListSubscribeRequest {
+  int64 list_id = 1;
+  bool subscribe = 2;
+}
+
+message SharedListsRequest {
+}
+
+message SharedListsResponse {
+  repeated SharedList lists = 1;       // owned + collaborating + subscribed
+  repeated SharedList invites = 2;     // pending invitations to the caller
 }

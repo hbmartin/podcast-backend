@@ -243,8 +243,11 @@ func applyPlaylistRecord(ctx context.Context, q db.Querier, userID int64, token 
 		LongerThan:      int32Ptr(rec.LongerThan),
 		ShorterThan:     int32Ptr(rec.ShorterThan),
 		ShowArchived:    boolPtr(rec.ShowArchived),
-		EpisodeOrder:    rec.EpisodeOrder,
+		// nil (absent) repeated fields must not become SQL NULL — smart and
+		// custom playlists carry no episode order at all.
+		EpisodeOrder:    append([]string{}, rec.EpisodeOrder...),
 		Episodes:        episodes,
+		CustomQuery:     rec.GetCustomQuery().GetValue(),
 		ModifiedAt:      token,
 	}
 	return q.UpsertPlaylist(ctx, params)

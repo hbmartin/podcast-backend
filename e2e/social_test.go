@@ -617,3 +617,138 @@ func TestCommentTree(t *testing.T) {
 	assert.Empty(t, replies.Comments[0].Text)
 	assert.Empty(t, replies.Comments[0].Handle)
 }
+
+// TestSocialLists walks the Slice-7 surface (ADR-0011): visibility gating,
+// subscription, the collaborator invite loop with attributed entries,
+// kick, the profile Lists section, owner-death erase — plus the
+// custom-playlist sync overturn round-trip.
+func TestSocialLists(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("list-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("list-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_lst_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_lst_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "List Owner"}, {tokenB, handleB, "List Friend"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// Create private with a snapshot entry (materialize-to-share shape).
+	list := &pb.SharedList{}
+	status := postProto(t, "/social/list/create", tokenA, &pb.SharedListCreateRequest{
+		Title: "Road Trip", Description: "long drives",
+		Visibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PRIVATE,
+		Entries: []*pb.SharedListEntry{
+			{EpisodeUuid: "ep-e2e-1", PodcastUuid: "pod-e2e-1", EpisodeTitle: "First"},
+		},
+	}, list)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, pb.SharedListRole_SHARED_LIST_ROLE_OWNER, list.YourRole)
+
+	// Private: B and anonymous read as not-found.
+	status = postProto(t, "/social/list/entries", tokenB,
+		&pb.SharedListEntriesRequest{ListId: list.Id}, nil)
+	require.Equal(t, http.StatusNotFound, status)
+
+	// Public: visible to B and anonymous; B subscribes.
+	status = postProto(t, "/social/list/update", tokenA, &pb.SharedListUpdateRequest{
+		ListId: list.Id, Title: "Road Trip", Description: "long drives",
+		Visibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC,
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	entries := &pb.SharedListEntriesResponse{}
+	status = postProto(t, "/social/list/entries", "", &pb.SharedListEntriesRequest{ListId: list.Id}, entries)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, entries.Entries, 1)
+	assert.Equal(t, handleA, entries.Entries[0].AddedByHandle)
+
+	status = postProto(t, "/social/list/subscribe", tokenB,
+		&pb.SharedListSubscribeRequest{ListId: list.Id, Subscribe: true}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	lists := &pb.SharedListsResponse{}
+	status = postProto(t, "/social/lists", tokenB, &pb.SharedListsRequest{}, lists)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, lists.Lists, 1)
+	assert.Equal(t, pb.SharedListRole_SHARED_LIST_ROLE_SUBSCRIBER, lists.Lists[0].YourRole)
+
+	// The profile Lists section carries the public list.
+	profile := &pb.PublicProfileResponse{}
+	status = postProto(t, "/social/profile/public", tokenB, &pb.PublicProfileRequest{Handle: handleA}, profile)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, profile.Lists, 1)
+	assert.Equal(t, "Road Trip", profile.Lists[0].Title)
+
+	// Invite B as collaborator; B accepts and adds an attributed entry.
+	status = postProto(t, "/social/list/invite", tokenA,
+		&pb.SharedListInviteRequest{ListId: list.Id, Handle: handleB}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	postProto(t, "/social/lists", tokenB, &pb.SharedListsRequest{}, lists)
+	require.Len(t, lists.Invites, 1)
+	assert.Equal(t, "Road Trip", lists.Invites[0].Title)
+
+	status = postProto(t, "/social/list/invite/respond", tokenB,
+		&pb.SharedListInviteRespondRequest{ListId: list.Id, Accept: true}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	status = postProto(t, "/social/list/entry", tokenB, &pb.SharedListEntryOpRequest{
+		ListId: list.Id, Op: pb.SharedListOp_SHARED_LIST_OP_ADD,
+		EpisodeUuid: "ep-e2e-2", PodcastUuid: "pod-e2e-1", EpisodeTitle: "Second", Position: -1,
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	postProto(t, "/social/list/entries", tokenA, &pb.SharedListEntriesRequest{ListId: list.Id}, entries)
+	require.Len(t, entries.Entries, 2)
+	assert.Equal(t, handleB, entries.Entries[1].AddedByHandle)
+	require.NotNil(t, entries.List)
+	require.Len(t, entries.List.Members, 1, "owner view lists the collaborator")
+
+	// Kick B: their edits stop.
+	status = postProto(t, "/social/list/member/remove", tokenA,
+		&pb.SharedListInviteRequest{ListId: list.Id, Handle: handleB}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/list/entry", tokenB, &pb.SharedListEntryOpRequest{
+		ListId: list.Id, Op: pb.SharedListOp_SHARED_LIST_OP_ADD, EpisodeUuid: "ep-e2e-3",
+	}, nil)
+	require.Equal(t, http.StatusForbidden, status)
+
+	// Custom-playlist sync overturn: the query envelope round-trips.
+	now := time.Now().UnixMilli()
+	status = postProto(t, "/user/sync/update", tokenA, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now,
+		Records: []*pb.Record{{Record: &pb.Record_Playlist{Playlist: &pb.SyncUserPlaylist{
+			Uuid:        "cccc1111-2222-3333-4444-555566667777",
+			Title:       wrapperspb.String("My Custom"),
+			Manual:      wrapperspb.Bool(false),
+			CustomQuery: wrapperspb.String(`{"version":1,"mode":"sql"}`),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	playlists := &pb.UserPlaylistListResponse{}
+	status = postProto(t, "/user/playlist/list", tokenA, &pb.UserPlaylistListRequest{}, playlists)
+	require.Equal(t, http.StatusOK, status)
+	foundCustom := false
+	for _, p := range playlists.Playlists {
+		if p.Uuid == "cccc1111-2222-3333-4444-555566667777" {
+			foundCustom = true
+			assert.Equal(t, `{"version":1,"mode":"sql"}`, p.GetCustomQuery().GetValue(),
+				"custom_query must round-trip through sync")
+		}
+	}
+	assert.True(t, foundCustom)
+
+	// Owner erase: the list vanishes for everyone.
+	status = postProto(t, "/social/erase", tokenA, &pb.EraseRequest{}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/list/entries", tokenB,
+		&pb.SharedListEntriesRequest{ListId: list.Id}, nil)
+	require.Equal(t, http.StatusNotFound, status)
+}

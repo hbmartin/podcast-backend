@@ -382,6 +382,32 @@ func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.Pub
 	}
 	resp.YourFollowState = viewerFollowState
 
+	// Shared lists section (Slice 7, ADR-0011): tiers per viewer — owner sees
+	// all, active followers see followers+public, everyone else public only.
+	listTiers := []int16{2}
+	if isOwner {
+		listTiers = []int16{1, 2, 3}
+	} else if isActiveFollower {
+		listTiers = []int16{2, 3}
+	}
+	if listRows, err := h.Queries.GetProfileSocialLists(r.Context(), db.GetProfileSocialListsParams{
+		OwnerUserID: profile.UserID, Column2: listTiers,
+	}); err == nil {
+		for _, row := range listRows {
+			resp.Lists = append(resp.Lists, &pb.SharedList{
+				Id:               row.ID,
+				OwnerHandle:      row.OwnerHandle,
+				OwnerDisplayName: row.OwnerDisplayName,
+				Title:            row.Title,
+				Description:      row.Description,
+				Visibility:       pb.SocialVisibility(row.Visibility),
+				CreatedAt:        timestamppb.New(row.CreatedAt),
+				UpdatedAt:        timestamppb.New(row.UpdatedAt),
+				EntryCount:       row.EntryCount,
+			})
+		}
+	}
+
 	if resp.HasStats = visible(profile.StatsVisibility); resp.HasStats {
 		totals, err := h.Queries.GetUserStatsTotals(r.Context(), profile.UserID)
 		if err != nil {
@@ -643,6 +669,17 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 		// Comments tombstone rather than delete (ADR-0010): text and
 		// authorship wiped, tree positions kept so replies survive.
 		if err := q.TombstoneCommentsForUser(r.Context(), &userID); err != nil {
+			return err
+		}
+		// Shared lists die with their owner (ADR-0011); a collaborator's
+		// entries survive with attribution wiped.
+		if err := q.DeleteSocialListsForOwner(r.Context(), userID); err != nil {
+			return err
+		}
+		if err := q.DeleteSocialListMembershipsForUser(r.Context(), userID); err != nil {
+			return err
+		}
+		if err := q.ClearSocialListAttributionForUser(r.Context(), &userID); err != nil {
 			return err
 		}
 		return q.DeleteRelationshipsForUser(r.Context(), userID)

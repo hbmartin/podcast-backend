@@ -319,6 +319,8 @@ func (h Handlers) PostFeed(w http.ResponseWriter, r *http.Request) {
 			TargetHandle:     row.TargetHandle,
 			ReactionKind:     pb.ReactionKind(row.ReactionKind),
 			ReviewExcerpt:    row.ReviewExcerpt,
+			ListTitle:        row.ListTitle,
+			ListId:           row.ListID,
 			EventAt:          timestamppb.New(row.EventAt),
 		})
 	}
