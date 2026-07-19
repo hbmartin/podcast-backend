@@ -1837,6 +1837,8 @@ message SocialProfile {
   // Inverted discoverability (Slice 9): true removes the profile from people
   // search and suggestions. Zero-value = discoverable.
   bool hide_from_discovery = 17;
+  // Operator-designated curator (Slice 15, ADR-0014): badge + directory.
+  bool curator = 18;
 }
 
 // POST social/handle/availability — the rate-limited typeahead availability check.
@@ -1908,6 +1910,7 @@ message PublicProfileResponse {
   FollowState your_follow_state = 14;
   repeated SharedList lists = 15;      // visibility-filtered for this viewer // authenticated viewers only
   repeated Milestone milestones = 16;  // present only when stats are visible (Slice 14)
+  bool curator = 17;                   // operator-designated (ADR-0014)
 }
 
 // A podcast entry in a public-profile section (followed shows / top podcasts).
@@ -2502,6 +2505,16 @@ message Milestone {
   int32 kind = 1;                       // 1 = hours listened, 2 = episodes finished
   int32 tier = 2;
   google.protobuf.Timestamp crossed_at = 3;
+}
+
+// ---- Curators (Slice 15, ADR-0014): operator-designated tastemakers. ----
+message CuratorsRequest { int32 limit = 1; }
+message CuratorsResponse { repeated CuratorEntry curators = 1; }
+message CuratorEntry {
+  string handle = 1;
+  string display_name = 2;
+  string bio = 3;                       // shown only when public
+  int64 follower_count = 4;
 }
 
 

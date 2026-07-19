@@ -372,6 +372,7 @@ type SocialProfile struct {
 	SocialPushDisabled      int64
 	HideFromDiscovery       bool
 	DigestSentAt            *time.Time
+	Curator                 bool
 }
 
 type SocialRelationship struct {

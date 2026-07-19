@@ -134,6 +134,9 @@ func (n *Notifier) NotifySocial(ctx context.Context, targetUserID int64, pushTyp
 	case SocialPushSharedItem:
 		title = actor
 		body = "sent you an episode"
+		if data["podcast_only"] == "1" {
+			body = "recommended a show to you"
+		}
 	case SocialPushCommentReply:
 		title = actor
 		body = "replied to your comment"

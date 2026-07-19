@@ -3,14 +3,18 @@
 package e2e
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	pb "github.com/hbmartin/podcast-backend/protos/api"
 
@@ -1295,4 +1299,87 @@ func TestMilestones(t *testing.T) {
 	for _, item := range feed.Items {
 		require.NotEqual(t, pb.FeedItemKind_FEED_ITEM_KIND_MILESTONE, item.Kind)
 	}
+}
+
+// TestCuratorsAndRecommendations walks Slice 15 (ADR-0014): operator
+// designation is a DB act (done here directly, as in production), the
+// directory is follower-ranked and composes with hide_from_discovery, and a
+// show recommendation is a podcast-level Shared Item riding the Inbox.
+func TestCuratorsAndRecommendations(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("cur-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("cur-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_cur_a_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Curator A"}, {tokenB, fmt.Sprintf("e2e_cur_b_%d", suffix%1_000_000_000), "Listener B"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// Operator designation: a direct DB act, exactly as in production.
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, os.Getenv("E2E_DB_CONNECTION_STRING"))
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+	_, err = conn.Exec(ctx,
+		"UPDATE social_profiles SET curator = true WHERE handle = $1", handleA)
+	require.NoError(t, err)
+
+	// B follows A, then reads the directory: A listed with the follower count.
+	status := postProto(t, "/social/follow", tokenB, &pb.FollowRequest{Handle: handleA}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	curators := &pb.CuratorsResponse{}
+	status = postProto(t, "/social/curators", tokenB, &pb.CuratorsRequest{}, curators)
+	require.Equal(t, http.StatusOK, status)
+	var entry *pb.CuratorEntry
+	for _, c := range curators.Curators {
+		if c.Handle == handleA {
+			entry = c
+		}
+	}
+	require.NotNil(t, entry, "designated curator must be listed")
+	assert.Equal(t, int64(1), entry.FollowerCount)
+
+	// The curator badge rides the public profile.
+	profile := &pb.PublicProfileResponse{}
+	status = postProto(t, "/social/profile/public", tokenB, &pb.PublicProfileRequest{Handle: handleA}, profile)
+	require.Equal(t, http.StatusOK, status)
+	assert.True(t, profile.Curator)
+
+	// hide_from_discovery composes: a hidden curator leaves the directory.
+	status = postProto(t, "/social/profile/update", tokenA, &pb.ProfileUpdateRequest{
+		DisplayName: "Curator A", HideFromDiscovery: true,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/curators", tokenB, &pb.CuratorsRequest{}, curators)
+	require.Equal(t, http.StatusOK, status)
+	for _, c := range curators.Curators {
+		require.NotEqual(t, handleA, c.Handle, "hidden curators must not be listed")
+	}
+
+	// A recommends a SHOW to B: podcast fields only, note attached.
+	handleB := fmt.Sprintf("e2e_cur_b_%d", suffix%1_000_000_000)
+	status = postProto(t, "/social/share/send", tokenA, &pb.SharedItemSendRequest{
+		RecipientHandle: handleB, PodcastUuid: "dcba0000-00dd-4000-8000-000000000001",
+		PodcastTitle: "A Recommended Show", Note: "start with the pilot",
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	inbox := &pb.InboxResponse{}
+	status = postProto(t, "/social/inbox", tokenB, &pb.InboxRequest{}, inbox)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, inbox.Items, 1)
+	assert.Empty(t, inbox.Items[0].EpisodeUuid)
+	assert.Equal(t, "A Recommended Show", inbox.Items[0].PodcastTitle)
+	assert.Equal(t, "start with the pilot", inbox.Items[0].Note)
+
+	// Neither episode nor podcast: rejected.
+	status = postProto(t, "/social/share/send", tokenA, &pb.SharedItemSendRequest{
+		RecipientHandle: handleB, Note: "nothing attached",
+	}, nil)
+	require.Equal(t, http.StatusBadRequest, status)
 }

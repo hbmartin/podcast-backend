@@ -30,7 +30,9 @@ const (
 // PostShareSend handles POST /social/share/send.
 func (h Handlers) PostShareSend(w http.ResponseWriter, r *http.Request) {
 	req := &pb.SharedItemSendRequest{}
-	if err := bindProto(r, req); err != nil || req.EpisodeUuid == "" ||
+	// A show recommendation (Slice 15) carries a podcast and no episode;
+	// an episode share carries both. One of the two must be present.
+	if err := bindProto(r, req); err != nil || (req.EpisodeUuid == "" && req.PodcastUuid == "") ||
 		len(req.EpisodeUuid) > maxUuidFieldLen || len(req.PodcastUuid) > maxUuidFieldLen {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
 		return
@@ -109,9 +111,12 @@ func (h Handlers) PostShareSend(w http.ResponseWriter, r *http.Request) {
 		writeProto(w, http.StatusOK, &pb.SocialAck{Success: true})
 		return
 	}
+	pushData := map[string]string{"episode_uuid": req.EpisodeUuid, "podcast_uuid": req.PodcastUuid}
+	if req.EpisodeUuid == "" {
+		pushData["podcast_only"] = "1"
+	}
 	h.notifySocial(recipientProfile.UserID, push.SocialPushSharedItem,
-		senderProfile.Handle, senderProfile.DisplayName,
-		map[string]string{"episode_uuid": req.EpisodeUuid, "podcast_uuid": req.PodcastUuid})
+		senderProfile.Handle, senderProfile.DisplayName, pushData)
 	writeProto(w, http.StatusOK, &pb.SocialAck{Success: true})
 }
 

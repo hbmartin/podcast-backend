@@ -624,7 +624,7 @@ func (q *Queries) CreateSocialList(ctx context.Context, arg CreateSocialListPara
 const createSocialProfile = `-- name: CreateSocialProfile :one
 INSERT INTO social_profiles (user_id, handle, display_name, terms_version)
 VALUES ($1, $2, $3, $4)
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator
 `
 
 type CreateSocialProfileParams struct {
@@ -663,6 +663,7 @@ func (q *Queries) CreateSocialProfile(ctx context.Context, arg CreateSocialProfi
 		&i.SocialPushDisabled,
 		&i.HideFromDiscovery,
 		&i.DigestSentAt,
+		&i.Curator,
 	)
 	return i, err
 }
@@ -1473,6 +1474,53 @@ func (q *Queries) GetCommentReplies(ctx context.Context, arg GetCommentRepliesPa
 			&i.Handle,
 			&i.DisplayName,
 			&i.ReplyCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getCurators = `-- name: GetCurators :many
+
+SELECT sp.handle, sp.display_name,
+       CASE WHEN sp.bio_visibility = 2 THEN sp.bio ELSE '' END AS bio,
+       (SELECT count(*) FROM social_follows sf
+        WHERE sf.followee_user_id = sp.user_id AND sf.status = 1) AS follower_count
+FROM social_profiles sp
+WHERE sp.curator AND NOT sp.hide_from_discovery
+ORDER BY follower_count DESC, sp.handle
+LIMIT $1
+`
+
+type GetCuratorsRow struct {
+	Handle        string
+	DisplayName   string
+	Bio           string
+	FollowerCount int64
+}
+
+// Curators (Slice 15, ADR-0014): the operator-designated directory,
+// follower-ranked. Hidden-from-discovery still applies — a curator who
+// hides stays hidden (the flags compose, they don't override).
+func (q *Queries) GetCurators(ctx context.Context, limit int32) ([]GetCuratorsRow, error) {
+	rows, err := q.db.Query(ctx, getCurators, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetCuratorsRow
+	for rows.Next() {
+		var i GetCuratorsRow
+		if err := rows.Scan(
+			&i.Handle,
+			&i.DisplayName,
+			&i.Bio,
+			&i.FollowerCount,
 		); err != nil {
 			return nil, err
 		}
@@ -4187,7 +4235,7 @@ func (q *Queries) GetSocialListsForUser(ctx context.Context, ownerUserID int64) 
 }
 
 const getSocialProfileByHandle = `-- name: GetSocialProfileByHandle :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at FROM social_profiles WHERE handle = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator FROM social_profiles WHERE handle = $1
 `
 
 // Tombstoned/erased handles have no profile row, so this only finds live ones.
@@ -4214,12 +4262,13 @@ func (q *Queries) GetSocialProfileByHandle(ctx context.Context, handle string) (
 		&i.SocialPushDisabled,
 		&i.HideFromDiscovery,
 		&i.DigestSentAt,
+		&i.Curator,
 	)
 	return i, err
 }
 
 const getSocialProfileByUserID = `-- name: GetSocialProfileByUserID :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at FROM social_profiles WHERE user_id = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator FROM social_profiles WHERE user_id = $1
 `
 
 func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (SocialProfile, error) {
@@ -4245,6 +4294,7 @@ func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (S
 		&i.SocialPushDisabled,
 		&i.HideFromDiscovery,
 		&i.DigestSentAt,
+		&i.Curator,
 	)
 	return i, err
 }
@@ -6454,7 +6504,7 @@ UPDATE social_profiles SET
     hide_from_discovery = $13,
     updated_at = now()
 WHERE user_id = $1
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator
 `
 
 type UpdateSocialProfileParams struct {
@@ -6511,6 +6561,7 @@ func (q *Queries) UpdateSocialProfile(ctx context.Context, arg UpdateSocialProfi
 		&i.SocialPushDisabled,
 		&i.HideFromDiscovery,
 		&i.DigestSentAt,
+		&i.Curator,
 	)
 	return i, err
 }

@@ -1686,3 +1686,17 @@ SELECT (
       AND asp.stats_visibility IN (2, 3)
      WHERE sm.crossed_at > now() - interval '7 days')
 )::bigint;
+
+-- Curators (Slice 15, ADR-0014): the operator-designated directory,
+-- follower-ranked. Hidden-from-discovery still applies — a curator who
+-- hides stays hidden (the flags compose, they don't override).
+
+-- name: GetCurators :many
+SELECT sp.handle, sp.display_name,
+       CASE WHEN sp.bio_visibility = 2 THEN sp.bio ELSE '' END AS bio,
+       (SELECT count(*) FROM social_follows sf
+        WHERE sf.followee_user_id = sp.user_id AND sf.status = 1) AS follower_count
+FROM social_profiles sp
+WHERE sp.curator AND NOT sp.hide_from_discovery
+ORDER BY follower_count DESC, sp.handle
+LIMIT $1;

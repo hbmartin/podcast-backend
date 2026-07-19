@@ -333,6 +333,7 @@ func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.Pub
 		UserId:      owner.Uuid,
 		Handle:      profile.Handle,
 		DisplayName: profile.DisplayName,
+		Curator:     profile.Curator,
 		CreatedAt:   timestamppb.New(profile.CreatedAt),
 	}
 	// Phase 1 exposes only the public tier to non-owners; followers-only
@@ -768,5 +769,6 @@ func profileToProto(row db.SocialProfile, userUuid string) *pb.SocialProfile {
 		RequireFollowApproval:   row.RequireFollowApproval,
 		SocialPushDisabled:      row.SocialPushDisabled,
 		HideFromDiscovery:       row.HideFromDiscovery,
+		Curator:                 row.Curator,
 	}
 }

@@ -257,4 +257,7 @@ type Querier interface {
 	GetDigestCandidates(ctx context.Context, limit int32) ([]int64, error)
 	SetDigestSent(ctx context.Context, userID int64) error
 	CountGraphHighlights(ctx context.Context, followerUserID int64) (int64, error)
+
+	// Curators (Slice 15, ADR-0014).
+	GetCurators(ctx context.Context, limit int32) ([]GetCuratorsRow, error)
 }

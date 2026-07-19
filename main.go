@@ -298,6 +298,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /social/group/posts", optionalAuthChain(controllers.PostGroupPosts))
 	router.Handle("POST /social/group/post/edit", authChain(controllers.PostGroupPostEdit))
 	router.Handle("POST /social/group/post/delete", authChain(controllers.PostGroupPostDelete))
+	router.Handle("POST /social/curators", authChain(controllers.PostCurators))
 	router.Handle("POST /social/trending", authChain(controllers.PostSocialTrending))
 	router.Handle("POST /social/podcast/proof", authChain(controllers.PostPodcastProof))
 
