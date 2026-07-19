@@ -154,6 +154,11 @@ message SyncUserPodcast {
   google.protobuf.Int32Value sort_position = 8;
   google.protobuf.Timestamp date_added = 9;
   PodcastSettings settings = 10;
+
+  // Fork-owned (>=1001, Slice 11): lets the server ingest feeds it has never
+  // seen (catalog/episodes/artwork) and render titles before the crawl lands.
+  google.protobuf.StringValue feed_url = 1001;
+  google.protobuf.StringValue title = 1002;
 }
 
 message SyncUserEpisode {

@@ -31,6 +31,7 @@ import (
 	"github.com/hbmartin/podcast-backend/itunes"
 	"github.com/hbmartin/podcast-backend/middlewares"
 	"github.com/hbmartin/podcast-backend/push"
+	"github.com/hbmartin/podcast-backend/syncsvc"
 	"github.com/hbmartin/podcast-backend/tasks"
 	"github.com/hbmartin/podcast-backend/telemetry"
 )
@@ -549,6 +550,32 @@ func main() {
 			socialPushSeam = func(targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string) {
 				go directNotifier.NotifySocial(context.Background(), targetUserID, pushType, actorHandle, actorDisplayName, data)
 			}
+		}
+	}
+
+	// Sync-driven catalog ingestion (Slice 11): unknown subscribed feeds get
+	// crawled via the OPML-import path (queue) or directly when queue-less.
+	if queueClient != nil {
+		ingestQueue := queueClient
+		syncsvc.OnUnknownPodcast = func(feedURL string) {
+			if err := ingestQueue.EnqueueOpmlImport(context.Background(), []string{feedURL}); err != nil {
+				slog.Warn("sync ingestion enqueue failed", "err", err)
+			}
+		}
+	} else {
+		syncsvc.OnUnknownPodcast = func(feedURL string) {
+			go func() {
+				ingestCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer cancel()
+				podcast, err := feedCrawler.EnsurePodcast(ingestCtx, feedURL)
+				if err != nil {
+					slog.Warn("sync ingestion failed", "err", err)
+					return
+				}
+				if err := feedCrawler.Crawl(ingestCtx, podcast); err != nil {
+					slog.Warn("sync ingestion crawl failed", "err", err)
+				}
+			}()
 		}
 	}
 

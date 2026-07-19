@@ -425,6 +425,8 @@ type UserPodcast struct {
 	Settings          []byte
 	ModifiedAt        int64
 	NotifyEnabled     bool
+	SyncedTitle       string
+	SyncedFeedUrl     string
 }
 
 type UserSetting struct {

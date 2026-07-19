@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -1009,4 +1010,54 @@ func TestDiscovery(t *testing.T) {
 	require.Len(t, proof.VisibleHandles, 1)
 	assert.Equal(t, handleB, proof.VisibleHandles[0])
 	assert.Equal(t, int32(1), proof.TotalCount)
+}
+
+// TestSyncIngestion (Slice 11): a synced subscription carrying the fork feed
+// URL + title renders titles immediately (COALESCE fallback) and triggers
+// catalog ingestion of the unknown feed.
+func TestSyncIngestion(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("ing-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("ing-b-%d@e2e.test", suffix))
+	handleB := fmt.Sprintf("e2e_ing_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct{ token, handle string }{
+		{tokenA, fmt.Sprintf("e2e_ing_a_%d", suffix%1_000_000_000)}, {tokenB, handleB},
+	} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: "Ingest " + pair.handle,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+	status := postProto(t, "/social/follow", tokenA, &pb.FollowRequest{Handle: handleB}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Ingest B", FollowedShowsVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// B subscribes to an unknown uuid, carrying the fork feed URL + title.
+	unknownUuid := fmt.Sprintf("feed%04d-1111-2222-3333-999988887777", suffix%10_000)
+	now := time.Now().UnixMilli()
+	status = postProto(t, "/user/sync/update", tokenB, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now,
+		Records: []*pb.Record{{Record: &pb.Record_Podcast{Podcast: &pb.SyncUserPodcast{
+			Uuid: unknownUuid, Subscribed: wrapperspb.Bool(true),
+			DateAdded: timestamppb.New(time.Now()),
+			FeedUrl:   wrapperspb.String(feedServer.URL + "/feed.xml"),
+			Title:     wrapperspb.String("Synced Fallback Title"),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// The feed shows the followed-show event with the synced title at once.
+	feed := &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenA, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	foundTitle := false
+	for _, item := range feed.Items {
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_FOLLOWED_SHOW && item.PodcastTitle == "Synced Fallback Title" {
+			foundTitle = true
+		}
+	}
+	assert.True(t, foundTitle, "the synced title must render before any crawl")
 }

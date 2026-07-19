@@ -22,6 +22,11 @@ type Engine struct {
 	DB db.Store
 }
 
+// OnUnknownPodcast is the sync-ingestion hook (Slice 11): called with a feed
+// URL whenever a synced subscription references a podcast the catalog has
+// never seen. Wired by main; nil-safe.
+var OnUnknownPodcast func(feedURL string)
+
 // ApplyUpdate implements POST user/sync/update: applies the request's records
 // under a fresh sync token and returns every record changed after the
 // client's lastModified (including echoes of the records just applied — the
@@ -121,6 +126,21 @@ func applyPodcastRecord(ctx context.Context, q db.Querier, userID int64, token i
 		params.IsDeleted = rec.IsDeleted.Value
 		if rec.IsDeleted.Value {
 			params.Subscribed = false
+		}
+	}
+	if found {
+		params.SyncedTitle = existing.SyncedTitle
+		params.SyncedFeedUrl = existing.SyncedFeedUrl
+	}
+	if title := rec.GetTitle().GetValue(); title != "" {
+		params.SyncedTitle = title
+	}
+	if feedURL := rec.GetFeedUrl().GetValue(); feedURL != "" {
+		params.SyncedFeedUrl = feedURL
+		// Unknown in the catalog: hand the URL to the ingestion hook so the
+		// crawl fills catalog/episodes/artwork (Slice 11, QA follow-up).
+		if _, catErr := q.GetPodcastByUUID(ctx, rec.Uuid); errors.Is(catErr, pgx.ErrNoRows) && OnUnknownPodcast != nil {
+			OnUnknownPodcast(feedURL)
 		}
 	}
 	if rec.AutoStartFrom != nil {

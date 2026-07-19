@@ -1640,7 +1640,8 @@ FROM (
           AND ((br.user_id = $1 AND br.target_user_id = sf.followee_user_id)
             OR (br.user_id = sf.followee_user_id AND br.target_user_id = $1)))
   UNION ALL
-    SELECT 3, up.user_id, up.podcast_uuid::text, COALESCE(p.title, ''), '', '', '', 0, '',
+    SELECT 3, up.user_id, up.podcast_uuid::text,
+           COALESCE(NULLIF(p.title, ''), NULLIF(up.synced_title, ''), ''), '', '', '', 0, '',
            up.date_added,
            '', 0::bigint
     FROM user_podcasts up
@@ -3544,7 +3545,7 @@ func (q *Queries) GetStarredEpisodes(ctx context.Context, userID int64) ([]UserE
 }
 
 const getSubscribedPodcastsWithCatalog = `-- name: GetSubscribedPodcastsWithCatalog :many
-SELECT up.user_id, up.podcast_uuid, up.subscribed, up.is_deleted, up.auto_start_from, up.auto_skip_last, up.episodes_sort_order, up.folder_uuid, up.sort_position, up.date_added, up.settings, up.modified_at, up.notify_enabled,
+SELECT up.user_id, up.podcast_uuid, up.subscribed, up.is_deleted, up.auto_start_from, up.auto_skip_last, up.episodes_sort_order, up.folder_uuid, up.sort_position, up.date_added, up.settings, up.modified_at, up.notify_enabled, up.synced_title, up.synced_feed_url,
        COALESCE(p.title, '') AS cat_title,
        COALESCE(p.author, '') AS cat_author,
        COALESCE(p.description, '') AS cat_description,
@@ -3570,6 +3571,8 @@ type GetSubscribedPodcastsWithCatalogRow struct {
 	Settings                  []byte
 	ModifiedAt                int64
 	NotifyEnabled             bool
+	SyncedTitle               string
+	SyncedFeedUrl             string
 	CatTitle                  string
 	CatAuthor                 string
 	CatDescription            string
@@ -3601,6 +3604,8 @@ func (q *Queries) GetSubscribedPodcastsWithCatalog(ctx context.Context, userID i
 			&i.Settings,
 			&i.ModifiedAt,
 			&i.NotifyEnabled,
+			&i.SyncedTitle,
+			&i.SyncedFeedUrl,
 			&i.CatTitle,
 			&i.CatAuthor,
 			&i.CatDescription,
@@ -3654,7 +3659,10 @@ WITH followees AS (
         WHERE sr.user_id = $1 AND sr.target_user_id = sf.followee_user_id AND sr.kind = 1)
 )
 SELECT ue.podcast_uuid::text AS podcast_uuid,
-       COALESCE(p.title, '')::text AS title,
+       COALESCE(NULLIF(p.title, ''),
+                NULLIF((SELECT max(up2.synced_title) FROM user_podcasts up2
+                        WHERE up2.podcast_uuid = ue.podcast_uuid AND up2.synced_title <> ''), ''),
+                '')::text AS title,
        COALESCE(p.author, '')::text AS author,
        count(DISTINCT ue.user_id)::int AS listener_count
 FROM user_episodes ue
@@ -3982,7 +3990,7 @@ func (q *Queries) GetUserForUpdate(ctx context.Context, id int64) (User, error) 
 }
 
 const getUserPodcast = `-- name: GetUserPodcast :one
-SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at, notify_enabled FROM user_podcasts WHERE user_id = $1 AND podcast_uuid = $2
+SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at, notify_enabled, synced_title, synced_feed_url FROM user_podcasts WHERE user_id = $1 AND podcast_uuid = $2
 `
 
 type GetUserPodcastParams struct {
@@ -4007,6 +4015,8 @@ func (q *Queries) GetUserPodcast(ctx context.Context, arg GetUserPodcastParams) 
 		&i.Settings,
 		&i.ModifiedAt,
 		&i.NotifyEnabled,
+		&i.SyncedTitle,
+		&i.SyncedFeedUrl,
 	)
 	return i, err
 }
@@ -4043,7 +4053,7 @@ func (q *Queries) GetUserPodcastRatings(ctx context.Context, userID int64) ([]Po
 }
 
 const getUserPodcastsModifiedSince = `-- name: GetUserPodcastsModifiedSince :many
-SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at, notify_enabled FROM user_podcasts
+SELECT user_id, podcast_uuid, subscribed, is_deleted, auto_start_from, auto_skip_last, episodes_sort_order, folder_uuid, sort_position, date_added, settings, modified_at, notify_enabled, synced_title, synced_feed_url FROM user_podcasts
 WHERE user_id = $1 AND modified_at > $2 AND modified_at <= $3
 `
 
@@ -4076,6 +4086,8 @@ func (q *Queries) GetUserPodcastsModifiedSince(ctx context.Context, arg GetUserP
 			&i.Settings,
 			&i.ModifiedAt,
 			&i.NotifyEnabled,
+			&i.SyncedTitle,
+			&i.SyncedFeedUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -6125,9 +6137,11 @@ const upsertUserPodcast = `-- name: UpsertUserPodcast :exec
 INSERT INTO user_podcasts (
     user_id, podcast_uuid, subscribed, is_deleted, auto_start_from,
     auto_skip_last, episodes_sort_order, folder_uuid, sort_position,
-    date_added, settings, modified_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    date_added, settings, modified_at, synced_title, synced_feed_url
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (user_id, podcast_uuid) DO UPDATE SET
+    synced_title = CASE WHEN EXCLUDED.synced_title <> '' THEN EXCLUDED.synced_title ELSE user_podcasts.synced_title END,
+    synced_feed_url = CASE WHEN EXCLUDED.synced_feed_url <> '' THEN EXCLUDED.synced_feed_url ELSE user_podcasts.synced_feed_url END,
     subscribed = EXCLUDED.subscribed,
     is_deleted = EXCLUDED.is_deleted,
     auto_start_from = EXCLUDED.auto_start_from,
@@ -6153,6 +6167,8 @@ type UpsertUserPodcastParams struct {
 	DateAdded         *time.Time
 	Settings          []byte
 	ModifiedAt        int64
+	SyncedTitle       string
+	SyncedFeedUrl     string
 }
 
 func (q *Queries) UpsertUserPodcast(ctx context.Context, arg UpsertUserPodcastParams) error {
@@ -6169,6 +6185,8 @@ func (q *Queries) UpsertUserPodcast(ctx context.Context, arg UpsertUserPodcastPa
 		arg.DateAdded,
 		arg.Settings,
 		arg.ModifiedAt,
+		arg.SyncedTitle,
+		arg.SyncedFeedUrl,
 	)
 	return err
 }

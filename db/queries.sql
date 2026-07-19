@@ -71,9 +71,11 @@ SELECT * FROM user_podcasts WHERE user_id = $1 AND podcast_uuid = $2;
 INSERT INTO user_podcasts (
     user_id, podcast_uuid, subscribed, is_deleted, auto_start_from,
     auto_skip_last, episodes_sort_order, folder_uuid, sort_position,
-    date_added, settings, modified_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    date_added, settings, modified_at, synced_title, synced_feed_url
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (user_id, podcast_uuid) DO UPDATE SET
+    synced_title = CASE WHEN EXCLUDED.synced_title <> '' THEN EXCLUDED.synced_title ELSE user_podcasts.synced_title END,
+    synced_feed_url = CASE WHEN EXCLUDED.synced_feed_url <> '' THEN EXCLUDED.synced_feed_url ELSE user_podcasts.synced_feed_url END,
     subscribed = EXCLUDED.subscribed,
     is_deleted = EXCLUDED.is_deleted,
     auto_start_from = EXCLUDED.auto_start_from,
@@ -1001,7 +1003,8 @@ FROM (
           AND ((br.user_id = $1 AND br.target_user_id = sf.followee_user_id)
             OR (br.user_id = sf.followee_user_id AND br.target_user_id = $1)))
   UNION ALL
-    SELECT 3, up.user_id, up.podcast_uuid::text, COALESCE(p.title, ''), '', '', '', 0, '',
+    SELECT 3, up.user_id, up.podcast_uuid::text,
+           COALESCE(NULLIF(p.title, ''), NULLIF(up.synced_title, ''), ''), '', '', '', 0, '',
            up.date_added,
            '', 0::bigint
     FROM user_podcasts up
@@ -1389,7 +1392,10 @@ WITH followees AS (
         WHERE sr.user_id = $1 AND sr.target_user_id = sf.followee_user_id AND sr.kind = 1)
 )
 SELECT ue.podcast_uuid::text AS podcast_uuid,
-       COALESCE(p.title, '')::text AS title,
+       COALESCE(NULLIF(p.title, ''),
+                NULLIF((SELECT max(up2.synced_title) FROM user_podcasts up2
+                        WHERE up2.podcast_uuid = ue.podcast_uuid AND up2.synced_title <> ''), ''),
+                '')::text AS title,
        COALESCE(p.author, '')::text AS author,
        count(DISTINCT ue.user_id)::int AS listener_count
 FROM user_episodes ue
