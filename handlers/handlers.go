@@ -25,6 +25,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// SocialPushFunc delivers one social push event (Slice 8): the wiring in
+// main.go bridges it to the task queue or a direct notifier goroutine.
+type SocialPushFunc func(targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string)
+
 type Handlers struct {
 	Queries db.Store
 	Queue   *tasks.QueueClient
@@ -40,6 +44,10 @@ type Handlers struct {
 	QueuePing func(ctx context.Context) error
 	// AttestVerifier verifies App Attest material; nil when App Attest is not
 	// configured (endpoints then behave as ModeOff regardless of route mode).
+	// SocialPush is a late-bound holder: routes capture Handlers by value
+	// before the notifier exists, so the pointer is set at construction and
+	// the function assigned once push is wired (nil-safe no-op otherwise).
+	SocialPush     *SocialPushFunc
 	AttestVerifier *attest.Verifier
 }
 
@@ -197,4 +205,12 @@ func getValidationErrorMsg(fe validator.FieldError) string {
 		return fmt.Sprintf("%s should contain alpha characters only", fe.Field())
 	}
 	return "Unknown error"
+}
+
+// notifySocial fires the social push seam if it has been wired (Slice 8).
+func (h Handlers) notifySocial(targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string) {
+	if h.SocialPush == nil || *h.SocialPush == nil {
+		return
+	}
+	(*h.SocialPush)(targetUserID, pushType, actorHandle, actorDisplayName, data)
 }

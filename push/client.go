@@ -23,10 +23,19 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Notification is the visible alert content.
+// Notification is the visible alert content. Category, CollapseID and Data
+// (Slice 8) are optional: zero values leave the wire payload exactly as the
+// original title/body contract, which new-episode sends still use.
 type Notification struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
+
+	// Category maps to aps.category — the iOS tap-dispatch key.
+	Category string `json:"-"`
+	// CollapseID sets the apns-collapse-id header so repeats replace.
+	CollapseID string `json:"-"`
+	// Data is flattened into top-level custom payload keys.
+	Data map[string]string `json:"-"`
 }
 
 // Sender delivers one notification to one device token.
@@ -129,12 +138,18 @@ func (c *Client) Send(ctx context.Context, deviceToken string, n Notification) e
 		return err
 	}
 
-	payload, err := json.Marshal(map[string]any{
-		"aps": map[string]any{
-			"alert": n,
-			"sound": "default",
-		},
-	})
+	aps := map[string]any{
+		"alert": n,
+		"sound": "default",
+	}
+	if n.Category != "" {
+		aps["category"] = n.Category
+	}
+	payloadBody := map[string]any{"aps": aps}
+	for key, value := range n.Data {
+		payloadBody[key] = value
+	}
+	payload, err := json.Marshal(payloadBody)
 	if err != nil {
 		return err
 	}
@@ -148,6 +163,9 @@ func (c *Client) Send(ctx context.Context, deviceToken string, n Notification) e
 	req.Header.Set("apns-push-type", "alert")
 	req.Header.Set("apns-priority", "10")
 	req.Header.Set("apns-expiration", strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10))
+	if n.CollapseID != "" {
+		req.Header.Set("apns-collapse-id", n.CollapseID)
+	}
 	req.Header.Set("content-type", "application/json")
 
 	resp, err := c.http.Do(req)

@@ -178,9 +178,9 @@ INSERT INTO playlists (
     downloading, finished, partially_played, unplayed, starred, manual,
     sort_position, sort_type, icon_id, filter_hours, filter_duration,
     longer_than, shorter_than, show_archived, episode_order, episodes,
-    modified_at
+    modified_at, custom_query
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
 ON CONFLICT (user_id, uuid) DO UPDATE SET
     original_uuid = EXCLUDED.original_uuid,
     title = EXCLUDED.title,
@@ -207,6 +207,7 @@ ON CONFLICT (user_id, uuid) DO UPDATE SET
     show_archived = EXCLUDED.show_archived,
     episode_order = EXCLUDED.episode_order,
     episodes = EXCLUDED.episodes,
+    custom_query = EXCLUDED.custom_query,
     modified_at = EXCLUDED.modified_at;
 
 -- name: GetPlaylistsModifiedSince :many
@@ -678,6 +679,8 @@ UPDATE social_profiles SET
     history_visibility = $9,
     presence_visibility = $10,
     require_follow_approval = $11,
+    social_push_disabled = $12,
+    hide_from_discovery = $13,
     updated_at = now()
 WHERE user_id = $1
 RETURNING *;
@@ -789,11 +792,21 @@ JOIN users u ON u.id = r.user_id
 JOIN social_profiles sp ON sp.user_id = r.user_id
 LEFT JOIN podcast_ratings pr ON pr.user_id = r.user_id AND pr.podcast_uuid = r.podcast_uuid
 WHERE r.podcast_uuid = $1
+  AND (sqlc.narg('viewer')::bigint IS NULL OR r.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = r.user_id)
+                         OR (sr.user_id = r.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = r.user_id)))
 ORDER BY r.created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: CountPodcastReviews :one
-SELECT count(*) FROM podcast_reviews WHERE podcast_uuid = $1;
+SELECT count(*) FROM podcast_reviews r WHERE r.podcast_uuid = $1
+  AND (sqlc.narg('viewer')::bigint IS NULL OR r.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = r.user_id)
+                         OR (sr.user_id = r.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = r.user_id)));
 
 -- name: GetOwnPodcastReview :one
 SELECT r.user_id, r.podcast_uuid, r.text, r.created_at, r.updated_at,
@@ -853,18 +866,33 @@ FROM shared_items si
 JOIN users u ON u.id = si.sender_user_id
 JOIN social_profiles sp ON sp.user_id = si.sender_user_id
 WHERE si.recipient_user_id = $1
+  AND (sqlc.narg('viewer')::bigint IS NULL OR si.sender_user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = si.sender_user_id)
+                         OR (sr.user_id = si.sender_user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = si.sender_user_id)))
 ORDER BY si.created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: CountInboxItems :one
 SELECT count(*) FROM shared_items si
 JOIN social_profiles sp ON sp.user_id = si.sender_user_id
-WHERE si.recipient_user_id = $1;
+WHERE si.recipient_user_id = $1
+  AND (sqlc.narg('viewer')::bigint IS NULL OR si.sender_user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = si.sender_user_id)
+                         OR (sr.user_id = si.sender_user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = si.sender_user_id)));
 
 -- name: CountUnreadInboxItems :one
 SELECT count(*) FROM shared_items si
 JOIN social_profiles sp ON sp.user_id = si.sender_user_id
-WHERE si.recipient_user_id = $1 AND si.read_at IS NULL;
+WHERE si.recipient_user_id = $1 AND si.read_at IS NULL
+  AND (sqlc.narg('viewer')::bigint IS NULL OR si.sender_user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = si.sender_user_id)
+                         OR (sr.user_id = si.sender_user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = si.sender_user_id)));
 
 -- name: MarkInboxItemsRead :exec
 UPDATE shared_items SET read_at = now()
@@ -882,7 +910,7 @@ DELETE FROM shared_items WHERE sender_user_id = $1 OR recipient_user_id = $1;
 -- Follow graph + activity feed (Slice 5; ADR-0009: feed derives at read time)
 -- ============================================================================
 
--- name: UpsertFollow :exec
+-- name: UpsertFollow :execrows
 -- Idempotent; re-following while pending keeps pending (no status escalation).
 INSERT INTO social_follows (follower_user_id, followee_user_id, status, approved_at)
 VALUES ($1, $2, $3, CASE WHEN $3::smallint = 1 THEN now() ELSE NULL END)
@@ -902,7 +930,7 @@ SELECT status FROM social_follows WHERE follower_user_id = $1 AND followee_user_
 SELECT count(*) FROM social_follows WHERE followee_user_id = $1 AND status = 1;
 
 -- name: CountFollowing :one
-SELECT count(*) FROM social_follows WHERE follower_user_id = $1 AND status = 1;
+SELECT count(*) FROM social_follows WHERE follower_user_id = $1 ;
 
 -- name: GetFollowers :many
 SELECT u.uuid AS user_uuid, sp.handle, sp.display_name, sf.status
@@ -949,23 +977,33 @@ WITH followees AS (
 SELECT events.kind, events.podcast_uuid, events.podcast_title,
        events.episode_uuid, events.episode_title, events.target_handle,
        events.reaction_kind, events.review_excerpt, events.event_at,
+       events.list_title, events.list_id,
        actor.handle AS actor_handle, actor.display_name AS actor_display_name,
        au.uuid AS actor_uuid
 FROM (
     SELECT 1 AS kind, sp.user_id AS actor_id, '' AS podcast_uuid, '' AS podcast_title,
            '' AS episode_uuid, '' AS episode_title, '' AS target_handle,
-           0 AS reaction_kind, '' AS review_excerpt, sp.created_at AS event_at
+           0 AS reaction_kind, '' AS review_excerpt, sp.created_at AS event_at,
+           '' AS list_title, 0::bigint AS list_id
     FROM social_profiles sp JOIN followees f ON f.uid = sp.user_id
   UNION ALL
     SELECT 2, sf.follower_user_id, '', '', '', '',
-           tp.handle::text, 0, '', COALESCE(sf.approved_at, sf.created_at)
+           tp.handle::text, 0, '', COALESCE(sf.approved_at, sf.created_at),
+           '', 0::bigint
     FROM social_follows sf
     JOIN followees f ON f.uid = sf.follower_user_id
     JOIN social_profiles tp ON tp.user_id = sf.followee_user_id
     WHERE sf.status = 1
+      -- never surface a handle the viewer is blocked with (QA finding)
+      AND NOT EXISTS (
+        SELECT 1 FROM social_relationships br
+        WHERE br.kind = 0
+          AND ((br.user_id = $1 AND br.target_user_id = sf.followee_user_id)
+            OR (br.user_id = sf.followee_user_id AND br.target_user_id = $1)))
   UNION ALL
     SELECT 3, up.user_id, up.podcast_uuid::text, COALESCE(p.title, ''), '', '', '', 0, '',
-           up.date_added
+           up.date_added,
+           '', 0::bigint
     FROM user_podcasts up
     JOIN followees f ON f.uid = up.user_id
     JOIN social_profiles sp ON sp.user_id = up.user_id AND sp.followed_shows_visibility IN (2, 3)
@@ -974,7 +1012,8 @@ FROM (
   UNION ALL
     SELECT 4, ue.user_id, ue.podcast_uuid::text, COALESCE(p.title, ''),
            ue.episode_uuid::text, COALESCE(e.title, ''), '', 0, '',
-           to_timestamp(ue.playing_status_modified / 1000.0)
+           to_timestamp(ue.playing_status_modified / 1000.0),
+           '', 0::bigint
     FROM user_episodes ue
     JOIN followees f ON f.uid = ue.user_id
     JOIN social_profiles sp ON sp.user_id = ue.user_id AND sp.history_visibility IN (2, 3)
@@ -983,27 +1022,39 @@ FROM (
     WHERE ue.playing_status = 3 AND ue.playing_status_modified > 0
   UNION ALL
     SELECT 5, pr.user_id, pr.podcast_uuid::text, COALESCE(p.title, ''), '', '', '', 0,
-           left(pr.text, 200), pr.updated_at
+           left(pr.text, 200), pr.updated_at,
+           '', 0::bigint
     FROM podcast_reviews pr
     JOIN followees f ON f.uid = pr.user_id
     LEFT JOIN podcasts p ON p.uuid = pr.podcast_uuid
   UNION ALL
     SELECT 6, er.user_id, '', '', er.episode_uuid, COALESCE(e.title, ''), '',
-           er.kind::int, '', er.created_at
+           er.kind::int, '', er.created_at,
+           '', 0::bigint
     FROM episode_reactions er
     JOIN followees f ON f.uid = er.user_id
+    -- reactions are listening-derived: same history gate as finished-episode
+    JOIN social_profiles rp ON rp.user_id = er.user_id AND rp.history_visibility IN (2, 3)
     LEFT JOIN episodes e ON e.uuid::text = er.episode_uuid
   UNION ALL
     SELECT 7, ec.user_id, ec.podcast_uuid, ec.podcast_title,
-           ec.episode_uuid, ec.episode_title, '', 0, left(ec.text, 200), ec.created_at
+           ec.episode_uuid, ec.episode_title, '', 0, left(ec.text, 200), ec.created_at,
+           '', 0::bigint
     FROM episode_comments ec
     JOIN followees f ON f.uid = ec.user_id
     WHERE ec.parent_id IS NULL AND ec.removed_at IS NULL
+  UNION ALL
+    SELECT 8, sl.owner_user_id, '', '', '', '', '', 0, '', sl.created_at,
+           sl.title, sl.id
+    FROM social_lists sl
+    JOIN followees f ON f.uid = sl.owner_user_id
+    WHERE sl.visibility IN (2, 3)
 ) events
 JOIN social_profiles actor ON actor.user_id = events.actor_id
 JOIN users au ON au.id = events.actor_id
-WHERE (sqlc.narg('before')::timestamptz IS NULL OR events.event_at < sqlc.narg('before')::timestamptz)
-ORDER BY events.event_at DESC
+WHERE (sqlc.narg('before')::timestamptz IS NULL
+       OR date_trunc('milliseconds', events.event_at) < sqlc.narg('before')::timestamptz)
+ORDER BY events.event_at DESC, events.actor_id, events.kind
 LIMIT $2;
 
 -- Slice 6 (ADR-0010): the episode comment tree. Tombstones (removed_at set)
@@ -1038,12 +1089,22 @@ FROM episode_comments c
 LEFT JOIN users u ON u.id = c.user_id
 LEFT JOIN social_profiles sp ON sp.user_id = c.user_id
 WHERE c.episode_uuid = $1 AND c.parent_id IS NULL
+  AND (sqlc.narg('viewer')::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)))
 ORDER BY c.created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: CountEpisodeComments :one
-SELECT count(*) FROM episode_comments
-WHERE episode_uuid = $1 AND parent_id IS NULL;
+SELECT count(*) FROM episode_comments c
+WHERE c.episode_uuid = $1 AND c.parent_id IS NULL
+  AND (sqlc.narg('viewer')::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)));
 
 -- name: GetCommentReplies :many
 SELECT c.id, c.parent_id, c.user_id, c.text, c.timestamp_seconds, c.created_at,
@@ -1055,11 +1116,21 @@ FROM episode_comments c
 LEFT JOIN users u ON u.id = c.user_id
 LEFT JOIN social_profiles sp ON sp.user_id = c.user_id
 WHERE c.parent_id = $1
+  AND (sqlc.narg('viewer')::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)))
 ORDER BY c.created_at ASC
 LIMIT $2 OFFSET $3;
 
 -- name: CountCommentReplies :one
-SELECT count(*) FROM episode_comments WHERE parent_id = $1;
+SELECT count(*) FROM episode_comments c WHERE c.parent_id = $1
+  AND (sqlc.narg('viewer')::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)));
 
 -- name: EditComment :execrows
 UPDATE episode_comments
@@ -1091,6 +1162,11 @@ JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
 JOIN users u ON u.id = c.user_id
 JOIN social_profiles sp ON sp.user_id = c.user_id
 WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
+  AND (sqlc.narg('viewer')::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)))
 ORDER BY c.created_at DESC
 LIMIT $2 OFFSET $3;
 
@@ -1098,7 +1174,12 @@ LIMIT $2 OFFSET $3;
 SELECT count(*)
 FROM episode_comments c
 JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
-WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1;
+WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
+  AND (sqlc.narg('viewer')::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)));
 
 -- name: CountUnreadInboxReplies :one
 SELECT count(*)
@@ -1106,7 +1187,247 @@ FROM episode_comments c
 JOIN episode_comments parent ON parent.id = c.parent_id AND parent.user_id = $1
 JOIN social_profiles caller ON caller.user_id = $1
 WHERE c.removed_at IS NULL AND c.user_id IS DISTINCT FROM $1
-  AND c.created_at > caller.replies_seen_at;
+  AND c.created_at > caller.replies_seen_at
+  AND (sqlc.narg('viewer')::bigint IS NULL OR c.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)
+                         OR (sr.user_id = c.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
+       OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = c.user_id)));
 
 -- name: SetRepliesSeen :exec
 UPDATE social_profiles SET replies_seen_at = now() WHERE user_id = $1;
+
+-- Slice 7 (ADR-0011): shared lists — first-class multi-writer objects;
+-- device playlists mirror them. added_by NULL = attribution erased.
+
+-- name: CreateSocialList :one
+INSERT INTO social_lists (owner_user_id, title, description, visibility)
+VALUES ($1, $2, $3, $4)
+RETURNING id, created_at, updated_at;
+
+-- name: UpdateSocialList :execrows
+UPDATE social_lists
+SET title = $3, description = $4, visibility = $5, updated_at = now()
+WHERE id = $1 AND owner_user_id = $2;
+
+-- name: TouchSocialList :exec
+UPDATE social_lists SET updated_at = now() WHERE id = $1;
+
+-- name: DeleteSocialList :execrows
+DELETE FROM social_lists WHERE id = $1 AND owner_user_id = $2;
+
+-- name: GetSocialList :one
+SELECT sl.id, sl.owner_user_id, sl.title, sl.description, sl.visibility,
+       sl.created_at, sl.updated_at,
+       op.handle AS owner_handle, op.display_name AS owner_display_name,
+       (SELECT count(*) FROM social_list_entries e WHERE e.list_id = sl.id)::int AS entry_count
+FROM social_lists sl
+JOIN social_profiles op ON op.user_id = sl.owner_user_id
+WHERE sl.id = $1;
+
+-- name: GetSocialListsForUser :many
+SELECT sl.id, sl.owner_user_id, sl.title, sl.description, sl.visibility,
+       sl.created_at, sl.updated_at,
+       op.handle AS owner_handle, op.display_name AS owner_display_name,
+       (SELECT count(*) FROM social_list_entries e WHERE e.list_id = sl.id)::int AS entry_count,
+       CASE WHEN sl.owner_user_id = $1 THEN 1
+            ELSE (SELECT CASE m.role WHEN 1 THEN 2 WHEN 2 THEN 3 WHEN 0 THEN 4 ELSE 0 END
+                  FROM social_list_members m WHERE m.list_id = sl.id AND m.user_id = $1)
+       END::int AS your_role
+FROM social_lists sl
+JOIN social_profiles op ON op.user_id = sl.owner_user_id
+WHERE sl.owner_user_id = $1
+   OR EXISTS (SELECT 1 FROM social_list_members m WHERE m.list_id = sl.id AND m.user_id = $1)
+ORDER BY sl.updated_at DESC;
+
+-- name: GetProfileSocialLists :many
+-- The owner's lists visible at the given visibility tiers (handler passes
+-- (2) for anonymous/public viewers, (2,3) for active followers, all for self).
+SELECT sl.id, sl.owner_user_id, sl.title, sl.description, sl.visibility,
+       sl.created_at, sl.updated_at,
+       op.handle AS owner_handle, op.display_name AS owner_display_name,
+       (SELECT count(*) FROM social_list_entries e WHERE e.list_id = sl.id)::int AS entry_count
+FROM social_lists sl
+JOIN social_profiles op ON op.user_id = sl.owner_user_id
+WHERE sl.owner_user_id = $1 AND sl.visibility = ANY($2::smallint[])
+ORDER BY sl.updated_at DESC;
+
+-- name: GetSocialListEntries :many
+SELECT e.episode_uuid, e.podcast_uuid, e.episode_title, e.podcast_title,
+       e.position, e.added_at,
+       COALESCE(ap.handle, '')::text AS added_by_handle
+FROM social_list_entries e
+LEFT JOIN social_profiles ap ON ap.user_id = e.added_by
+WHERE e.list_id = $1
+ORDER BY e.position ASC, e.added_at ASC
+LIMIT $2 OFFSET $3;
+
+-- name: CountSocialListEntries :one
+SELECT count(*) FROM social_list_entries WHERE list_id = $1;
+
+-- name: MaxSocialListPosition :one
+SELECT COALESCE(max(position), -1)::int FROM social_list_entries WHERE list_id = $1;
+
+-- name: UpsertSocialListEntry :exec
+INSERT INTO social_list_entries (list_id, episode_uuid, podcast_uuid,
+                                 episode_title, podcast_title, position, added_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (list_id, episode_uuid) DO UPDATE SET
+    position = EXCLUDED.position;
+
+-- name: DeleteSocialListEntry :execrows
+DELETE FROM social_list_entries WHERE list_id = $1 AND episode_uuid = $2;
+
+-- name: MoveSocialListEntry :execrows
+UPDATE social_list_entries SET position = $3
+WHERE list_id = $1 AND episode_uuid = $2;
+
+-- name: GetSocialListMember :one
+SELECT role FROM social_list_members WHERE list_id = $1 AND user_id = $2;
+
+-- name: UpsertSocialListMember :exec
+INSERT INTO social_list_members (list_id, user_id, role)
+VALUES ($1, $2, $3)
+ON CONFLICT (list_id, user_id) DO UPDATE SET role = EXCLUDED.role;
+
+-- name: DeleteSocialListMember :execrows
+DELETE FROM social_list_members WHERE list_id = $1 AND user_id = $2;
+
+-- name: GetSocialListMembers :many
+SELECT m.user_id, m.role, sp.handle, sp.display_name
+FROM social_list_members m
+JOIN social_profiles sp ON sp.user_id = m.user_id
+WHERE m.list_id = $1
+ORDER BY m.role ASC, m.created_at ASC;
+
+-- name: GetSocialListInvitesForUser :many
+SELECT sl.id, sl.owner_user_id, sl.title, sl.description, sl.visibility,
+       sl.created_at, sl.updated_at,
+       op.handle AS owner_handle, op.display_name AS owner_display_name,
+       (SELECT count(*) FROM social_list_entries e WHERE e.list_id = sl.id)::int AS entry_count
+FROM social_list_members m
+JOIN social_lists sl ON sl.id = m.list_id
+JOIN social_profiles op ON op.user_id = sl.owner_user_id
+WHERE m.user_id = $1 AND m.role = 0
+ORDER BY m.created_at DESC;
+
+-- name: DeleteSocialListsForOwner :exec
+DELETE FROM social_lists WHERE owner_user_id = $1;
+
+-- name: DeleteSocialListMembershipsForUser :exec
+DELETE FROM social_list_members WHERE user_id = $1;
+
+-- name: ClearSocialListAttributionForUser :exec
+UPDATE social_list_entries SET added_by = NULL WHERE added_by = $1;
+
+-- Slice 8: social push targets — every push-enabled device of one user.
+-- name: GetPushTargetsForUser :many
+SELECT d.user_id, d.device_id, d.push_token
+FROM devices d
+WHERE d.user_id = $1 AND d.push_on AND d.push_token <> '';
+
+-- Slice 9: find people. Search and suggestions exclude hidden profiles and
+-- anyone blocked either way; suggestions also exclude existing follows.
+
+-- name: SearchSocialProfiles :many
+SELECT sp.handle, sp.display_name, sp.user_id,
+       COALESCE((SELECT sf.status FROM social_follows sf
+                 WHERE sf.follower_user_id = $1 AND sf.followee_user_id = sp.user_id), -1)::int AS follow_status
+FROM social_profiles sp
+WHERE NOT sp.hide_from_discovery
+  AND sp.user_id <> $1
+  AND (sp.handle LIKE $2 || '%' ESCAPE '\' OR lower(sp.display_name) LIKE $2 || '%' ESCAPE '\')
+  AND NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE sr.kind = 0
+      AND ((sr.user_id = $1 AND sr.target_user_id = sp.user_id)
+        OR (sr.user_id = sp.user_id AND sr.target_user_id = $1)))
+ORDER BY sp.handle
+LIMIT $3;
+
+-- name: GetSocialSuggestions :many
+-- Friends-of-followed with mutual counts (count only — never names).
+SELECT sp.handle, sp.display_name, sp.user_id, count(*)::int AS mutual_count
+FROM social_follows first_hop
+JOIN social_follows second_hop ON second_hop.follower_user_id = first_hop.followee_user_id
+JOIN social_profiles sp ON sp.user_id = second_hop.followee_user_id
+WHERE first_hop.follower_user_id = $1 AND first_hop.status = 1
+  AND second_hop.status = 1
+  AND second_hop.followee_user_id <> $1
+  AND NOT sp.hide_from_discovery
+  AND NOT EXISTS (
+    SELECT 1 FROM social_follows mine
+    WHERE mine.follower_user_id = $1 AND mine.followee_user_id = sp.user_id)
+  AND NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE ((sr.user_id = $1 AND sr.target_user_id = sp.user_id)
+        OR (sr.user_id = sp.user_id AND sr.target_user_id = $1)))
+GROUP BY sp.handle, sp.display_name, sp.user_id
+ORDER BY mutual_count DESC, sp.handle
+LIMIT $2;
+
+-- name: GetDiscoverableProfileEmails :many
+-- Contact matching happens in Go (salted hashes over these; fork scale keeps
+-- the candidate set small). Only joined + discoverable accounts participate.
+SELECT sp.user_id, sp.handle, sp.display_name, u.email
+FROM social_profiles sp
+JOIN users u ON u.id = sp.user_id
+WHERE NOT sp.hide_from_discovery;
+
+-- Slice 10: social discovery. Trending ranks followees' recently finished
+-- episodes under each actor's HISTORY visibility; proof lists followees who
+-- follow a show under each actor's FOLLOWED-SHOWS visibility. Muted actors
+-- are excluded from both (blocks cannot occur across an active follow).
+
+-- name: GetTrendingWithFriends :many
+WITH followees AS (
+    SELECT sf.followee_user_id AS uid
+    FROM social_follows sf
+    WHERE sf.follower_user_id = $1 AND sf.status = 1
+      AND NOT EXISTS (
+        SELECT 1 FROM social_relationships sr
+        WHERE sr.user_id = $1 AND sr.target_user_id = sf.followee_user_id AND sr.kind = 1)
+)
+SELECT ue.podcast_uuid::text AS podcast_uuid,
+       COALESCE(p.title, '')::text AS title,
+       COALESCE(p.author, '')::text AS author,
+       count(DISTINCT ue.user_id)::int AS listener_count
+FROM user_episodes ue
+JOIN followees f ON f.uid = ue.user_id
+JOIN social_profiles sp ON sp.user_id = ue.user_id AND sp.history_visibility IN (2, 3)
+LEFT JOIN podcasts p ON p.uuid = ue.podcast_uuid
+WHERE ue.playing_status = 3
+  AND ue.playing_status_modified > (extract(epoch FROM now() - interval '30 days') * 1000)::bigint
+  AND NOT EXISTS (
+    SELECT 1 FROM user_podcasts mine
+    WHERE mine.user_id = $1 AND mine.podcast_uuid = ue.podcast_uuid
+      AND mine.subscribed AND NOT mine.is_deleted)
+GROUP BY ue.podcast_uuid, p.title, p.author
+ORDER BY listener_count DESC, podcast_uuid
+LIMIT $2;
+
+-- name: GetPodcastProof :many
+WITH followees AS (
+    SELECT sf.followee_user_id AS uid
+    FROM social_follows sf
+    WHERE sf.follower_user_id = $1 AND sf.status = 1
+      AND NOT EXISTS (
+        SELECT 1 FROM social_relationships sr
+        WHERE sr.user_id = $1 AND sr.target_user_id = sf.followee_user_id AND sr.kind = 1)
+)
+SELECT sp.handle
+FROM user_podcasts up
+JOIN followees f ON f.uid = up.user_id
+JOIN social_profiles sp ON sp.user_id = up.user_id
+WHERE up.podcast_uuid = $2 AND up.subscribed AND NOT up.is_deleted
+  -- private followed-shows never appear, not even in the count (QA finding)
+  AND sp.followed_shows_visibility IN (2, 3)
+ORDER BY sp.handle;
+
+-- name: CountPendingFollowRequests :one
+SELECT count(*) FROM social_follows
+WHERE followee_user_id = $1 AND status = 0;
+
+-- Account deletion must silence the account's devices (QA finding).
+-- name: ClearPushStateForUser :exec
+UPDATE devices SET push_token = '', push_on = false WHERE user_id = $1;

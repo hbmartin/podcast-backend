@@ -3,7 +3,9 @@ package push
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/metrics"
@@ -75,6 +77,92 @@ func (n *Notifier) NotifyNewEpisodes(ctx context.Context, podcastUuid string, ep
 				continue
 			}
 			metrics.PushDeliveries.WithLabelValues("delivered").Inc()
+		}
+	}
+}
+
+// SocialPushType mirrors the proto enum (Slice 8). Kept as plain ints here so
+// the push package stays proto-free.
+const (
+	SocialPushFollowRequest  = 1
+	SocialPushFollowApproved = 2
+	SocialPushNewFollower    = 3
+	SocialPushSharedItem     = 4
+	SocialPushCommentReply   = 5
+	SocialPushListInvite     = 6
+)
+
+// NotifySocial delivers one social event to every push-enabled device of one
+// user (Slice 8, docs/Social.md). Prefs gate at the source: the target's
+// social_push_disabled bitmask (bit n = type n+1 off). Best-effort like
+// NotifyNewEpisodes; the actor's display name leads the alert body.
+func (n *Notifier) NotifySocial(ctx context.Context, targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string) {
+	if pushType < SocialPushFollowRequest || pushType > SocialPushListInvite {
+		return // corrupt/unknown type: never reach the shift below (QA finding)
+	}
+	profile, err := n.DB.GetSocialProfileByUserID(ctx, targetUserID)
+	if err != nil {
+		return // not joined (or gone): nothing to notify
+	}
+	if profile.SocialPushDisabled&(1<<(pushType-1)) != 0 {
+		return // this type is switched off
+	}
+
+	targets, err := n.DB.GetPushTargetsForUser(ctx, targetUserID)
+	if err != nil || len(targets) == 0 {
+		return
+	}
+
+	actor := actorDisplayName
+	if actor == "" {
+		actor = "@" + actorHandle
+	}
+	var title, body string
+	switch pushType {
+	case SocialPushFollowRequest:
+		title = actor
+		body = "wants to follow you"
+	case SocialPushFollowApproved:
+		title = actor
+		body = "approved your follow request"
+	case SocialPushNewFollower:
+		title = actor
+		body = "started following you"
+	case SocialPushSharedItem:
+		title = actor
+		body = "sent you an episode"
+	case SocialPushCommentReply:
+		title = actor
+		body = "replied to your comment"
+	case SocialPushListInvite:
+		title = actor
+		body = "invited you to a shared list"
+	default:
+		return
+	}
+
+	payloadData := map[string]string{
+		"social_type":  strconv.Itoa(pushType),
+		"actor_handle": actorHandle,
+	}
+	for key, value := range data {
+		payloadData[key] = value
+	}
+	notification := Notification{
+		Title:      title,
+		Body:       body,
+		Category:   "so",
+		CollapseID: fmt.Sprintf("so-%d-%s", pushType, actorHandle),
+		Data:       payloadData,
+	}
+
+	for _, target := range targets {
+		if err := n.Sender.Send(ctx, target.PushToken, notification); err != nil {
+			if errors.Is(err, ErrUnregistered) {
+				_ = n.DB.ClearPushToken(ctx, target.PushToken)
+				continue
+			}
+			slog.Warn("social push delivery failed", "err", err, "type", pushType)
 		}
 	}
 }

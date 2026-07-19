@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/moderation"
 	"github.com/hbmartin/podcast-backend/pcerrors"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
+	"github.com/hbmartin/podcast-backend/push"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -20,6 +22,8 @@ const (
 	commentEditGrace     = 5 * time.Minute
 	maxCommentPageSize   = 50
 	relationshipKindMute = int16(1)
+	// Cap for uuid-shaped identifier fields (QA finding: unbounded storage).
+	maxUuidFieldLen = 64
 )
 
 // PostCommentSubmit handles POST /social/comment/submit.
@@ -61,9 +65,18 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		parent, err := h.Queries.GetCommentByID(r.Context(), req.ParentId)
-		if err != nil || parent.EpisodeUuid != req.EpisodeUuid {
+		if err != nil || parent.EpisodeUuid != req.EpisodeUuid || parent.RemovedAt != nil {
 			pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "parent not found")
 			return
+		}
+		if parent.UserID != nil && *parent.UserID != user.ID {
+			blocked, err := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
+				UserID: user.ID, TargetUserID: *parent.UserID,
+			})
+			if err == nil && blocked {
+				pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "parent not found")
+				return
+			}
 		}
 		parentID := parent.ID
 		params.ParentID = &parentID
@@ -72,6 +85,17 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 			rootID = *parent.RootID
 		}
 		params.RootID = &rootID
+		// Replies inherit the seed's denormalized context so inbox rows
+		// render titles without the client re-sending them.
+		if params.PodcastUuid == "" {
+			params.PodcastUuid = parent.PodcastUuid
+		}
+		if params.EpisodeTitle == "" {
+			params.EpisodeTitle = parent.EpisodeTitle
+		}
+		if params.PodcastTitle == "" {
+			params.PodcastTitle = parent.PodcastTitle
+		}
 	} else {
 		// Top-level comment (or Moment when timestamped): the caller must
 		// have played >=25% of the episode, per the reaction-gate precedent.
@@ -94,6 +118,26 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, r, err)
 		return
+	}
+
+	// A reply notifies the parent's author (Slice 8) — never yourself, and
+	// tombstoned parents have no author to notify.
+	if req.ParentId > 0 {
+		if parent, err := h.Queries.GetCommentByID(r.Context(), req.ParentId); err == nil &&
+			parent.UserID != nil && *parent.UserID != user.ID &&
+			!h.mutedBy(r, *parent.UserID, user.ID) {
+			focusID := parent.ID
+			if parent.RootID != nil {
+				focusID = *parent.RootID
+			}
+			h.notifySocial(*parent.UserID, push.SocialPushCommentReply,
+				profile.Handle, profile.DisplayName,
+				map[string]string{
+					"episode_uuid": req.EpisodeUuid,
+					"podcast_uuid": params.PodcastUuid,
+					"comment_id":   strconv.FormatInt(focusID, 10),
+				})
+		}
 	}
 
 	resp := &pb.SocialComment{
@@ -193,25 +237,25 @@ func (h Handlers) PostEpisodeComments(w http.ResponseWriter, r *http.Request) {
 		limit = maxCommentPageSize
 	}
 
+	viewerID := h.optionalViewerID(r)
 	rows, err := h.Queries.GetEpisodeComments(r.Context(), db.GetEpisodeCommentsParams{
 		EpisodeUuid: req.EpisodeUuid, Limit: limit, Offset: max(req.Offset, 0),
+		Viewer: viewerRef(viewerID),
 	})
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	total, err := h.Queries.CountEpisodeComments(r.Context(), req.EpisodeUuid)
+	total, err := h.Queries.CountEpisodeComments(r.Context(), db.CountEpisodeCommentsParams{
+		EpisodeUuid: req.EpisodeUuid, Viewer: viewerRef(viewerID),
+	})
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 
-	viewerID := h.optionalViewerID(r)
 	resp := &pb.CommentsResponse{Total: int32(total)}
 	for _, row := range rows {
-		if h.commentAuthorHidden(r, viewerID, row.UserID) {
-			continue
-		}
 		resp.Comments = append(resp.Comments, commentToProto(commentRow{
 			ID: row.ID, UserID: row.UserID, Text: row.Text,
 			TimestampSeconds: row.TimestampSeconds, CreatedAt: row.CreatedAt,
@@ -237,25 +281,25 @@ func (h Handlers) PostCommentReplies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parentID := req.ParentId
+	viewerID := h.optionalViewerID(r)
 	rows, err := h.Queries.GetCommentReplies(r.Context(), db.GetCommentRepliesParams{
 		ParentID: &parentID, Limit: limit, Offset: max(req.Offset, 0),
+		Viewer: viewerRef(viewerID),
 	})
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	total, err := h.Queries.CountCommentReplies(r.Context(), &parentID)
+	total, err := h.Queries.CountCommentReplies(r.Context(), db.CountCommentRepliesParams{
+		ParentID: &parentID, Viewer: viewerRef(viewerID),
+	})
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 
-	viewerID := h.optionalViewerID(r)
 	resp := &pb.CommentsResponse{Total: int32(total)}
 	for _, row := range rows {
-		if h.commentAuthorHidden(r, viewerID, row.UserID) {
-			continue
-		}
 		var authorUUID *string
 		if row.AuthorUuid != nil {
 			authorUUID = row.AuthorUuid
@@ -289,18 +333,22 @@ func (h Handlers) PostInboxReplies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.Queries.GetInboxReplies(r.Context(), db.GetInboxRepliesParams{
-		UserID: &user.ID, Limit: limit, Offset: max(req.Offset, 0),
+		UserID: &user.ID, Limit: limit, Offset: max(req.Offset, 0), Viewer: &user.ID,
 	})
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	total, err := h.Queries.CountInboxReplies(r.Context(), &user.ID)
+	total, err := h.Queries.CountInboxReplies(r.Context(), db.CountInboxRepliesParams{
+		UserID: &user.ID, Viewer: &user.ID,
+	})
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	unread, err := h.Queries.CountUnreadInboxReplies(r.Context(), &user.ID)
+	unread, err := h.Queries.CountUnreadInboxReplies(r.Context(), db.CountUnreadInboxRepliesParams{
+		UserID: &user.ID, Viewer: &user.ID,
+	})
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -308,9 +356,6 @@ func (h Handlers) PostInboxReplies(w http.ResponseWriter, r *http.Request) {
 
 	resp := &pb.InboxRepliesResponse{Total: int32(total), Unread: int32(unread)}
 	for _, row := range rows {
-		if h.commentAuthorHidden(r, user.ID, row.UserID) {
-			continue
-		}
 		authorUUID := row.AuthorUuid
 		comment := commentToProto(commentRow{
 			ID: row.ID, ParentID: row.ParentID, UserID: row.UserID, Text: row.Text,
@@ -395,20 +440,18 @@ func (h Handlers) optionalViewerID(r *http.Request) int64 {
 	return viewer.ID
 }
 
-// commentAuthorHidden applies the viewer's block (mutual) and mute (one-way)
-// relationships to a comment author. Tombstones (nil author) always render.
-func (h Handlers) commentAuthorHidden(r *http.Request, viewerID int64, authorID *int64) bool {
-	if viewerID == 0 || authorID == nil || *authorID == viewerID {
-		return false
+// viewerRef converts an optional viewer id to the SQL narg form.
+func viewerRef(id int64) *int64 {
+	if id == 0 {
+		return nil
 	}
-	blocked, err := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
-		UserID: viewerID, TargetUserID: *authorID,
-	})
-	if err == nil && blocked {
-		return true
-	}
+	return &id
+}
+
+// mutedBy reports whether `owner` has muted `actor` (push suppression).
+func (h Handlers) mutedBy(r *http.Request, owner, actor int64) bool {
 	muted, err := h.Queries.HasSocialRelationship(r.Context(), db.HasSocialRelationshipParams{
-		UserID: viewerID, TargetUserID: *authorID, Kind: relationshipKindMute,
+		UserID: owner, TargetUserID: actor, Kind: relationshipKindMute,
 	})
 	return err == nil && muted
 }

@@ -57,6 +57,7 @@ func (w *WorkerServer) Start() error {
 	mux.HandleFunc(TypeOpmlImport, w.HandleOpmlImportTask)
 	mux.HandleFunc(TypeRefreshDuePodcasts, w.HandleRefreshDuePodcastsTask)
 	mux.HandleFunc(TypeNotifyNewEpisodes, w.HandleNotifyNewEpisodesTask)
+	mux.HandleFunc(TypeSocialPush, w.HandleSocialPushTask)
 	mux.HandleFunc(TypeSightingFetch, w.HandleSightingFetchTask)
 
 	return w.srv.Run(mux)
@@ -161,6 +162,25 @@ func (w *WorkerServer) HandleNotifyNewEpisodesTask(ctx context.Context, t *asynq
 
 	slog.Info("Delivering new-episode notifications", "podcast", payload.PodcastUUID, "episodes", len(payload.EpisodeUUIDs))
 	w.notifier.NotifyNewEpisodes(ctx, payload.PodcastUUID, payload.EpisodeUUIDs)
+	return nil
+}
+
+// HandleSocialPushTask delivers one social push (Slice 8). A no-op when push
+// is not configured.
+func (w *WorkerServer) HandleSocialPushTask(ctx context.Context, t *asynq.Task) error {
+	const op errs.Op = "tasks/WorkerServer.HandleSocialPushTask"
+
+	if w.notifier == nil {
+		return nil
+	}
+
+	var payload SocialPushPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return errs.E(op, errs.Internal, fmt.Errorf("%w: %v", asynq.SkipRetry, err))
+	}
+
+	w.notifier.NotifySocial(ctx, payload.TargetUserID, payload.PushType,
+		payload.ActorHandle, payload.ActorDisplayName, payload.Data)
 	return nil
 }
 

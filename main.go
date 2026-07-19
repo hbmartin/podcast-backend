@@ -75,12 +75,18 @@ func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) htt
 			http.HandlerFunc(handler)))
 }
 
+// socialPushSeam is the late-bound social push function (Slice 8): routes
+// capture Handlers by value before the notifier exists, so handlers hold a
+// pointer to this package-level slot and main assigns it once push is wired.
+var socialPushSeam handlers.SocialPushFunc
+
 func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, queuePing func(ctx context.Context) error) http.Handler {
 	slog.Info("Starting API... \n")
 
 	controllers := handlers.Handlers{
 		Queries:       db,
 		Queue:         queueClient,
+		SocialPush:    &socialPushSeam,
 		Config:        configValues.AuthConfig,
 		Crawler:       feedCrawler,
 		Search:        searcher,
@@ -260,6 +266,22 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /episode/comments", optionalAuthChain(controllers.PostEpisodeComments))
 	router.Handle("POST /social/inbox/replies", authChain(controllers.PostInboxReplies))
 	router.Handle("POST /social/inbox/replies/seen", authChain(controllers.PostInboxRepliesSeen))
+	router.Handle("POST /social/list/create", authChain(controllers.PostSocialListCreate))
+	router.Handle("POST /social/list/update", authChain(controllers.PostSocialListUpdate))
+	router.Handle("POST /social/list/delete", authChain(controllers.PostSocialListDelete))
+	router.Handle("POST /social/list/entries", optionalAuthChain(controllers.PostSocialListEntries))
+	router.Handle("POST /social/list/entry", authChain(controllers.PostSocialListEntryOp))
+	router.Handle("POST /social/list/invite", authChain(controllers.PostSocialListInvite))
+	router.Handle("POST /social/list/invite/respond", authChain(controllers.PostSocialListInviteRespond))
+	router.Handle("POST /social/list/member/remove", authChain(controllers.PostSocialListMemberRemove))
+	router.Handle("POST /social/list/subscribe", authChain(controllers.PostSocialListSubscribe))
+	router.Handle("POST /social/lists", authChain(controllers.PostSocialLists))
+	router.Handle("POST /social/search", authChain(controllers.PostSocialSearch))
+	router.Handle("POST /social/suggestions", authChain(controllers.PostSocialSuggestions))
+	router.Handle("POST /social/contacts/salt", authChain(controllers.PostContactsSalt))
+	router.Handle("POST /social/contacts/match", authChain(controllers.PostContactsMatch))
+	router.Handle("POST /social/trending", authChain(controllers.PostSocialTrending))
+	router.Handle("POST /social/podcast/proof", authChain(controllers.PostPodcastProof))
 
 	// static host role: discover layout + catalog-backed sources (JSON)
 	router.Handle("GET /discover/ios/content_v2.json", publicChain(controllers.GetDiscoverContent))
@@ -505,6 +527,27 @@ func main() {
 					defer cancel()
 					directNotifier.NotifyNewEpisodes(sendCtx, podcastUuid, episodeUuids)
 				}()
+			}
+		}
+	}
+
+	// Wire the social push seam: through the queue when available so sends
+	// survive restarts, else a direct best-effort goroutine.
+	if notifier != nil {
+		if queueClient != nil {
+			socialPushSeam = func(targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string) {
+				payload := tasks.SocialPushPayload{
+					TargetUserID: targetUserID, PushType: pushType,
+					ActorHandle: actorHandle, ActorDisplayName: actorDisplayName, Data: data,
+				}
+				if err := queueClient.EnqueueSocialPush(context.Background(), payload); err != nil {
+					slog.Warn("social push enqueue failed", "err", err)
+				}
+			}
+		} else {
+			directNotifier := notifier
+			socialPushSeam = func(targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string) {
+				go directNotifier.NotifySocial(context.Background(), targetUserID, pushType, actorHandle, actorDisplayName, data)
 			}
 		}
 	}

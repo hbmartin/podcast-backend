@@ -177,6 +177,7 @@ type Playlist struct {
 	EpisodeOrder    []string
 	Episodes        []byte
 	ModifiedAt      int64
+	CustomQuery     string
 }
 
 type Podcast struct {
@@ -274,6 +275,34 @@ type SocialHandle struct {
 	ReleasedAt *time.Time
 }
 
+type SocialList struct {
+	ID          int64
+	OwnerUserID int64
+	Title       string
+	Description string
+	Visibility  int16
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type SocialListEntry struct {
+	ListID       int64
+	EpisodeUuid  string
+	PodcastUuid  string
+	EpisodeTitle string
+	PodcastTitle string
+	Position     int32
+	AddedBy      *int64
+	AddedAt      time.Time
+}
+
+type SocialListMember struct {
+	ListID    int64
+	UserID    int64
+	Role      int16
+	CreatedAt time.Time
+}
+
 type SocialProfile struct {
 	UserID                  int64
 	Handle                  string
@@ -291,6 +320,8 @@ type SocialProfile struct {
 	UpdatedAt               time.Time
 	RequireFollowApproval   bool
 	RepliesSeenAt           time.Time
+	SocialPushDisabled      int64
+	HideFromDiscovery       bool
 }
 
 type SocialRelationship struct {

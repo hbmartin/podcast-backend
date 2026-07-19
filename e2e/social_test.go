@@ -3,9 +3,12 @@
 package e2e
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -574,6 +577,8 @@ func TestCommentTree(t *testing.T) {
 	require.Len(t, inbox.Replies, 1)
 	assert.Equal(t, handleB, inbox.Replies[0].Handle)
 	assert.True(t, inbox.Replies[0].Edited)
+	assert.Equal(t, "Fixture Episode", inbox.Replies[0].EpisodeTitle,
+		"replies inherit the seed's denormalized titles")
 	assert.Equal(t, int32(1), inbox.Unread)
 
 	status = postProto(t, "/social/inbox/replies/seen", tokenA, &pb.InboxRepliesRequest{}, &pb.SocialAck{})
@@ -614,4 +619,394 @@ func TestCommentTree(t *testing.T) {
 	assert.True(t, replies.Comments[0].Removed)
 	assert.Empty(t, replies.Comments[0].Text)
 	assert.Empty(t, replies.Comments[0].Handle)
+}
+
+// TestSocialLists walks the Slice-7 surface (ADR-0011): visibility gating,
+// subscription, the collaborator invite loop with attributed entries,
+// kick, the profile Lists section, owner-death erase — plus the
+// custom-playlist sync overturn round-trip.
+func TestSocialLists(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("list-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("list-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_lst_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_lst_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "List Owner"}, {tokenB, handleB, "List Friend"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// Create private with a snapshot entry (materialize-to-share shape).
+	list := &pb.SharedList{}
+	status := postProto(t, "/social/list/create", tokenA, &pb.SharedListCreateRequest{
+		Title: "Road Trip", Description: "long drives",
+		Visibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PRIVATE,
+		Entries: []*pb.SharedListEntry{
+			{EpisodeUuid: "ep-e2e-1", PodcastUuid: "pod-e2e-1", EpisodeTitle: "First"},
+		},
+	}, list)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, pb.SharedListRole_SHARED_LIST_ROLE_OWNER, list.YourRole)
+
+	// Private: B and anonymous read as not-found.
+	status = postProto(t, "/social/list/entries", tokenB,
+		&pb.SharedListEntriesRequest{ListId: list.Id}, nil)
+	require.Equal(t, http.StatusNotFound, status)
+
+	// Public: visible to B and anonymous; B subscribes.
+	status = postProto(t, "/social/list/update", tokenA, &pb.SharedListUpdateRequest{
+		ListId: list.Id, Title: "Road Trip", Description: "long drives",
+		Visibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC,
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	entries := &pb.SharedListEntriesResponse{}
+	status = postProto(t, "/social/list/entries", "", &pb.SharedListEntriesRequest{ListId: list.Id}, entries)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, entries.Entries, 1)
+	assert.Equal(t, handleA, entries.Entries[0].AddedByHandle)
+
+	status = postProto(t, "/social/list/subscribe", tokenB,
+		&pb.SharedListSubscribeRequest{ListId: list.Id, Subscribe: true}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	lists := &pb.SharedListsResponse{}
+	status = postProto(t, "/social/lists", tokenB, &pb.SharedListsRequest{}, lists)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, lists.Lists, 1)
+	assert.Equal(t, pb.SharedListRole_SHARED_LIST_ROLE_SUBSCRIBER, lists.Lists[0].YourRole)
+
+	// The profile Lists section carries the public list.
+	profile := &pb.PublicProfileResponse{}
+	status = postProto(t, "/social/profile/public", tokenB, &pb.PublicProfileRequest{Handle: handleA}, profile)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, profile.Lists, 1)
+	assert.Equal(t, "Road Trip", profile.Lists[0].Title)
+
+	// Invite B as collaborator; B accepts and adds an attributed entry.
+	status = postProto(t, "/social/list/invite", tokenA,
+		&pb.SharedListInviteRequest{ListId: list.Id, Handle: handleB}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	postProto(t, "/social/lists", tokenB, &pb.SharedListsRequest{}, lists)
+	require.Len(t, lists.Invites, 1)
+	assert.Equal(t, "Road Trip", lists.Invites[0].Title)
+
+	status = postProto(t, "/social/list/invite/respond", tokenB,
+		&pb.SharedListInviteRespondRequest{ListId: list.Id, Accept: true}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	status = postProto(t, "/social/list/entry", tokenB, &pb.SharedListEntryOpRequest{
+		ListId: list.Id, Op: pb.SharedListOp_SHARED_LIST_OP_ADD,
+		EpisodeUuid: "ep-e2e-2", PodcastUuid: "pod-e2e-1", EpisodeTitle: "Second", Position: -1,
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	postProto(t, "/social/list/entries", tokenA, &pb.SharedListEntriesRequest{ListId: list.Id}, entries)
+	require.Len(t, entries.Entries, 2)
+	assert.Equal(t, handleB, entries.Entries[1].AddedByHandle)
+	require.NotNil(t, entries.List)
+	require.Len(t, entries.List.Members, 1, "owner view lists the collaborator")
+
+	// Kick B: their edits stop.
+	status = postProto(t, "/social/list/member/remove", tokenA,
+		&pb.SharedListInviteRequest{ListId: list.Id, Handle: handleB}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/list/entry", tokenB, &pb.SharedListEntryOpRequest{
+		ListId: list.Id, Op: pb.SharedListOp_SHARED_LIST_OP_ADD, EpisodeUuid: "ep-e2e-3",
+	}, nil)
+	require.Equal(t, http.StatusForbidden, status)
+
+	// Custom-playlist sync overturn: the query envelope round-trips.
+	now := time.Now().UnixMilli()
+	status = postProto(t, "/user/sync/update", tokenA, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now,
+		Records: []*pb.Record{{Record: &pb.Record_Playlist{Playlist: &pb.SyncUserPlaylist{
+			Uuid:        "cccc1111-2222-3333-4444-555566667777",
+			Title:       wrapperspb.String("My Custom"),
+			Manual:      wrapperspb.Bool(false),
+			CustomQuery: wrapperspb.String(`{"version":1,"mode":"sql"}`),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	playlists := &pb.UserPlaylistListResponse{}
+	status = postProto(t, "/user/playlist/list", tokenA, &pb.UserPlaylistListRequest{}, playlists)
+	require.Equal(t, http.StatusOK, status)
+	foundCustom := false
+	for _, p := range playlists.Playlists {
+		if p.Uuid == "cccc1111-2222-3333-4444-555566667777" {
+			foundCustom = true
+			assert.Equal(t, `{"version":1,"mode":"sql"}`, p.GetCustomQuery().GetValue(),
+				"custom_query must round-trip through sync")
+		}
+	}
+	assert.True(t, foundCustom)
+
+	// Owner erase: the list vanishes for everyone.
+	status = postProto(t, "/social/erase", tokenA, &pb.EraseRequest{}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/list/entries", tokenB,
+		&pb.SharedListEntriesRequest{ListId: list.Id}, nil)
+	require.Equal(t, http.StatusNotFound, status)
+}
+
+// TestSocialPush walks the Slice-8 surface end-to-end: a social event lands
+// on the recipient's registered device via (mock) APNs with the category and
+// typed payload the iOS dispatcher keys on, and the per-type disabled bitmask
+// silences exactly its type. The e2e server runs queue-less, so sends ride
+// the direct goroutine path — assertions poll.
+func TestSocialPush(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("push-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("push-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_psh_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_psh_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Push Actor"}, {tokenB, handleB, "Push Target"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// B registers a push token (piggybacked on user/update).
+	deviceToken := fmt.Sprintf("E2ESOCIAL%d", suffix%1_000_000)
+	var refresh struct {
+		Status string `json:"status"`
+	}
+	status := postJSON(t, "/user/update", tokenB, map[string]string{
+		"podcasts": "", "last_episodes": "", "device": "e2e-device-social",
+		"push_token": deviceToken, "push_on": "true", "push_messages_on": "",
+	}, &refresh)
+	require.Equal(t, http.StatusOK, status)
+
+	countFor := func(devicePath string) int {
+		apnsMu.Lock()
+		defer apnsMu.Unlock()
+		n := 0
+		for _, p := range apnsPushes {
+			if p.path == "/3/device/"+deviceToken && strings.Contains(p.body, devicePath) {
+				n++
+			}
+		}
+		return n
+	}
+	waitFor := func(marker string, want int) bool {
+		for i := 0; i < 40; i++ {
+			if countFor(marker) >= want {
+				return true
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return false
+	}
+
+	// A follows B (open): NEW_FOLLOWER (type 3) arrives with category "so",
+	// the typed payload, and the actor's name in the alert title.
+	status = postProto(t, "/social/follow", tokenA, &pb.FollowRequest{Handle: handleB}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	require.True(t, waitFor(`"social_type":"3"`, 1), "the new-follower push must reach the mock APNs")
+	apnsMu.Lock()
+	var followBody string
+	for _, p := range apnsPushes {
+		if p.path == "/3/device/"+deviceToken && strings.Contains(p.body, `"social_type":"3"`) {
+			followBody = p.body
+		}
+	}
+	apnsMu.Unlock()
+	assert.Contains(t, followBody, `"category":"so"`)
+	assert.Contains(t, followBody, `"actor_handle":"`+handleA+`"`)
+	assert.Contains(t, followBody, `"title":"Push Actor"`)
+
+	// B disables NEW_FOLLOWER (bit 2 = 1<<(3-1) = 4): a refollow stays silent.
+	update := &pb.ProfileUpdateRequest{DisplayName: "Push Target", SocialPushDisabled: 1 << 2}
+	status = postProto(t, "/social/profile/update", tokenB, update, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	status = postProto(t, "/social/unfollow", tokenA, &pb.UnfollowRequest{Handle: handleB}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/follow", tokenA, &pb.FollowRequest{Handle: handleB}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	time.Sleep(400 * time.Millisecond)
+	assert.Equal(t, 1, countFor(`"social_type":"3"`), "a disabled type must stay silent")
+
+	// A different type still flows: a shared item (type 4).
+	status = postProto(t, "/social/share/send", tokenA, &pb.SharedItemSendRequest{
+		RecipientHandle: handleB, EpisodeUuid: fmt.Sprintf("push-ep-%d", suffix),
+		EpisodeTitle: "Pushed Episode",
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	require.True(t, waitFor(`"social_type":"4"`, 1), "other types keep flowing")
+}
+
+// TestFindPeople walks the Slice-9 surface: prefix search with the
+// discoverability opt-out, friends-of-followed suggestions with count-only
+// copy, and transient contacts matching via typed salted hashes.
+func TestFindPeople(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	emailB := fmt.Sprintf("find-b-%d@e2e.test", suffix)
+	tokenA, _ := registerUser(t, fmt.Sprintf("find-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, emailB)
+	tokenC, _ := registerUser(t, fmt.Sprintf("find-c-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_fnd_a_%d", suffix%1_000_000_000)
+	handleB := fmt.Sprintf("e2e_fnd_b_%d", suffix%1_000_000_000)
+	handleC := fmt.Sprintf("e2e_fnd_c_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Finder A"}, {tokenB, handleB, "Findable B"}, {tokenC, handleC, "Suggested C"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// Prefix search finds B; the opt-out removes them; restore brings back.
+	search := &pb.SocialSearchResponse{}
+	status := postProto(t, "/social/search", tokenA, &pb.SocialSearchRequest{Query: handleB[:12]}, search)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, search.Profiles, 1)
+	assert.Equal(t, handleB, search.Profiles[0].Handle)
+
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Findable B", HideFromDiscovery: true,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+	search = &pb.SocialSearchResponse{}
+	postProto(t, "/social/search", tokenA, &pb.SocialSearchRequest{Query: handleB[:12]}, search)
+	assert.Empty(t, search.Profiles, "hidden profiles leave search")
+
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Findable B",
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// A follows B, B follows C: C is suggested to A with one mutual.
+	for _, hop := range []struct {
+		token, handle string
+	}{{tokenA, handleB}, {tokenB, handleC}} {
+		status = postProto(t, "/social/follow", hop.token, &pb.FollowRequest{Handle: hop.handle}, &pb.FollowResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+	suggestions := &pb.SocialSuggestionsResponse{}
+	status = postProto(t, "/social/suggestions", tokenA, &pb.SocialSuggestionsRequest{}, suggestions)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, suggestions.Profiles, 1)
+	assert.Equal(t, handleC, suggestions.Profiles[0].Handle)
+	assert.Equal(t, int32(1), suggestions.Profiles[0].MutualCount)
+
+	// Contacts match: hash B's email with the server salt; phone hash rides
+	// along unmatched (wire-ready).
+	salt := &pb.ContactsSaltResponse{}
+	status = postProto(t, "/social/contacts/salt", tokenA, &pb.SocialSuggestionsRequest{}, salt)
+	require.Equal(t, http.StatusOK, status)
+	sum := sha256.Sum256([]byte(salt.Salt + strings.ToLower(emailB)))
+	phoneSum := sha256.Sum256([]byte(salt.Salt + "+15550001111"))
+	match := &pb.ContactsMatchResponse{}
+	status = postProto(t, "/social/contacts/match", tokenA, &pb.ContactsMatchRequest{
+		Hashes: []*pb.ContactHash{
+			{Kind: pb.ContactHashKind_CONTACT_HASH_KIND_EMAIL, Hash: hex.EncodeToString(sum[:])},
+			{Kind: pb.ContactHashKind_CONTACT_HASH_KIND_PHONE, Hash: hex.EncodeToString(phoneSum[:])},
+		},
+	}, match)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, match.Profiles, 1)
+	assert.Equal(t, handleB, match.Profiles[0].Handle)
+}
+
+// TestDiscovery walks the Slice-10 surface: trending ranked by followees'
+// recent finished episodes under history visibility, and podcast proof named
+// only when followed-shows visibility already grants the list.
+func TestDiscovery(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("disc-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("disc-b-%d@e2e.test", suffix))
+
+	handleB := fmt.Sprintf("e2e_dsc_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, fmt.Sprintf("e2e_dsc_a_%d", suffix%1_000_000_000), "Discoverer A"}, {tokenB, handleB, "Listener B"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+	status := postProto(t, "/social/follow", tokenA, &pb.FollowRequest{Handle: handleB}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// B finishes an episode of a podcast A does not follow, history private:
+	// trending stays empty for A.
+	podcastUuid := fmt.Sprintf("dddd%04d-1111-2222-3333-444455556666", suffix%10_000)
+	now := time.Now().UnixMilli()
+	syncStatus := postProto(t, "/user/sync/update", tokenB, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now,
+		Records: []*pb.Record{{Record: &pb.Record_Episode{Episode: &pb.SyncUserEpisode{
+			Uuid:                  fmt.Sprintf("eeee%04d-1111-2222-3333-444455556666", suffix%10_000),
+			PodcastUuid:           podcastUuid,
+			Duration:              wrapperspb.Int64(600),
+			DurationModified:      wrapperspb.Int64(now),
+			PlayedUpTo:            wrapperspb.Int64(600),
+			PlayedUpToModified:    wrapperspb.Int64(now),
+			PlayingStatus:         wrapperspb.Int32(3),
+			PlayingStatusModified: wrapperspb.Int64(now),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, syncStatus)
+
+	trending := &pb.SocialTrendingResponse{}
+	status = postProto(t, "/social/trending", tokenA, &pb.SocialTrendingRequest{}, trending)
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, trending.Podcasts, "private history stays out of trending")
+
+	// History followers-only: A (an active follower) now sees it.
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Listener B", HistoryVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	trending = &pb.SocialTrendingResponse{}
+	status = postProto(t, "/social/trending", tokenA, &pb.SocialTrendingRequest{}, trending)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, trending.Podcasts, 1)
+	assert.Equal(t, podcastUuid, trending.Podcasts[0].PodcastUuid)
+	assert.Equal(t, int32(1), trending.Podcasts[0].ListenerCount)
+
+	// Proof: B follows the show with followed-shows private → count only;
+	// public → named.
+	syncStatus = postProto(t, "/user/sync/update", tokenB, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now + 1,
+		Records: []*pb.Record{{Record: &pb.Record_Podcast{Podcast: &pb.SyncUserPodcast{
+			Uuid: podcastUuid, Subscribed: wrapperspb.Bool(true),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, syncStatus)
+
+	proof := &pb.PodcastProofResponse{}
+	status = postProto(t, "/social/podcast/proof", tokenA, &pb.PodcastProofRequest{PodcastUuid: podcastUuid}, proof)
+	require.Equal(t, http.StatusOK, status)
+	// QA-corrected contract: a private followed-shows list contributes
+	// NOTHING to proof — not even the count.
+	assert.Equal(t, int32(0), proof.TotalCount)
+	assert.Empty(t, proof.VisibleHandles)
+
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Listener B", HistoryVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_FOLLOWERS_ONLY,
+		FollowedShowsVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	proof = &pb.PodcastProofResponse{}
+	status = postProto(t, "/social/podcast/proof", tokenA, &pb.PodcastProofRequest{PodcastUuid: podcastUuid}, proof)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, proof.VisibleHandles, 1)
+	assert.Equal(t, handleB, proof.VisibleHandles[0])
+	assert.Equal(t, int32(1), proof.TotalCount)
 }
