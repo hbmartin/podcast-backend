@@ -1130,7 +1130,7 @@ func (q *Queries) GetCommentByID(ctx context.Context, id int64) (GetCommentByIDR
 
 const getCommentReplies = `-- name: GetCommentReplies :many
 SELECT c.id, c.parent_id, c.user_id, c.text, c.timestamp_seconds, c.created_at,
-       c.edited_at, c.removed_at,
+       c.edited_at, c.removed_at, c.quote, c.quote_source, c.quote_segment,
        u.uuid AS author_uuid, COALESCE(sp.handle, '')::text AS handle,
        COALESCE(sp.display_name, '')::text AS display_name,
        (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
@@ -1163,6 +1163,9 @@ type GetCommentRepliesRow struct {
 	CreatedAt        time.Time
 	EditedAt         *time.Time
 	RemovedAt        *time.Time
+	Quote            string
+	QuoteSource      int32
+	QuoteSegment     int32
 	AuthorUuid       *string
 	Handle           string
 	DisplayName      string
@@ -1192,6 +1195,9 @@ func (q *Queries) GetCommentReplies(ctx context.Context, arg GetCommentRepliesPa
 			&i.CreatedAt,
 			&i.EditedAt,
 			&i.RemovedAt,
+			&i.Quote,
+			&i.QuoteSource,
+			&i.QuoteSegment,
 			&i.AuthorUuid,
 			&i.Handle,
 			&i.DisplayName,
@@ -1367,7 +1373,7 @@ func (q *Queries) GetEpisodeByUUID(ctx context.Context, uuid string) (Episode, e
 
 const getEpisodeComments = `-- name: GetEpisodeComments :many
 SELECT c.id, c.user_id, c.text, c.timestamp_seconds, c.created_at, c.edited_at,
-       c.removed_at,
+       c.removed_at, c.quote, c.quote_source, c.quote_segment,
        u.uuid AS author_uuid, COALESCE(sp.handle, '')::text AS handle,
        COALESCE(sp.display_name, '')::text AS display_name,
        (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
@@ -1399,6 +1405,9 @@ type GetEpisodeCommentsRow struct {
 	CreatedAt        time.Time
 	EditedAt         *time.Time
 	RemovedAt        *time.Time
+	Quote            string
+	QuoteSource      int32
+	QuoteSegment     int32
 	AuthorUuid       *string
 	Handle           string
 	DisplayName      string
@@ -1427,6 +1436,9 @@ func (q *Queries) GetEpisodeComments(ctx context.Context, arg GetEpisodeComments
 			&i.CreatedAt,
 			&i.EditedAt,
 			&i.RemovedAt,
+			&i.Quote,
+			&i.QuoteSource,
+			&i.QuoteSegment,
 			&i.AuthorUuid,
 			&i.Handle,
 			&i.DisplayName,
@@ -2117,6 +2129,7 @@ func (q *Queries) GetInboxItems(ctx context.Context, arg GetInboxItemsParams) ([
 const getInboxReplies = `-- name: GetInboxReplies :many
 SELECT c.id, c.parent_id, c.user_id, c.text, c.timestamp_seconds, c.created_at,
        c.edited_at, c.episode_uuid, c.podcast_uuid, c.episode_title, c.podcast_title,
+       c.quote, c.quote_source, c.quote_segment,
        u.uuid AS author_uuid, sp.handle, sp.display_name,
        (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
 FROM episode_comments c
@@ -2152,6 +2165,9 @@ type GetInboxRepliesRow struct {
 	PodcastUuid      string
 	EpisodeTitle     string
 	PodcastTitle     string
+	Quote            string
+	QuoteSource      int32
+	QuoteSegment     int32
 	AuthorUuid       string
 	Handle           string
 	DisplayName      string
@@ -2184,6 +2200,9 @@ func (q *Queries) GetInboxReplies(ctx context.Context, arg GetInboxRepliesParams
 			&i.PodcastUuid,
 			&i.EpisodeTitle,
 			&i.PodcastTitle,
+			&i.Quote,
+			&i.QuoteSource,
+			&i.QuoteSegment,
 			&i.AuthorUuid,
 			&i.Handle,
 			&i.DisplayName,
@@ -4217,10 +4236,12 @@ const insertComment = `-- name: InsertComment :one
 
 INSERT INTO episode_comments (
     episode_uuid, podcast_uuid, episode_title, podcast_title,
-    user_id, parent_id, root_id, text, timestamp_seconds
+    user_id, parent_id, root_id, text, timestamp_seconds,
+    quote, quote_source, quote_segment
 ) VALUES (
     $1, $2, $3, $4, $5,
-    $7, $8, $6, $9
+    $10, $11, $6, $12,
+    $7, $8, $9
 )
 RETURNING id, created_at
 `
@@ -4232,6 +4253,9 @@ type InsertCommentParams struct {
 	PodcastTitle     string
 	UserID           *int64
 	Text             string
+	Quote            string
+	QuoteSource      int32
+	QuoteSegment     int32
 	ParentID         *int64
 	RootID           *int64
 	TimestampSeconds *int32
@@ -4253,6 +4277,9 @@ func (q *Queries) InsertComment(ctx context.Context, arg InsertCommentParams) (I
 		arg.PodcastTitle,
 		arg.UserID,
 		arg.Text,
+		arg.Quote,
+		arg.QuoteSource,
+		arg.QuoteSegment,
 		arg.ParentID,
 		arg.RootID,
 		arg.TimestampSeconds,
@@ -5071,7 +5098,7 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) (int64, error) {
 
 const tombstoneComment = `-- name: TombstoneComment :execrows
 UPDATE episode_comments
-SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', quote = '', user_id = NULL, edited_at = NULL, removed_at = now()
 WHERE id = $1 AND user_id = $2 AND removed_at IS NULL
 `
 
@@ -5090,7 +5117,7 @@ func (q *Queries) TombstoneComment(ctx context.Context, arg TombstoneCommentPara
 
 const tombstoneCommentsForUser = `-- name: TombstoneCommentsForUser :exec
 UPDATE episode_comments
-SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', quote = '', user_id = NULL, edited_at = NULL, removed_at = now()
 WHERE user_id = $1 AND removed_at IS NULL
 `
 

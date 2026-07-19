@@ -91,6 +91,9 @@ type EpisodeComment struct {
 	CreatedAt        time.Time
 	EditedAt         *time.Time
 	RemovedAt        *time.Time
+	Quote            string
+	QuoteSource      int32
+	QuoteSegment     int32
 }
 
 type EpisodeReaction struct {

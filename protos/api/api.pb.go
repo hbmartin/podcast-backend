@@ -18673,8 +18673,13 @@ type CommentSubmitRequest struct {
 	TimestampSeconds *int32                 `protobuf:"varint,5,opt,name=timestamp_seconds,json=timestampSeconds,proto3,oneof" json:"timestamp_seconds,omitempty"` // top-level only; a set value renders as a Moment
 	EpisodeTitle     string                 `protobuf:"bytes,6,opt,name=episode_title,json=episodeTitle,proto3" json:"episode_title,omitempty"`                    // denormalized at submit (uncataloged feeds)
 	PodcastTitle     string                 `protobuf:"bytes,7,opt,name=podcast_title,json=podcastTitle,proto3" json:"podcast_title,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Slice 12: transcript pinning. The quote is self-contained rendering
+	// truth; source/segment are an advisory ref that may rot on regeneration.
+	Quote         string `protobuf:"bytes,8,opt,name=quote,proto3" json:"quote,omitempty"`
+	QuoteSource   int32  `protobuf:"varint,9,opt,name=quote_source,json=quoteSource,proto3" json:"quote_source,omitempty"`
+	QuoteSegment  int32  `protobuf:"varint,10,opt,name=quote_segment,json=quoteSegment,proto3" json:"quote_segment,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CommentSubmitRequest) Reset() {
@@ -18756,6 +18761,27 @@ func (x *CommentSubmitRequest) GetPodcastTitle() string {
 	return ""
 }
 
+func (x *CommentSubmitRequest) GetQuote() string {
+	if x != nil {
+		return x.Quote
+	}
+	return ""
+}
+
+func (x *CommentSubmitRequest) GetQuoteSource() int32 {
+	if x != nil {
+		return x.QuoteSource
+	}
+	return 0
+}
+
+func (x *CommentSubmitRequest) GetQuoteSegment() int32 {
+	if x != nil {
+		return x.QuoteSegment
+	}
+	return 0
+}
+
 type SocialComment struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Id               int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -18773,6 +18799,9 @@ type SocialComment struct {
 	PodcastUuid      string                 `protobuf:"bytes,13,opt,name=podcast_uuid,json=podcastUuid,proto3" json:"podcast_uuid,omitempty"`
 	EpisodeTitle     string                 `protobuf:"bytes,14,opt,name=episode_title,json=episodeTitle,proto3" json:"episode_title,omitempty"`
 	PodcastTitle     string                 `protobuf:"bytes,15,opt,name=podcast_title,json=podcastTitle,proto3" json:"podcast_title,omitempty"`
+	Quote            string                 `protobuf:"bytes,16,opt,name=quote,proto3" json:"quote,omitempty"` // empty when none or tombstoned
+	QuoteSource      int32                  `protobuf:"varint,17,opt,name=quote_source,json=quoteSource,proto3" json:"quote_source,omitempty"`
+	QuoteSegment     int32                  `protobuf:"varint,18,opt,name=quote_segment,json=quoteSegment,proto3" json:"quote_segment,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -18910,6 +18939,27 @@ func (x *SocialComment) GetPodcastTitle() string {
 		return x.PodcastTitle
 	}
 	return ""
+}
+
+func (x *SocialComment) GetQuote() string {
+	if x != nil {
+		return x.Quote
+	}
+	return ""
+}
+
+func (x *SocialComment) GetQuoteSource() int32 {
+	if x != nil {
+		return x.QuoteSource
+	}
+	return 0
+}
+
+func (x *SocialComment) GetQuoteSegment() int32 {
+	if x != nil {
+		return x.QuoteSegment
+	}
+	return 0
 }
 
 type CommentEditRequest struct {
@@ -22852,7 +22902,7 @@ const file_api_proto_rawDesc = "" +
 	"list_title\x18\r \x01(\tR\tlistTitle\x12\x17\n" +
 	"\alist_id\x18\x0e \x01(\x03R\x06listId\"3\n" +
 	"\fFeedResponse\x12#\n" +
-	"\x05items\x18\x01 \x03(\v2\r.api.FeedItemR\x05items\"\x9f\x02\n" +
+	"\x05items\x18\x01 \x03(\v2\r.api.FeedItemR\x05items\"\xfd\x02\n" +
 	"\x14CommentSubmitRequest\x12!\n" +
 	"\fepisode_uuid\x18\x01 \x01(\tR\vepisodeUuid\x12!\n" +
 	"\fpodcast_uuid\x18\x02 \x01(\tR\vpodcastUuid\x12\x12\n" +
@@ -22860,8 +22910,12 @@ const file_api_proto_rawDesc = "" +
 	"\tparent_id\x18\x04 \x01(\x03R\bparentId\x120\n" +
 	"\x11timestamp_seconds\x18\x05 \x01(\x05H\x00R\x10timestampSeconds\x88\x01\x01\x12#\n" +
 	"\repisode_title\x18\x06 \x01(\tR\fepisodeTitle\x12#\n" +
-	"\rpodcast_title\x18\a \x01(\tR\fpodcastTitleB\x14\n" +
-	"\x12_timestamp_seconds\"\x8a\x04\n" +
+	"\rpodcast_title\x18\a \x01(\tR\fpodcastTitle\x12\x14\n" +
+	"\x05quote\x18\b \x01(\tR\x05quote\x12!\n" +
+	"\fquote_source\x18\t \x01(\x05R\vquoteSource\x12#\n" +
+	"\rquote_segment\x18\n" +
+	" \x01(\x05R\fquoteSegmentB\x14\n" +
+	"\x12_timestamp_seconds\"\xe8\x04\n" +
 	"\rSocialComment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1b\n" +
 	"\tparent_id\x18\x02 \x01(\x03R\bparentId\x12\x17\n" +
@@ -22880,7 +22934,10 @@ const file_api_proto_rawDesc = "" +
 	"\fepisode_uuid\x18\f \x01(\tR\vepisodeUuid\x12!\n" +
 	"\fpodcast_uuid\x18\r \x01(\tR\vpodcastUuid\x12#\n" +
 	"\repisode_title\x18\x0e \x01(\tR\fepisodeTitle\x12#\n" +
-	"\rpodcast_title\x18\x0f \x01(\tR\fpodcastTitleB\x14\n" +
+	"\rpodcast_title\x18\x0f \x01(\tR\fpodcastTitle\x12\x14\n" +
+	"\x05quote\x18\x10 \x01(\tR\x05quote\x12!\n" +
+	"\fquote_source\x18\x11 \x01(\x05R\vquoteSource\x12#\n" +
+	"\rquote_segment\x18\x12 \x01(\x05R\fquoteSegmentB\x14\n" +
 	"\x12_timestamp_seconds\"8\n" +
 	"\x12CommentEditRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +

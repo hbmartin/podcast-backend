@@ -1067,10 +1067,12 @@ LIMIT $2;
 -- name: InsertComment :one
 INSERT INTO episode_comments (
     episode_uuid, podcast_uuid, episode_title, podcast_title,
-    user_id, parent_id, root_id, text, timestamp_seconds
+    user_id, parent_id, root_id, text, timestamp_seconds,
+    quote, quote_source, quote_segment
 ) VALUES (
     $1, $2, $3, $4, $5,
-    sqlc.narg('parent_id'), sqlc.narg('root_id'), $6, sqlc.narg('timestamp_seconds')
+    sqlc.narg('parent_id'), sqlc.narg('root_id'), $6, sqlc.narg('timestamp_seconds'),
+    $7, $8, $9
 )
 RETURNING id, created_at;
 
@@ -1084,7 +1086,7 @@ WHERE c.id = $1;
 
 -- name: GetEpisodeComments :many
 SELECT c.id, c.user_id, c.text, c.timestamp_seconds, c.created_at, c.edited_at,
-       c.removed_at,
+       c.removed_at, c.quote, c.quote_source, c.quote_segment,
        u.uuid AS author_uuid, COALESCE(sp.handle, '')::text AS handle,
        COALESCE(sp.display_name, '')::text AS display_name,
        (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
@@ -1111,7 +1113,7 @@ WHERE c.episode_uuid = $1 AND c.parent_id IS NULL
 
 -- name: GetCommentReplies :many
 SELECT c.id, c.parent_id, c.user_id, c.text, c.timestamp_seconds, c.created_at,
-       c.edited_at, c.removed_at,
+       c.edited_at, c.removed_at, c.quote, c.quote_source, c.quote_segment,
        u.uuid AS author_uuid, COALESCE(sp.handle, '')::text AS handle,
        COALESCE(sp.display_name, '')::text AS display_name,
        (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
@@ -1142,12 +1144,12 @@ WHERE id = $1 AND user_id = $2 AND removed_at IS NULL;
 
 -- name: TombstoneComment :execrows
 UPDATE episode_comments
-SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', quote = '', user_id = NULL, edited_at = NULL, removed_at = now()
 WHERE id = $1 AND user_id = $2 AND removed_at IS NULL;
 
 -- name: TombstoneCommentsForUser :exec
 UPDATE episode_comments
-SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', quote = '', user_id = NULL, edited_at = NULL, removed_at = now()
 WHERE user_id = $1 AND removed_at IS NULL;
 
 -- name: GetEpisodePlaybackForGate :one
@@ -1158,6 +1160,7 @@ WHERE user_id = $1 AND episode_uuid::text = $2;
 -- name: GetInboxReplies :many
 SELECT c.id, c.parent_id, c.user_id, c.text, c.timestamp_seconds, c.created_at,
        c.edited_at, c.episode_uuid, c.podcast_uuid, c.episode_title, c.podcast_title,
+       c.quote, c.quote_source, c.quote_segment,
        u.uuid AS author_uuid, sp.handle, sp.display_name,
        (SELECT count(*) FROM episode_comments r WHERE r.parent_id = c.id)::int AS reply_count
 FROM episode_comments c

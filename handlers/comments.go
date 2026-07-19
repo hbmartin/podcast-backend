@@ -24,6 +24,8 @@ const (
 	relationshipKindMute = int16(1)
 	// Cap for uuid-shaped identifier fields (QA finding: unbounded storage).
 	maxUuidFieldLen = 64
+	// Slice 12: transcript quote cap (runes).
+	quoteMaxLength = 300
 )
 
 // PostCommentSubmit handles POST /social/comment/submit.
@@ -40,6 +42,20 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := moderation.CheckText(req.Text); err != nil {
 		pcerrors.Write(w, http.StatusUnprocessableEntity, pcerrors.AccessDenied, "comment rejected")
 		return
+	}
+
+	if req.Quote != "" {
+		// A quote always implies a Moment: top-level + timestamped. The
+		// quote is UGC-adjacent (it can be hand-edited client-side), so it
+		// goes through the same filter as the text.
+		if req.ParentId > 0 || req.TimestampSeconds == nil || *req.TimestampSeconds < 0 {
+			pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "quotes require a timestamp")
+			return
+		}
+		if err := moderation.CheckText(req.Quote); err != nil {
+			pcerrors.Write(w, http.StatusUnprocessableEntity, pcerrors.AccessDenied, "quote rejected")
+			return
+		}
 	}
 
 	user, profile, ok := h.requireJoined(w, r)
@@ -112,6 +128,9 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 			ts := *req.TimestampSeconds
 			params.TimestampSeconds = &ts
 		}
+		params.Quote = truncateRunes(req.Quote, quoteMaxLength)
+		params.QuoteSource = req.QuoteSource
+		params.QuoteSegment = req.QuoteSegment
 	}
 
 	inserted, err := h.Queries.InsertComment(r.Context(), params)
@@ -148,6 +167,9 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 		DisplayName:      profile.DisplayName,
 		Text:             req.Text,
 		TimestampSeconds: params.TimestampSeconds,
+		Quote:            params.Quote,
+		QuoteSource:      params.QuoteSource,
+		QuoteSegment:     params.QuoteSegment,
 		CreatedAt:        timestamppb.New(inserted.CreatedAt),
 	}
 	writeProto(w, http.StatusOK, resp)
@@ -262,6 +284,7 @@ func (h Handlers) PostEpisodeComments(w http.ResponseWriter, r *http.Request) {
 			EditedAt: row.EditedAt, RemovedAt: row.RemovedAt,
 			AuthorUuid: row.AuthorUuid, Handle: row.Handle, DisplayName: row.DisplayName,
 			ReplyCount: row.ReplyCount,
+			Quote:      row.Quote, QuoteSource: row.QuoteSource, QuoteSegment: row.QuoteSegment,
 		}))
 	}
 	writeProto(w, http.StatusOK, resp)
@@ -310,6 +333,7 @@ func (h Handlers) PostCommentReplies(w http.ResponseWriter, r *http.Request) {
 			EditedAt: row.EditedAt, RemovedAt: row.RemovedAt,
 			AuthorUuid: authorUUID, Handle: row.Handle, DisplayName: row.DisplayName,
 			ReplyCount: row.ReplyCount,
+			Quote:      row.Quote, QuoteSource: row.QuoteSource, QuoteSegment: row.QuoteSegment,
 		}))
 	}
 	writeProto(w, http.StatusOK, resp)
@@ -362,6 +386,7 @@ func (h Handlers) PostInboxReplies(w http.ResponseWriter, r *http.Request) {
 			TimestampSeconds: row.TimestampSeconds, CreatedAt: row.CreatedAt,
 			EditedAt: row.EditedAt, AuthorUuid: &authorUUID,
 			Handle: row.Handle, DisplayName: row.DisplayName, ReplyCount: row.ReplyCount,
+			Quote: row.Quote, QuoteSource: row.QuoteSource, QuoteSegment: row.QuoteSegment,
 		})
 		comment.EpisodeUuid = row.EpisodeUuid
 		comment.PodcastUuid = row.PodcastUuid
@@ -400,6 +425,9 @@ type commentRow struct {
 	Handle           string
 	DisplayName      string
 	ReplyCount       int32
+	Quote            string
+	QuoteSource      int32
+	QuoteSegment     int32
 }
 
 func commentToProto(row commentRow) *pb.SocialComment {
@@ -417,6 +445,9 @@ func commentToProto(row commentRow) *pb.SocialComment {
 	if row.RemovedAt == nil {
 		comment.Text = row.Text
 		comment.TimestampSeconds = row.TimestampSeconds
+		comment.Quote = row.Quote
+		comment.QuoteSource = row.QuoteSource
+		comment.QuoteSegment = row.QuoteSegment
 		comment.Handle = row.Handle
 		comment.DisplayName = row.DisplayName
 		if row.AuthorUuid != nil {

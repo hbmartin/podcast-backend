@@ -2193,6 +2193,12 @@ message CommentSubmitRequest {
   optional int32 timestamp_seconds = 5; // top-level only; a set value renders as a Moment
   string episode_title = 6;            // denormalized at submit (uncataloged feeds)
   string podcast_title = 7;
+
+  // Slice 12: transcript pinning. The quote is self-contained rendering
+  // truth; source/segment are an advisory ref that may rot on regeneration.
+  string quote = 8;
+  int32 quote_source = 9;
+  int32 quote_segment = 10;
 }
 
 message SocialComment {
@@ -2211,6 +2217,9 @@ message SocialComment {
   string podcast_uuid = 13;
   string episode_title = 14;
   string podcast_title = 15;
+  string quote = 16;                   // empty when none or tombstoned
+  int32 quote_source = 17;
+  int32 quote_segment = 18;
 }
 
 message CommentEditRequest {

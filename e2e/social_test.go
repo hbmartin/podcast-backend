@@ -533,11 +533,19 @@ func TestCommentTree(t *testing.T) {
 		EpisodeUuid: episodeUUID, PodcastUuid: podcastUUID,
 		EpisodeTitle: "Fixture Episode", PodcastTitle: "Fixture Podcast",
 		Text: "this bit at two minutes", TimestampSeconds: &ts,
+		Quote: "we shipped it on a friday", QuoteSource: 1, QuoteSegment: 7,
 	}, seed)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, handleA, seed.Handle)
 	require.NotNil(t, seed.TimestampSeconds)
 	assert.Equal(t, int32(125), *seed.TimestampSeconds)
+	assert.Equal(t, "we shipped it on a friday", seed.Quote)
+
+	// Slice 12: a quote without a timestamp is rejected.
+	status = postProto(t, "/social/comment/submit", tokenA, &pb.CommentSubmitRequest{
+		EpisodeUuid: episodeUUID, PodcastUuid: podcastUUID, Text: "x", Quote: "orphan quote",
+	}, nil)
+	require.Equal(t, http.StatusBadRequest, status)
 
 	// B replies without ever playing: no gate on replies.
 	reply := &pb.SocialComment{}
@@ -553,6 +561,9 @@ func TestCommentTree(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	require.Len(t, list.Comments, 1)
 	assert.Equal(t, int32(1), list.Comments[0].ReplyCount)
+	assert.Equal(t, "we shipped it on a friday", list.Comments[0].Quote)
+	assert.Equal(t, int32(1), list.Comments[0].QuoteSource)
+	assert.Equal(t, int32(7), list.Comments[0].QuoteSegment)
 
 	replies := &pb.CommentsResponse{}
 	status = postProto(t, "/social/comment/replies", "",
@@ -609,6 +620,7 @@ func TestCommentTree(t *testing.T) {
 	postProto(t, "/episode/comments", "", &pb.EpisodeCommentsRequest{EpisodeUuid: episodeUUID}, list)
 	require.Len(t, list.Comments, 1)
 	assert.True(t, list.Comments[0].Removed)
+	assert.Empty(t, list.Comments[0].Quote)
 	assert.Empty(t, list.Comments[0].Text)
 	assert.Equal(t, int32(1), list.Comments[0].ReplyCount)
 
