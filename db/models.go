@@ -270,6 +270,45 @@ type SocialFollow struct {
 	ApprovedAt     *time.Time
 }
 
+type SocialGroup struct {
+	ID           int64
+	OwnerUserID  int64
+	Title        string
+	Description  string
+	Visibility   int16
+	PodcastUuid  string
+	PodcastTitle string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type SocialGroupMember struct {
+	GroupID     int64
+	UserID      int64
+	Role        int16
+	InvitedBy   *int64
+	NotifyPosts bool
+	CreatedAt   time.Time
+}
+
+type SocialGroupPost struct {
+	ID           int64
+	GroupID      int64
+	UserID       *int64
+	ParentID     *int64
+	RootID       *int64
+	Text         string
+	EpisodeUuid  string
+	PodcastUuid  string
+	EpisodeTitle string
+	PodcastTitle string
+	ListID       int64
+	ListTitle    string
+	CreatedAt    time.Time
+	EditedAt     *time.Time
+	RemovedAt    *time.Time
+}
+
 type SocialHandle struct {
 	Handle     string
 	UserID     *int64

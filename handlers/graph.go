@@ -327,7 +327,7 @@ func (h Handlers) PostFeed(w http.ResponseWriter, r *http.Request) {
 
 	resp := &pb.FeedResponse{}
 	for _, row := range rows {
-		resp.Items = append(resp.Items, &pb.FeedItem{
+		item := &pb.FeedItem{
 			Kind:             pb.FeedItemKind(row.Kind),
 			ActorHandle:      row.ActorHandle,
 			ActorDisplayName: row.ActorDisplayName,
@@ -342,7 +342,14 @@ func (h Handlers) PostFeed(w http.ResponseWriter, r *http.Request) {
 			ListTitle:        row.ListTitle,
 			ListId:           row.ListID,
 			EventAt:          timestamppb.New(row.EventAt),
-		})
+		}
+		// Kind 9 rides the list columns in SQL (see GetFeedItems arm 9);
+		// remap onto the dedicated group fields here.
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_JOINED_GROUP {
+			item.GroupId, item.GroupTitle = item.ListId, item.ListTitle
+			item.ListId, item.ListTitle = 0, ""
+		}
+		resp.Items = append(resp.Items, item)
 	}
 	writeProto(w, http.StatusOK, resp)
 }

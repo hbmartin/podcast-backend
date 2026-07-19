@@ -90,6 +90,8 @@ const (
 	SocialPushSharedItem     = 4
 	SocialPushCommentReply   = 5
 	SocialPushListInvite     = 6
+	SocialPushGroupInvite    = 7
+	SocialPushGroupPost      = 8
 )
 
 // NotifySocial delivers one social event to every push-enabled device of one
@@ -97,7 +99,7 @@ const (
 // social_push_disabled bitmask (bit n = type n+1 off). Best-effort like
 // NotifyNewEpisodes; the actor's display name leads the alert body.
 func (n *Notifier) NotifySocial(ctx context.Context, targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string) {
-	if pushType < SocialPushFollowRequest || pushType > SocialPushListInvite {
+	if pushType < SocialPushFollowRequest || pushType > SocialPushGroupPost {
 		return // corrupt/unknown type: never reach the shift below (QA finding)
 	}
 	profile, err := n.DB.GetSocialProfileByUserID(ctx, targetUserID)
@@ -137,6 +139,12 @@ func (n *Notifier) NotifySocial(ctx context.Context, targetUserID int64, pushTyp
 	case SocialPushListInvite:
 		title = actor
 		body = "invited you to a shared list"
+	case SocialPushGroupInvite:
+		title = actor
+		body = "invited you to a group"
+	case SocialPushGroupPost:
+		title = actor
+		body = "posted in your group"
 	default:
 		return
 	}

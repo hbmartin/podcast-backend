@@ -1073,3 +1073,140 @@ func TestSyncIngestion(t *testing.T) {
 	}
 	assert.True(t, foundTitle, "the synced title must render before any crawl")
 }
+
+// TestGroups walks Slice 13 (ADR-0012): one entity, two configurations.
+// Private circle: any-member invite, Inbox respond, member cap semantics.
+// Public hub: one-tap join, ban blocks rejoin, posts readable while logged
+// out, succession on owner erasure, joined-group feed kind.
+func TestGroups(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("group-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("group-b-%d@e2e.test", suffix))
+	tokenC, _ := registerUser(t, fmt.Sprintf("group-c-%d@e2e.test", suffix))
+
+	handles := map[string]string{}
+	for i, pair := range []struct {
+		token, name string
+	}{{tokenA, "Owner A"}, {tokenB, "Member B"}, {tokenC, "Follower C"}} {
+		handle := fmt.Sprintf("e2e_grp_%c_%d", 'a'+rune(i), suffix%1_000_000_000)
+		handles[pair.token] = handle
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// A creates a private circle and a public hub.
+	circle := &pb.SocialGroup{}
+	status := postProto(t, "/social/group/create", tokenA, &pb.GroupCreateRequest{
+		Title: "The Circle", Visibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PRIVATE,
+	}, circle)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, pb.GroupRole_GROUP_ROLE_OWNER, circle.YourRole)
+
+	hub := &pb.SocialGroup{}
+	status = postProto(t, "/social/group/create", tokenA, &pb.GroupCreateRequest{
+		Title: "Fixture Fans", Visibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC,
+	}, hub)
+	require.Equal(t, http.StatusOK, status)
+
+	// B cannot see the private circle's posts (no-leak 404).
+	status = postProto(t, "/social/group/posts", tokenB, &pb.GroupPostsRequest{GroupId: circle.Id}, nil)
+	require.Equal(t, http.StatusNotFound, status)
+
+	// A invites B to the circle; B sees the invite and accepts.
+	status = postProto(t, "/social/group/invite", tokenA, &pb.GroupInviteRequest{
+		GroupId: circle.Id, Handle: handles[tokenB],
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	groups := &pb.GroupsResponse{}
+	status = postProto(t, "/social/groups", tokenB, &pb.GroupsRequest{}, groups)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, groups.Invites, 1)
+	status = postProto(t, "/social/group/invite/respond", tokenB, &pb.GroupInviteRespondRequest{
+		GroupId: circle.Id, Accept: true,
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	// B (a plain member) invites C — any-member invites.
+	status = postProto(t, "/social/group/invite", tokenB, &pb.GroupInviteRequest{
+		GroupId: circle.Id, Handle: handles[tokenC],
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	// B posts into the circle; A replies; the reply is gate-free and nested.
+	post := &pb.GroupPost{}
+	status = postProto(t, "/social/group/post/submit", tokenB, &pb.GroupPostRequest{
+		GroupId: circle.Id, Text: "first circle post",
+	}, post)
+	require.Equal(t, http.StatusOK, status)
+	reply := &pb.GroupPost{}
+	status = postProto(t, "/social/group/post/submit", tokenA, &pb.GroupPostRequest{
+		GroupId: circle.Id, ParentId: post.Id, Text: "welcome!",
+	}, reply)
+	require.Equal(t, http.StatusOK, status)
+
+	page := &pb.GroupPostsResponse{}
+	status = postProto(t, "/social/group/posts", tokenB, &pb.GroupPostsRequest{GroupId: circle.Id}, page)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, page.Posts, 1)
+	assert.Equal(t, int32(1), page.Posts[0].ReplyCount)
+	require.NotNil(t, page.Group)
+	assert.Equal(t, int32(2), page.Group.MemberCount)
+
+	// C joins the public hub one-tap; the hub feed is readable logged out.
+	status = postProto(t, "/social/group/join", tokenC, &pb.GroupJoinRequest{Id: hub.Id}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/group/posts", "", &pb.GroupPostsRequest{GroupId: hub.Id}, &pb.GroupPostsResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// Kick C from the hub with ban: rejoin is refused.
+	status = postProto(t, "/social/group/kick", tokenA, &pb.GroupKickRequest{
+		GroupId: hub.Id, Handle: handles[tokenC], Ban: true,
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/group/join", tokenC, &pb.GroupJoinRequest{Id: hub.Id}, nil)
+	require.Equal(t, http.StatusForbidden, status)
+
+	// B joins the hub, follows... rather: C follows B? Feed kind 9: B follows
+	// nobody; use C->B: C is banned from hub but joins are B's acts. B joins
+	// the hub (public act), C follows B and sees JOINED_GROUP in the feed.
+	status = postProto(t, "/social/group/join", tokenB, &pb.GroupJoinRequest{Id: hub.Id}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/follow", tokenC, &pb.FollowRequest{Handle: handles[tokenB]}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	feed := &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenC, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	found := false
+	for _, item := range feed.Items {
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_JOINED_GROUP && item.GroupId == hub.Id {
+			found = true
+			assert.Equal(t, "Fixture Fans", item.GroupTitle)
+		}
+		require.NotEqual(t, circle.Id, item.GroupId, "private membership must never emit")
+	}
+	assert.True(t, found, "public hub join must surface as a feed item")
+
+	// Succession: B enables per-group alerts (proves member row survives),
+	// then A erases. The hub passes to its longest-tenured member (B); the
+	// circle dies; A's posts tombstone.
+	status = postProto(t, "/social/group/alert", tokenB, &pb.GroupAlertRequest{GroupId: hub.Id, Enabled: true}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/erase", tokenA, &pb.EraseRequest{}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	groups = &pb.GroupsResponse{}
+	status = postProto(t, "/social/groups", tokenB, &pb.GroupsRequest{}, groups)
+	require.Equal(t, http.StatusOK, status)
+	var hubAfter *pb.SocialGroup
+	for _, g := range groups.Groups {
+		require.NotEqual(t, circle.Id, g.Id, "private circle dies with its owner")
+		if g.Id == hub.Id {
+			hubAfter = g
+		}
+	}
+	require.NotNil(t, hubAfter, "hub survives via succession")
+	assert.Equal(t, pb.GroupRole_GROUP_ROLE_OWNER, hubAfter.YourRole)
+	assert.True(t, hubAfter.NotifyPosts, "member state survives succession")
+}

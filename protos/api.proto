@@ -2162,6 +2162,7 @@ enum FeedItemKind {
   FEED_ITEM_KIND_REACTED = 6;
   FEED_ITEM_KIND_COMMENTED = 7;
   FEED_ITEM_KIND_PUBLISHED_LIST = 8;
+  FEED_ITEM_KIND_JOINED_GROUP = 9;
 }
 message FeedItem {
   FeedItemKind kind = 1;
@@ -2178,6 +2179,8 @@ message FeedItem {
   google.protobuf.Timestamp event_at = 12;
   string list_title = 13;             // PUBLISHED_LIST
   int64 list_id = 14;                 // PUBLISHED_LIST
+  int64 group_id = 15;                // JOINED_GROUP
+  string group_title = 16;            // JOINED_GROUP
 }
 message FeedResponse {
   repeated FeedItem items = 1;
@@ -2379,7 +2382,116 @@ enum SocialPushType {
   SOCIAL_PUSH_TYPE_SHARED_ITEM = 4;
   SOCIAL_PUSH_TYPE_COMMENT_REPLY = 5;
   SOCIAL_PUSH_TYPE_LIST_INVITE = 6;
+  SOCIAL_PUSH_TYPE_GROUP_INVITE = 7;
+  SOCIAL_PUSH_TYPE_GROUP_POST = 8;
 }
+
+// ---- Groups (Slice 13, ADR-0012): one entity, two configurations. ----
+// A private group is an invite-only circle; a public group is a one-tap
+// joinable hub, optionally anchored (non-exclusively) to a podcast. Content
+// is deliberate posts only - membership never grants follower visibility.
+
+enum GroupRole {
+  GROUP_ROLE_NONE = 0;
+  GROUP_ROLE_MEMBER = 1;
+  GROUP_ROLE_OWNER = 2;
+  GROUP_ROLE_INVITED = 3;
+  GROUP_ROLE_BANNED = 4;
+}
+message SocialGroup {
+  int64 id = 1;
+  string owner_handle = 2;
+  string owner_display_name = 3;
+  string title = 4;
+  string description = 5;
+  SocialVisibility visibility = 6;      // PRIVATE or PUBLIC only
+  string podcast_uuid = 7;              // fandom-hub anchor; empty = unanchored
+  string podcast_title = 8;
+  int32 member_count = 9;
+  GroupRole your_role = 10;
+  bool notify_posts = 11;               // caller's per-group new-post alert flag
+  google.protobuf.Timestamp created_at = 12;
+}
+message GroupCreateRequest {
+  string title = 1;
+  string description = 2;
+  SocialVisibility visibility = 3;
+  string podcast_uuid = 4;
+  string podcast_title = 5;
+}
+message GroupUpdateRequest {
+  int64 id = 1;
+  string title = 2;
+  string description = 3;
+  SocialVisibility visibility = 4;
+}
+message GroupDeleteRequest { int64 id = 1; }
+message GroupJoinRequest { int64 id = 1; }
+message GroupLeaveRequest { int64 id = 1; }
+message GroupInviteRequest { int64 group_id = 1; string handle = 2; }
+message GroupInviteRespondRequest { int64 group_id = 1; bool accept = 2; }
+message GroupKickRequest { int64 group_id = 1; string handle = 2; bool ban = 3; }
+message GroupAlertRequest { int64 group_id = 1; bool enabled = 2; }
+message GroupsRequest {}
+message GroupsResponse {
+  repeated SocialGroup groups = 1;      // owned + member
+  repeated SocialGroup invites = 2;     // pending, Inbox-surfaced
+}
+message GroupDiscoverRequest { int32 limit = 1; }
+message GroupDiscoverResponse { repeated SocialGroup groups = 1; }
+message GroupsForPodcastRequest { string podcast_uuid = 1; }
+message GroupMember {
+  string handle = 1;
+  string display_name = 2;
+  GroupRole role = 3;
+  google.protobuf.Timestamp joined_at = 4;
+}
+message GroupMembersRequest { int64 group_id = 1; int32 limit = 2; int32 offset = 3; }
+message GroupMembersResponse { repeated GroupMember members = 1; int32 total = 2; }
+message GroupPostRequest {
+  int64 group_id = 1;
+  int64 parent_id = 2;                  // 0 = top-level post
+  string text = 3;
+  string episode_uuid = 4;              // optional episode attachment
+  string podcast_uuid = 5;
+  string episode_title = 6;
+  string podcast_title = 7;
+  int64 list_id = 8;                    // optional shared-list attachment
+  string list_title = 9;
+}
+message GroupPost {
+  int64 id = 1;
+  int64 group_id = 2;
+  int64 parent_id = 3;
+  string user_id = 4;
+  string handle = 5;
+  string display_name = 6;
+  string text = 7;
+  string episode_uuid = 8;
+  string podcast_uuid = 9;
+  string episode_title = 10;
+  string podcast_title = 11;
+  int64 list_id = 12;
+  string list_title = 13;
+  google.protobuf.Timestamp created_at = 14;
+  bool edited = 15;
+  bool removed = 16;                    // tombstone placeholder
+  int32 reply_count = 17;
+}
+message GroupPostsRequest {
+  int64 group_id = 1;
+  int64 parent_id = 2;                  // 0 = top-level page
+  int32 limit = 3;
+  int32 offset = 4;
+}
+message GroupPostsResponse {
+  repeated GroupPost posts = 1;
+  int32 total = 2;
+  SocialGroup group = 3;                // detail rides along on top-level pages
+}
+message GroupPostEditRequest { int64 id = 1; string text = 2; }
+message GroupPostDeleteRequest { int64 id = 1; }
+
 
 // ---- Slice 9: find people (docs/Social.md) ----
 

@@ -684,6 +684,43 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 		if err := q.ClearSocialListAttributionForUser(r.Context(), &userID); err != nil {
 			return err
 		}
+		// Group posts tombstone like comments; private groups die with
+		// their owner; a public hub passes to the longest-tenured member,
+		// or dies when none remains (ADR-0012 succession).
+		if err := q.TombstoneGroupPostsForUser(r.Context(), &userID); err != nil {
+			return err
+		}
+		publicGroups, err := q.GetOwnedPublicGroupIDs(r.Context(), userID)
+		if err != nil {
+			return err
+		}
+		for _, groupID := range publicGroups {
+			successor, err := q.FindGroupSuccessor(r.Context(), db.FindGroupSuccessorParams{
+				GroupID: groupID, UserID: userID,
+			})
+			if err != nil {
+				if err := q.DeleteSocialGroupByID(r.Context(), groupID); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := q.TransferGroupOwner(r.Context(), db.TransferGroupOwnerParams{
+				ID: groupID, OwnerUserID: successor,
+			}); err != nil {
+				return err
+			}
+			if err := q.PromoteGroupMemberToOwner(r.Context(), db.PromoteGroupMemberToOwnerParams{
+				GroupID: groupID, UserID: successor,
+			}); err != nil {
+				return err
+			}
+		}
+		if err := q.DeleteOwnedPrivateGroups(r.Context(), userID); err != nil {
+			return err
+		}
+		if err := q.DeleteGroupMembershipsForUser(r.Context(), userID); err != nil {
+			return err
+		}
 		return q.DeleteRelationshipsForUser(r.Context(), userID)
 	})
 }

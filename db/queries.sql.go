@@ -8,6 +8,8 @@ package db
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const advanceAttestCounter = `-- name: AdvanceAttestCounter :execrows
@@ -171,6 +173,42 @@ SELECT count(*) FROM social_follows WHERE follower_user_id = $1
 
 func (q *Queries) CountFollowing(ctx context.Context, followerUserID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countFollowing, followerUserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countGroupMembers = `-- name: CountGroupMembers :one
+SELECT count(*) FROM social_group_members WHERE group_id = $1 AND role IN (1, 2)
+`
+
+func (q *Queries) CountGroupMembers(ctx context.Context, groupID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countGroupMembers, groupID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countGroupPosts = `-- name: CountGroupPosts :one
+SELECT count(*) FROM social_group_posts p
+WHERE p.group_id = $1
+  AND (($2::bigint IS NULL AND p.parent_id IS NULL)
+       OR p.parent_id = $2)
+  AND ($3::bigint IS NULL OR p.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $3 AND sr.target_user_id = p.user_id)
+                         OR (sr.user_id = p.user_id AND sr.target_user_id = $3)))
+       OR (sr.kind = 1 AND sr.user_id = $3 AND sr.target_user_id = p.user_id)))
+`
+
+type CountGroupPostsParams struct {
+	GroupID  int64
+	ParentID *int64
+	Viewer   *int64
+}
+
+func (q *Queries) CountGroupPosts(ctx context.Context, arg CountGroupPostsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countGroupPosts, arg.GroupID, arg.ParentID, arg.Viewer)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -486,6 +524,43 @@ func (q *Queries) CreateSharedList(ctx context.Context, arg CreateSharedListPara
 	return i, err
 }
 
+const createSocialGroup = `-- name: CreateSocialGroup :one
+
+INSERT INTO social_groups (owner_user_id, title, description, visibility, podcast_uuid, podcast_title)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, created_at
+`
+
+type CreateSocialGroupParams struct {
+	OwnerUserID  int64
+	Title        string
+	Description  string
+	Visibility   int16
+	PodcastUuid  string
+	PodcastTitle string
+}
+
+type CreateSocialGroupRow struct {
+	ID        int64
+	CreatedAt time.Time
+}
+
+// Groups (Slice 13, ADR-0012). Roles: 1=member, 2=owner, 3=invited, 4=banned;
+// visibility reuses SocialVisibility wire values (1=private, 2=public).
+func (q *Queries) CreateSocialGroup(ctx context.Context, arg CreateSocialGroupParams) (CreateSocialGroupRow, error) {
+	row := q.db.QueryRow(ctx, createSocialGroup,
+		arg.OwnerUserID,
+		arg.Title,
+		arg.Description,
+		arg.Visibility,
+		arg.PodcastUuid,
+		arg.PodcastTitle,
+	)
+	var i CreateSocialGroupRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
+}
+
 const createSocialList = `-- name: CreateSocialList :one
 
 INSERT INTO social_lists (owner_user_id, title, description, visibility)
@@ -665,6 +740,32 @@ func (q *Queries) DeleteFollowsForUser(ctx context.Context, followerUserID int64
 	return err
 }
 
+const deleteGroupMember = `-- name: DeleteGroupMember :execrows
+DELETE FROM social_group_members WHERE group_id = $1 AND user_id = $2
+`
+
+type DeleteGroupMemberParams struct {
+	GroupID int64
+	UserID  int64
+}
+
+func (q *Queries) DeleteGroupMember(ctx context.Context, arg DeleteGroupMemberParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteGroupMember, arg.GroupID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteGroupMembershipsForUser = `-- name: DeleteGroupMembershipsForUser :exec
+DELETE FROM social_group_members WHERE user_id = $1
+`
+
+func (q *Queries) DeleteGroupMembershipsForUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteGroupMembershipsForUser, userID)
+	return err
+}
+
 const deleteHistoryBefore = `-- name: DeleteHistoryBefore :exec
 DELETE FROM history WHERE user_id = $1 AND modified_at <= $2
 `
@@ -708,6 +809,15 @@ func (q *Queries) DeleteInboxItem(ctx context.Context, arg DeleteInboxItemParams
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const deleteOwnedPrivateGroups = `-- name: DeleteOwnedPrivateGroups :exec
+DELETE FROM social_groups WHERE owner_user_id = $1 AND visibility = 1
+`
+
+func (q *Queries) DeleteOwnedPrivateGroups(ctx context.Context, ownerUserID int64) error {
+	_, err := q.db.Exec(ctx, deleteOwnedPrivateGroups, ownerUserID)
+	return err
 }
 
 const deletePodcastReview = `-- name: DeletePodcastReview :execrows
@@ -754,6 +864,32 @@ DELETE FROM shared_items WHERE sender_user_id = $1 OR recipient_user_id = $1
 // (attributed UGC); their received items go too.
 func (q *Queries) DeleteSharedItemsForUser(ctx context.Context, senderUserID int64) error {
 	_, err := q.db.Exec(ctx, deleteSharedItemsForUser, senderUserID)
+	return err
+}
+
+const deleteSocialGroup = `-- name: DeleteSocialGroup :execrows
+DELETE FROM social_groups WHERE id = $1 AND owner_user_id = $2
+`
+
+type DeleteSocialGroupParams struct {
+	ID          int64
+	OwnerUserID int64
+}
+
+func (q *Queries) DeleteSocialGroup(ctx context.Context, arg DeleteSocialGroupParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSocialGroup, arg.ID, arg.OwnerUserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteSocialGroupByID = `-- name: DeleteSocialGroupByID :exec
+DELETE FROM social_groups WHERE id = $1
+`
+
+func (q *Queries) DeleteSocialGroupByID(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, deleteSocialGroupByID, id)
 	return err
 }
 
@@ -857,6 +993,68 @@ func (q *Queries) DeleteSocialRelationship(ctx context.Context, arg DeleteSocial
 	return result.RowsAffected(), nil
 }
 
+const discoverGroups = `-- name: DiscoverGroups :many
+SELECT g.id, g.owner_user_id, g.title, g.description, g.visibility, g.podcast_uuid, g.podcast_title, g.created_at,
+       sp.handle AS owner_handle, sp.display_name AS owner_display_name,
+       (SELECT count(*) FROM social_group_members c WHERE c.group_id = g.id AND c.role IN (1, 2))::int AS member_count
+FROM social_groups g
+JOIN social_profiles sp ON sp.user_id = g.owner_user_id
+WHERE g.visibility = 2 AND ($2::text IS NULL OR g.podcast_uuid = $2)
+ORDER BY member_count DESC, g.created_at DESC
+LIMIT $1
+`
+
+type DiscoverGroupsParams struct {
+	Limit       int32
+	PodcastUuid *string
+}
+
+type DiscoverGroupsRow struct {
+	ID               int64
+	OwnerUserID      int64
+	Title            string
+	Description      string
+	Visibility       int16
+	PodcastUuid      string
+	PodcastTitle     string
+	CreatedAt        time.Time
+	OwnerHandle      string
+	OwnerDisplayName string
+	MemberCount      int32
+}
+
+func (q *Queries) DiscoverGroups(ctx context.Context, arg DiscoverGroupsParams) ([]DiscoverGroupsRow, error) {
+	rows, err := q.db.Query(ctx, discoverGroups, arg.Limit, arg.PodcastUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DiscoverGroupsRow
+	for rows.Next() {
+		var i DiscoverGroupsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerUserID,
+			&i.Title,
+			&i.Description,
+			&i.Visibility,
+			&i.PodcastUuid,
+			&i.PodcastTitle,
+			&i.CreatedAt,
+			&i.OwnerHandle,
+			&i.OwnerDisplayName,
+			&i.MemberCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const distinctCategories = `-- name: DistinctCategories :many
 SELECT category, COUNT(*)::bigint AS podcast_count
 FROM podcasts
@@ -908,6 +1106,43 @@ func (q *Queries) EditComment(ctx context.Context, arg EditCommentParams) (int64
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const editGroupPost = `-- name: EditGroupPost :execrows
+UPDATE social_group_posts SET text = $3, edited_at = now()
+WHERE id = $1 AND user_id = $2 AND removed_at IS NULL
+`
+
+type EditGroupPostParams struct {
+	ID     int64
+	UserID *int64
+	Text   string
+}
+
+func (q *Queries) EditGroupPost(ctx context.Context, arg EditGroupPostParams) (int64, error) {
+	result, err := q.db.Exec(ctx, editGroupPost, arg.ID, arg.UserID, arg.Text)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const findGroupSuccessor = `-- name: FindGroupSuccessor :one
+SELECT user_id FROM social_group_members
+WHERE group_id = $1 AND role = 1 AND user_id <> $2
+ORDER BY created_at ASC LIMIT 1
+`
+
+type FindGroupSuccessorParams struct {
+	GroupID int64
+	UserID  int64
+}
+
+func (q *Queries) FindGroupSuccessor(ctx context.Context, arg FindGroupSuccessorParams) (int64, error) {
+	row := q.db.QueryRow(ctx, findGroupSuccessor, arg.GroupID, arg.UserID)
+	var user_id int64
+	err := row.Scan(&user_id)
+	return user_id, err
 }
 
 const getAttestKey = `-- name: GetAttestKey :one
@@ -1701,6 +1936,16 @@ FROM (
     FROM social_lists sl
     JOIN followees f ON f.uid = sl.owner_user_id
     WHERE sl.visibility IN (2, 3)
+  UNION ALL
+    -- Kind 9 (JOINED_GROUP, ADR-0012): PUBLIC group joins only — private
+    -- membership never emits. Reuses the list columns; the handler maps them
+    -- onto the group fields for kind 9.
+    SELECT 9, m.user_id, '', '', '', '', '', 0, '', m.created_at,
+           g.title, g.id
+    FROM social_group_members m
+    JOIN social_groups g ON g.id = m.group_id AND g.visibility = 2
+    JOIN followees f ON f.uid = m.user_id
+    WHERE m.role IN (1, 2)
 ) events
 JOIN social_profiles actor ON actor.user_id = events.actor_id
 JOIN users au ON au.id = events.actor_id
@@ -1975,6 +2220,306 @@ func (q *Queries) GetFollowing(ctx context.Context, arg GetFollowingParams) ([]G
 			&i.Handle,
 			&i.DisplayName,
 			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getGroupMember = `-- name: GetGroupMember :one
+SELECT role, notify_posts, created_at FROM social_group_members
+WHERE group_id = $1 AND user_id = $2
+`
+
+type GetGroupMemberParams struct {
+	GroupID int64
+	UserID  int64
+}
+
+type GetGroupMemberRow struct {
+	Role        int16
+	NotifyPosts bool
+	CreatedAt   time.Time
+}
+
+func (q *Queries) GetGroupMember(ctx context.Context, arg GetGroupMemberParams) (GetGroupMemberRow, error) {
+	row := q.db.QueryRow(ctx, getGroupMember, arg.GroupID, arg.UserID)
+	var i GetGroupMemberRow
+	err := row.Scan(&i.Role, &i.NotifyPosts, &i.CreatedAt)
+	return i, err
+}
+
+const getGroupMembers = `-- name: GetGroupMembers :many
+SELECT sp.handle, sp.display_name, m.role::int AS role, m.created_at
+FROM social_group_members m
+JOIN social_profiles sp ON sp.user_id = m.user_id
+WHERE m.group_id = $1 AND m.role IN (1, 2)
+ORDER BY m.created_at ASC
+LIMIT $2 OFFSET $3
+`
+
+type GetGroupMembersParams struct {
+	GroupID int64
+	Limit   int32
+	Offset  int32
+}
+
+type GetGroupMembersRow struct {
+	Handle      string
+	DisplayName string
+	Role        int32
+	CreatedAt   time.Time
+}
+
+func (q *Queries) GetGroupMembers(ctx context.Context, arg GetGroupMembersParams) ([]GetGroupMembersRow, error) {
+	rows, err := q.db.Query(ctx, getGroupMembers, arg.GroupID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetGroupMembersRow
+	for rows.Next() {
+		var i GetGroupMembersRow
+		if err := rows.Scan(
+			&i.Handle,
+			&i.DisplayName,
+			&i.Role,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getGroupNotifyTargets = `-- name: GetGroupNotifyTargets :many
+SELECT user_id FROM social_group_members
+WHERE group_id = $1 AND role IN (1, 2) AND notify_posts AND user_id <> $2
+`
+
+type GetGroupNotifyTargetsParams struct {
+	GroupID int64
+	UserID  int64
+}
+
+func (q *Queries) GetGroupNotifyTargets(ctx context.Context, arg GetGroupNotifyTargetsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, getGroupNotifyTargets, arg.GroupID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var user_id int64
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getGroupPostByID = `-- name: GetGroupPostByID :one
+SELECT p.id, p.group_id, p.user_id, p.parent_id, p.root_id, p.text, p.created_at, p.removed_at,
+       p.episode_title, p.podcast_title,
+       EXISTS(SELECT 1 FROM social_group_posts r WHERE r.parent_id = p.id) AS has_replies
+FROM social_group_posts p WHERE p.id = $1
+`
+
+type GetGroupPostByIDRow struct {
+	ID           int64
+	GroupID      int64
+	UserID       *int64
+	ParentID     *int64
+	RootID       *int64
+	Text         string
+	CreatedAt    time.Time
+	RemovedAt    *time.Time
+	EpisodeTitle string
+	PodcastTitle string
+	HasReplies   bool
+}
+
+func (q *Queries) GetGroupPostByID(ctx context.Context, id int64) (GetGroupPostByIDRow, error) {
+	row := q.db.QueryRow(ctx, getGroupPostByID, id)
+	var i GetGroupPostByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.UserID,
+		&i.ParentID,
+		&i.RootID,
+		&i.Text,
+		&i.CreatedAt,
+		&i.RemovedAt,
+		&i.EpisodeTitle,
+		&i.PodcastTitle,
+		&i.HasReplies,
+	)
+	return i, err
+}
+
+const getGroupPosts = `-- name: GetGroupPosts :many
+SELECT p.id, p.parent_id, p.user_id, p.text, p.created_at, p.edited_at, p.removed_at,
+       p.episode_uuid, p.podcast_uuid, p.episode_title, p.podcast_title, p.list_id, p.list_title,
+       u.uuid AS author_uuid, sp.handle, sp.display_name,
+       (SELECT count(*) FROM social_group_posts r WHERE r.parent_id = p.id)::int AS reply_count
+FROM social_group_posts p
+LEFT JOIN users u ON u.id = p.user_id
+LEFT JOIN social_profiles sp ON sp.user_id = p.user_id
+WHERE p.group_id = $1
+  AND (($4::bigint IS NULL AND p.parent_id IS NULL)
+       OR p.parent_id = $4)
+  AND ($5::bigint IS NULL OR p.user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE (sr.kind = 0 AND ((sr.user_id = $5 AND sr.target_user_id = p.user_id)
+                         OR (sr.user_id = p.user_id AND sr.target_user_id = $5)))
+       OR (sr.kind = 1 AND sr.user_id = $5 AND sr.target_user_id = p.user_id)))
+ORDER BY CASE WHEN p.parent_id IS NULL THEN p.created_at END DESC,
+         CASE WHEN p.parent_id IS NOT NULL THEN p.created_at END ASC
+LIMIT $2 OFFSET $3
+`
+
+type GetGroupPostsParams struct {
+	GroupID  int64
+	Limit    int32
+	Offset   int32
+	ParentID *int64
+	Viewer   *int64
+}
+
+type GetGroupPostsRow struct {
+	ID           int64
+	ParentID     *int64
+	UserID       *int64
+	Text         string
+	CreatedAt    time.Time
+	EditedAt     *time.Time
+	RemovedAt    *time.Time
+	EpisodeUuid  string
+	PodcastUuid  string
+	EpisodeTitle string
+	PodcastTitle string
+	ListID       int64
+	ListTitle    string
+	AuthorUuid   *string
+	Handle       pgtype.Text
+	DisplayName  *string
+	ReplyCount   int32
+}
+
+func (q *Queries) GetGroupPosts(ctx context.Context, arg GetGroupPostsParams) ([]GetGroupPostsRow, error) {
+	rows, err := q.db.Query(ctx, getGroupPosts,
+		arg.GroupID,
+		arg.Limit,
+		arg.Offset,
+		arg.ParentID,
+		arg.Viewer,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetGroupPostsRow
+	for rows.Next() {
+		var i GetGroupPostsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ParentID,
+			&i.UserID,
+			&i.Text,
+			&i.CreatedAt,
+			&i.EditedAt,
+			&i.RemovedAt,
+			&i.EpisodeUuid,
+			&i.PodcastUuid,
+			&i.EpisodeTitle,
+			&i.PodcastTitle,
+			&i.ListID,
+			&i.ListTitle,
+			&i.AuthorUuid,
+			&i.Handle,
+			&i.DisplayName,
+			&i.ReplyCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getGroupsForUser = `-- name: GetGroupsForUser :many
+SELECT g.id, g.owner_user_id, g.title, g.description, g.visibility, g.podcast_uuid, g.podcast_title, g.created_at,
+       sp.handle AS owner_handle, sp.display_name AS owner_display_name,
+       (SELECT count(*) FROM social_group_members c WHERE c.group_id = g.id AND c.role IN (1, 2))::int AS member_count,
+       m.role::int AS your_role, m.notify_posts
+FROM social_group_members m
+JOIN social_groups g ON g.id = m.group_id
+JOIN social_profiles sp ON sp.user_id = g.owner_user_id
+WHERE m.user_id = $1 AND m.role = ANY($2::smallint[])
+ORDER BY g.created_at DESC
+`
+
+type GetGroupsForUserParams struct {
+	UserID  int64
+	Column2 []int16
+}
+
+type GetGroupsForUserRow struct {
+	ID               int64
+	OwnerUserID      int64
+	Title            string
+	Description      string
+	Visibility       int16
+	PodcastUuid      string
+	PodcastTitle     string
+	CreatedAt        time.Time
+	OwnerHandle      string
+	OwnerDisplayName string
+	MemberCount      int32
+	YourRole         int32
+	NotifyPosts      bool
+}
+
+func (q *Queries) GetGroupsForUser(ctx context.Context, arg GetGroupsForUserParams) ([]GetGroupsForUserRow, error) {
+	rows, err := q.db.Query(ctx, getGroupsForUser, arg.UserID, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetGroupsForUserRow
+	for rows.Next() {
+		var i GetGroupsForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerUserID,
+			&i.Title,
+			&i.Description,
+			&i.Visibility,
+			&i.PodcastUuid,
+			&i.PodcastTitle,
+			&i.CreatedAt,
+			&i.OwnerHandle,
+			&i.OwnerDisplayName,
+			&i.MemberCount,
+			&i.YourRole,
+			&i.NotifyPosts,
 		); err != nil {
 			return nil, err
 		}
@@ -2278,6 +2823,30 @@ func (q *Queries) GetOwnPodcastReview(ctx context.Context, arg GetOwnPodcastRevi
 		&i.Rating,
 	)
 	return i, err
+}
+
+const getOwnedPublicGroupIDs = `-- name: GetOwnedPublicGroupIDs :many
+SELECT id FROM social_groups WHERE owner_user_id = $1 AND visibility = 2
+`
+
+func (q *Queries) GetOwnedPublicGroupIDs(ctx context.Context, ownerUserID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, getOwnedPublicGroupIDs, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getPendingFollowRequests = `-- name: GetPendingFollowRequests :many
@@ -3127,6 +3696,60 @@ func (q *Queries) GetSharedListByCode(ctx context.Context, code string) (SharedL
 		&i.Description,
 		&i.PodcastUuids,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getSocialGroup = `-- name: GetSocialGroup :one
+SELECT g.id, g.owner_user_id, g.title, g.description, g.visibility, g.podcast_uuid, g.podcast_title, g.created_at,
+       sp.handle AS owner_handle, sp.display_name AS owner_display_name,
+       (SELECT count(*) FROM social_group_members c WHERE c.group_id = g.id AND c.role IN (1, 2))::int AS member_count,
+       COALESCE(my.role, 0)::int AS your_role,
+       COALESCE(my.notify_posts, false) AS notify_posts
+FROM social_groups g
+JOIN social_profiles sp ON sp.user_id = g.owner_user_id
+LEFT JOIN social_group_members my ON my.group_id = g.id AND my.user_id = $2
+WHERE g.id = $1
+`
+
+type GetSocialGroupParams struct {
+	ID     int64
+	Viewer *int64
+}
+
+type GetSocialGroupRow struct {
+	ID               int64
+	OwnerUserID      int64
+	Title            string
+	Description      string
+	Visibility       int16
+	PodcastUuid      string
+	PodcastTitle     string
+	CreatedAt        time.Time
+	OwnerHandle      string
+	OwnerDisplayName string
+	MemberCount      int32
+	YourRole         int32
+	NotifyPosts      bool
+}
+
+func (q *Queries) GetSocialGroup(ctx context.Context, arg GetSocialGroupParams) (GetSocialGroupRow, error) {
+	row := q.db.QueryRow(ctx, getSocialGroup, arg.ID, arg.Viewer)
+	var i GetSocialGroupRow
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.Title,
+		&i.Description,
+		&i.Visibility,
+		&i.PodcastUuid,
+		&i.PodcastTitle,
+		&i.CreatedAt,
+		&i.OwnerHandle,
+		&i.OwnerDisplayName,
+		&i.MemberCount,
+		&i.YourRole,
+		&i.NotifyPosts,
 	)
 	return i, err
 }
@@ -4319,6 +4942,55 @@ func (q *Queries) InsertFeedback(ctx context.Context, arg InsertFeedbackParams) 
 	return err
 }
 
+const insertGroupPost = `-- name: InsertGroupPost :one
+INSERT INTO social_group_posts (
+    group_id, user_id, parent_id, root_id, text,
+    episode_uuid, podcast_uuid, episode_title, podcast_title, list_id, list_title
+) VALUES (
+    $1, $2, $10, $11, $3,
+    $4, $5, $6, $7, $8, $9
+)
+RETURNING id, created_at
+`
+
+type InsertGroupPostParams struct {
+	GroupID      int64
+	UserID       *int64
+	Text         string
+	EpisodeUuid  string
+	PodcastUuid  string
+	EpisodeTitle string
+	PodcastTitle string
+	ListID       int64
+	ListTitle    string
+	ParentID     *int64
+	RootID       *int64
+}
+
+type InsertGroupPostRow struct {
+	ID        int64
+	CreatedAt time.Time
+}
+
+func (q *Queries) InsertGroupPost(ctx context.Context, arg InsertGroupPostParams) (InsertGroupPostRow, error) {
+	row := q.db.QueryRow(ctx, insertGroupPost,
+		arg.GroupID,
+		arg.UserID,
+		arg.Text,
+		arg.EpisodeUuid,
+		arg.PodcastUuid,
+		arg.EpisodeTitle,
+		arg.PodcastTitle,
+		arg.ListID,
+		arg.ListTitle,
+		arg.ParentID,
+		arg.RootID,
+	)
+	var i InsertGroupPostRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
+}
+
 const insertModerationReport = `-- name: InsertModerationReport :exec
 INSERT INTO moderation_reports (target_user_id, reporter_user_id, source, reason, context, target_type, content_ref)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -4665,6 +5337,20 @@ func (q *Queries) PodcastsByCategory(ctx context.Context, arg PodcastsByCategory
 	return items, nil
 }
 
+const promoteGroupMemberToOwner = `-- name: PromoteGroupMemberToOwner :exec
+UPDATE social_group_members SET role = 2 WHERE group_id = $1 AND user_id = $2
+`
+
+type PromoteGroupMemberToOwnerParams struct {
+	GroupID int64
+	UserID  int64
+}
+
+func (q *Queries) PromoteGroupMemberToOwner(ctx context.Context, arg PromoteGroupMemberToOwnerParams) error {
+	_, err := q.db.Exec(ctx, promoteGroupMemberToOwner, arg.GroupID, arg.UserID)
+	return err
+}
+
 const recentPodcasts = `-- name: RecentPodcasts :many
 SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url FROM podcasts
 WHERE refresh_status = 'ok' AND latest_episode_published IS NOT NULL
@@ -5001,6 +5687,25 @@ func (q *Queries) SearchSocialProfiles(ctx context.Context, arg SearchSocialProf
 	return items, nil
 }
 
+const setGroupMemberNotify = `-- name: SetGroupMemberNotify :execrows
+UPDATE social_group_members SET notify_posts = $3
+WHERE group_id = $1 AND user_id = $2 AND role IN (1, 2)
+`
+
+type SetGroupMemberNotifyParams struct {
+	GroupID     int64
+	UserID      int64
+	NotifyPosts bool
+}
+
+func (q *Queries) SetGroupMemberNotify(ctx context.Context, arg SetGroupMemberNotifyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setGroupMemberNotify, arg.GroupID, arg.UserID, arg.NotifyPosts)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setPodcastNotifyFlags = `-- name: SetPodcastNotifyFlags :exec
 UPDATE user_podcasts
 SET notify_enabled = (podcast_uuid = ANY($2::uuid[]))
@@ -5126,6 +5831,56 @@ func (q *Queries) TombstoneCommentsForUser(ctx context.Context, userID *int64) e
 	return err
 }
 
+const tombstoneGroupPost = `-- name: TombstoneGroupPost :execrows
+UPDATE social_group_posts
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+WHERE id = $1 AND user_id = $2 AND removed_at IS NULL
+`
+
+type TombstoneGroupPostParams struct {
+	ID     int64
+	UserID *int64
+}
+
+func (q *Queries) TombstoneGroupPost(ctx context.Context, arg TombstoneGroupPostParams) (int64, error) {
+	result, err := q.db.Exec(ctx, tombstoneGroupPost, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const tombstoneGroupPostAsOwner = `-- name: TombstoneGroupPostAsOwner :execrows
+UPDATE social_group_posts p
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+FROM social_groups g
+WHERE p.id = $1 AND g.id = p.group_id AND g.owner_user_id = $2 AND p.removed_at IS NULL
+`
+
+type TombstoneGroupPostAsOwnerParams struct {
+	ID          int64
+	OwnerUserID int64
+}
+
+func (q *Queries) TombstoneGroupPostAsOwner(ctx context.Context, arg TombstoneGroupPostAsOwnerParams) (int64, error) {
+	result, err := q.db.Exec(ctx, tombstoneGroupPostAsOwner, arg.ID, arg.OwnerUserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const tombstoneGroupPostsForUser = `-- name: TombstoneGroupPostsForUser :exec
+UPDATE social_group_posts
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+WHERE user_id = $1 AND removed_at IS NULL
+`
+
+func (q *Queries) TombstoneGroupPostsForUser(ctx context.Context, userID *int64) error {
+	_, err := q.db.Exec(ctx, tombstoneGroupPostsForUser, userID)
+	return err
+}
+
 const tombstoneHandle = `-- name: TombstoneHandle :execrows
 UPDATE social_handles
 SET status = 1, user_id = NULL, released_at = now()
@@ -5240,6 +5995,20 @@ UPDATE social_lists SET updated_at = now() WHERE id = $1
 
 func (q *Queries) TouchSocialList(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, touchSocialList, id)
+	return err
+}
+
+const transferGroupOwner = `-- name: TransferGroupOwner :exec
+UPDATE social_groups SET owner_user_id = $2, updated_at = now() WHERE id = $1
+`
+
+type TransferGroupOwnerParams struct {
+	ID          int64
+	OwnerUserID int64
+}
+
+func (q *Queries) TransferGroupOwner(ctx context.Context, arg TransferGroupOwnerParams) error {
+	_, err := q.db.Exec(ctx, transferGroupOwner, arg.ID, arg.OwnerUserID)
 	return err
 }
 
@@ -5419,6 +6188,34 @@ func (q *Queries) UpdateSightingContent(ctx context.Context, arg UpdateSightingC
 		arg.Status,
 	)
 	return err
+}
+
+const updateSocialGroup = `-- name: UpdateSocialGroup :execrows
+UPDATE social_groups
+SET title = $3, description = $4, visibility = $5, updated_at = now()
+WHERE id = $1 AND owner_user_id = $2
+`
+
+type UpdateSocialGroupParams struct {
+	ID          int64
+	OwnerUserID int64
+	Title       string
+	Description string
+	Visibility  int16
+}
+
+func (q *Queries) UpdateSocialGroup(ctx context.Context, arg UpdateSocialGroupParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateSocialGroup,
+		arg.ID,
+		arg.OwnerUserID,
+		arg.Title,
+		arg.Description,
+		arg.Visibility,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateSocialList = `-- name: UpdateSocialList :execrows
@@ -5829,6 +6626,29 @@ func (q *Queries) UpsertFollow(ctx context.Context, arg UpsertFollowParams) (int
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const upsertGroupMember = `-- name: UpsertGroupMember :exec
+INSERT INTO social_group_members (group_id, user_id, role, invited_by)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (group_id, user_id) DO UPDATE SET role = EXCLUDED.role
+`
+
+type UpsertGroupMemberParams struct {
+	GroupID   int64
+	UserID    int64
+	Role      int16
+	InvitedBy *int64
+}
+
+func (q *Queries) UpsertGroupMember(ctx context.Context, arg UpsertGroupMemberParams) error {
+	_, err := q.db.Exec(ctx, upsertGroupMember,
+		arg.GroupID,
+		arg.UserID,
+		arg.Role,
+		arg.InvitedBy,
+	)
+	return err
 }
 
 const upsertHistoryItem = `-- name: UpsertHistoryItem :exec

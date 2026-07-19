@@ -149,6 +149,22 @@ func (m *QuerierMock) DeleteReviewsForUser(ctx context.Context, userID int64) er
 	return nil
 }
 
+func (m *QuerierMock) TombstoneGroupPostsForUser(ctx context.Context, userID *int64) error {
+	return nil
+}
+
+func (m *QuerierMock) GetOwnedPublicGroupIDs(ctx context.Context, ownerUserID int64) ([]int64, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) DeleteOwnedPrivateGroups(ctx context.Context, ownerUserID int64) error {
+	return nil
+}
+
+func (m *QuerierMock) DeleteGroupMembershipsForUser(ctx context.Context, userID int64) error {
+	return nil
+}
+
 func (m *QuerierMock) DeleteSharedItemsForUser(ctx context.Context, userID int64) error {
 	return nil
 }
@@ -473,7 +489,6 @@ func TestErrorTranslationServerError(t *testing.T) {
 
 	assert.Equal(t, "Unknown error", result.Errors[0])
 }
-
 
 func (m *QuerierMock) CountPendingFollowRequests(ctx context.Context, followeeUserID int64) (int64, error) {
 	return 0, nil
