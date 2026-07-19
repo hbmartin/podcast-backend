@@ -1210,3 +1210,89 @@ func TestGroups(t *testing.T) {
 	assert.Equal(t, pb.GroupRole_GROUP_ROLE_OWNER, hubAfter.YourRole)
 	assert.True(t, hubAfter.NotifyPosts, "member state survives succession")
 }
+
+// TestMilestones walks Slice 14 (ADR-0013): syncing playback that crosses a
+// ladder tier materializes the crossing; the feed shows it to followers only
+// when stats are visible; the profile carries the milestones line under the
+// same gate; erase deletes the rows.
+func TestMilestones(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("mile-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("mile-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_mile_a_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Milestone A"}, {tokenB, fmt.Sprintf("e2e_mile_b_%d", suffix%1_000_000_000), "Watcher B"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// A syncs 12 finished episodes (~ >10h too): crossings materialize for
+	// tier 10 on both ladders.
+	sync := &pb.SyncUpdateRequest{DeviceUtcTimeMs: time.Now().UnixMilli()}
+	for i := 0; i < 12; i++ {
+		episode := &pb.SyncUserEpisode{
+			Uuid:                  fmt.Sprintf("abcd%04d-00aa-4000-8000-%012d", i, suffix%1_000_000_000_000),
+			PodcastUuid:           "dcba0000-00aa-4000-8000-000000000001",
+			Duration:              wrapperspb.Int64(3600),
+			DurationModified:      wrapperspb.Int64(sync.DeviceUtcTimeMs),
+			PlayedUpTo:            wrapperspb.Int64(3600),
+			PlayedUpToModified:    wrapperspb.Int64(sync.DeviceUtcTimeMs),
+			PlayingStatus:         wrapperspb.Int32(3),
+			PlayingStatusModified: wrapperspb.Int64(sync.DeviceUtcTimeMs),
+		}
+		sync.Records = append(sync.Records, &pb.Record{Record: &pb.Record_Episode{Episode: episode}})
+	}
+	status := postProto(t, "/user/sync/update", tokenA, sync, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// B follows A. Stats are private by default: no milestone feed item, no
+	// profile line.
+	status = postProto(t, "/social/follow", tokenB, &pb.FollowRequest{Handle: handleA}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	feed := &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenB, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	for _, item := range feed.Items {
+		require.NotEqual(t, pb.FeedItemKind_FEED_ITEM_KIND_MILESTONE, item.Kind,
+			"private stats must hide milestones")
+	}
+
+	// A makes stats public: the crossing surfaces in B's feed and on the
+	// public profile.
+	status = postProto(t, "/social/profile/update", tokenA, &pb.ProfileUpdateRequest{
+		DisplayName: "Milestone A", StatsVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	status = postProto(t, "/social/feed", tokenB, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	var crossed []int32
+	for _, item := range feed.Items {
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_MILESTONE && item.ActorHandle == handleA {
+			crossed = append(crossed, item.MilestoneTier)
+			assert.Contains(t, []int32{1, 2}, item.MilestoneKind)
+		}
+	}
+	assert.NotEmpty(t, crossed, "tier-10 crossings must surface once stats are public")
+	for _, tier := range crossed {
+		assert.Equal(t, int32(10), tier)
+	}
+
+	profile := &pb.PublicProfileResponse{}
+	status = postProto(t, "/social/profile/public", tokenB, &pb.PublicProfileRequest{Handle: handleA}, profile)
+	require.Equal(t, http.StatusOK, status)
+	require.NotEmpty(t, profile.Milestones)
+
+	// Erase A: milestones die with the profile.
+	status = postProto(t, "/social/erase", tokenA, &pb.EraseRequest{}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/feed", tokenB, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	for _, item := range feed.Items {
+		require.NotEqual(t, pb.FeedItemKind_FEED_ITEM_KIND_MILESTONE, item.Kind)
+	}
+}

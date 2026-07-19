@@ -28,6 +28,14 @@ type fakeStore struct {
 	catalogRows []db.GetSubscribedPodcastsWithCatalogRow
 }
 
+func (f *fakeStore) GetListeningTotals(ctx context.Context, userID int64) (db.GetListeningTotalsRow, error) {
+	return db.GetListeningTotalsRow{}, nil
+}
+
+func (f *fakeStore) InsertMilestone(ctx context.Context, arg db.InsertMilestoneParams) (int64, error) {
+	return 1, nil
+}
+
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		user:      db.User{ID: 1, Uuid: "user-uuid", Email: "a@b.co"},

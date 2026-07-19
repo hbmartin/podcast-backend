@@ -423,6 +423,16 @@ func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.Pub
 			TimeListenedSeconds: totals.TimeListened,
 			ListeningSince:      timestamppb.New(since),
 		}
+		// Milestones share the stats gate (Slice 14, ADR-0013).
+		milestones, err := h.Queries.GetMilestonesForUser(r.Context(), profile.UserID)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, m := range milestones {
+			resp.Milestones = append(resp.Milestones, &pb.Milestone{
+				Kind: int32(m.Kind), Tier: m.Tier, CrossedAt: timestamppb.New(m.CrossedAt),
+			})
+		}
 	}
 
 	if visible(profile.HistoryVisibility) {
@@ -719,6 +729,9 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 			return err
 		}
 		if err := q.DeleteGroupMembershipsForUser(r.Context(), userID); err != nil {
+			return err
+		}
+		if err := q.DeleteMilestonesForUser(r.Context(), userID); err != nil {
 			return err
 		}
 		return q.DeleteRelationshipsForUser(r.Context(), userID)

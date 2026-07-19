@@ -149,6 +149,14 @@ func (m *QuerierMock) DeleteReviewsForUser(ctx context.Context, userID int64) er
 	return nil
 }
 
+func (m *QuerierMock) DeleteMilestonesForUser(ctx context.Context, userID int64) error {
+	return nil
+}
+
+func (m *QuerierMock) GetMilestonesForUser(ctx context.Context, userID int64) ([]db.GetMilestonesForUserRow, error) {
+	return nil, nil
+}
+
 func (m *QuerierMock) TombstoneGroupPostsForUser(ctx context.Context, userID *int64) error {
 	return nil
 }

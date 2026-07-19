@@ -247,4 +247,14 @@ type Querier interface {
 	PromoteGroupMemberToOwner(ctx context.Context, arg PromoteGroupMemberToOwnerParams) error
 	DeleteSocialGroupByID(ctx context.Context, id int64) error
 	GetGroupNotifyTargets(ctx context.Context, arg GetGroupNotifyTargetsParams) ([]int64, error)
+
+	// Milestones + weekly digest (Slice 14, ADR-0013).
+	GetListeningTotals(ctx context.Context, userID int64) (GetListeningTotalsRow, error)
+	InsertMilestone(ctx context.Context, arg InsertMilestoneParams) (int64, error)
+	GetMilestonesForUser(ctx context.Context, userID int64) ([]GetMilestonesForUserRow, error)
+	GetFreshMilestones(ctx context.Context, userID int64) ([]GetFreshMilestonesRow, error)
+	DeleteMilestonesForUser(ctx context.Context, userID int64) error
+	GetDigestCandidates(ctx context.Context, limit int32) ([]int64, error)
+	SetDigestSent(ctx context.Context, userID int64) error
+	CountGraphHighlights(ctx context.Context, followerUserID int64) (int64, error)
 }

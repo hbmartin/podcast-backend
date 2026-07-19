@@ -345,6 +345,13 @@ type SocialListMember struct {
 	CreatedAt time.Time
 }
 
+type SocialMilestone struct {
+	UserID    int64
+	Kind      int16
+	Tier      int32
+	CrossedAt time.Time
+}
+
 type SocialProfile struct {
 	UserID                  int64
 	Handle                  string
@@ -364,6 +371,7 @@ type SocialProfile struct {
 	RepliesSeenAt           time.Time
 	SocialPushDisabled      int64
 	HideFromDiscovery       bool
+	DigestSentAt            *time.Time
 }
 
 type SocialRelationship struct {

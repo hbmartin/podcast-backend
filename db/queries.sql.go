@@ -178,6 +178,32 @@ func (q *Queries) CountFollowing(ctx context.Context, followerUserID int64) (int
 	return count, err
 }
 
+const countGraphHighlights = `-- name: CountGraphHighlights :one
+SELECT (
+    (SELECT count(*) FROM podcast_reviews pr
+     JOIN social_follows sf ON sf.followee_user_id = pr.user_id
+      AND sf.follower_user_id = $1 AND sf.status = 1
+     WHERE pr.updated_at > now() - interval '7 days')
+  + (SELECT count(*) FROM social_lists sl
+     JOIN social_follows sf ON sf.followee_user_id = sl.owner_user_id
+      AND sf.follower_user_id = $1 AND sf.status = 1
+     WHERE sl.created_at > now() - interval '7 days' AND sl.visibility IN (2, 3))
+  + (SELECT count(*) FROM social_milestones sm
+     JOIN social_follows sf ON sf.followee_user_id = sm.user_id
+      AND sf.follower_user_id = $1 AND sf.status = 1
+     JOIN social_profiles asp ON asp.user_id = sm.user_id
+      AND asp.stats_visibility IN (2, 3)
+     WHERE sm.crossed_at > now() - interval '7 days')
+)::bigint
+`
+
+func (q *Queries) CountGraphHighlights(ctx context.Context, followerUserID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countGraphHighlights, followerUserID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countGroupMembers = `-- name: CountGroupMembers :one
 SELECT count(*) FROM social_group_members WHERE group_id = $1 AND role IN (1, 2)
 `
@@ -598,7 +624,7 @@ func (q *Queries) CreateSocialList(ctx context.Context, arg CreateSocialListPara
 const createSocialProfile = `-- name: CreateSocialProfile :one
 INSERT INTO social_profiles (user_id, handle, display_name, terms_version)
 VALUES ($1, $2, $3, $4)
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at
 `
 
 type CreateSocialProfileParams struct {
@@ -636,6 +662,7 @@ func (q *Queries) CreateSocialProfile(ctx context.Context, arg CreateSocialProfi
 		&i.RepliesSeenAt,
 		&i.SocialPushDisabled,
 		&i.HideFromDiscovery,
+		&i.DigestSentAt,
 	)
 	return i, err
 }
@@ -809,6 +836,15 @@ func (q *Queries) DeleteInboxItem(ctx context.Context, arg DeleteInboxItemParams
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const deleteMilestonesForUser = `-- name: DeleteMilestonesForUser :exec
+DELETE FROM social_milestones WHERE user_id = $1
+`
+
+func (q *Queries) DeleteMilestonesForUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteMilestonesForUser, userID)
+	return err
 }
 
 const deleteOwnedPrivateGroups = `-- name: DeleteOwnedPrivateGroups :exec
@@ -1478,6 +1514,39 @@ func (q *Queries) GetDevice(ctx context.Context, arg GetDeviceParams) (Device, e
 	return i, err
 }
 
+const getDigestCandidates = `-- name: GetDigestCandidates :many
+
+SELECT sp.user_id FROM social_profiles sp
+WHERE (sp.digest_sent_at IS NULL OR sp.digest_sent_at < now() - interval '6 days')
+  AND (EXISTS (SELECT 1 FROM social_follows sf
+               WHERE sf.follower_user_id = sp.user_id AND sf.status = 1)
+       OR EXISTS (SELECT 1 FROM social_milestones sm
+                  WHERE sm.user_id = sp.user_id AND sm.crossed_at > now() - interval '7 days'))
+LIMIT $1
+`
+
+// Weekly digest (push type 9): candidates are joined accounts past the
+// watermark with a graph or a fresh milestone - never filler.
+func (q *Queries) GetDigestCandidates(ctx context.Context, limit int32) ([]int64, error) {
+	rows, err := q.db.Query(ctx, getDigestCandidates, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var user_id int64
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDiscoverableProfileEmails = `-- name: GetDiscoverableProfileEmails :many
 SELECT sp.user_id, sp.handle, sp.display_name, u.email
 FROM social_profiles sp
@@ -1946,6 +2015,15 @@ FROM (
     JOIN social_groups g ON g.id = m.group_id AND g.visibility = 2
     JOIN followees f ON f.uid = m.user_id
     WHERE m.role IN (1, 2)
+  UNION ALL
+    -- Kind 10 (MILESTONE, ADR-0013): stats-visibility gated like the
+    -- heatmap. Reuses reaction_kind for the milestone kind and list_id for
+    -- the tier; the handler remaps for kind 10.
+    SELECT 10, sm.user_id, '', '', '', '', '', sm.kind::int, '', sm.crossed_at,
+           '', sm.tier::bigint
+    FROM social_milestones sm
+    JOIN followees f ON f.uid = sm.user_id
+    JOIN social_profiles asp ON asp.user_id = sm.user_id AND asp.stats_visibility IN (2, 3)
 ) events
 JOIN social_profiles actor ON actor.user_id = events.actor_id
 JOIN users au ON au.id = events.actor_id
@@ -2221,6 +2299,37 @@ func (q *Queries) GetFollowing(ctx context.Context, arg GetFollowingParams) ([]G
 			&i.DisplayName,
 			&i.Status,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getFreshMilestones = `-- name: GetFreshMilestones :many
+SELECT kind, tier FROM social_milestones
+WHERE user_id = $1 AND crossed_at > now() - interval '7 days'
+ORDER BY crossed_at DESC LIMIT 3
+`
+
+type GetFreshMilestonesRow struct {
+	Kind int16
+	Tier int32
+}
+
+func (q *Queries) GetFreshMilestones(ctx context.Context, userID int64) ([]GetFreshMilestonesRow, error) {
+	rows, err := q.db.Query(ctx, getFreshMilestones, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetFreshMilestonesRow
+	for rows.Next() {
+		var i GetFreshMilestonesRow
+		if err := rows.Scan(&i.Kind, &i.Tier); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2753,6 +2862,59 @@ func (q *Queries) GetInboxReplies(ctx context.Context, arg GetInboxRepliesParams
 			&i.DisplayName,
 			&i.ReplyCount,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getListeningTotals = `-- name: GetListeningTotals :one
+
+SELECT COALESCE(SUM(LEAST(GREATEST(played_up_to, 0),
+                          CASE WHEN duration > 0 THEN duration ELSE played_up_to END)), 0)::bigint AS listened_seconds,
+       COUNT(*) FILTER (WHERE playing_status = 3)::int AS episodes_finished
+FROM user_episodes WHERE user_id = $1
+`
+
+type GetListeningTotalsRow struct {
+	ListenedSeconds  int64
+	EpisodesFinished int32
+}
+
+// Milestones (Slice 14, ADR-0013): materialized ladder crossings. kind
+// 1=hours listened, 2=episodes finished.
+func (q *Queries) GetListeningTotals(ctx context.Context, userID int64) (GetListeningTotalsRow, error) {
+	row := q.db.QueryRow(ctx, getListeningTotals, userID)
+	var i GetListeningTotalsRow
+	err := row.Scan(&i.ListenedSeconds, &i.EpisodesFinished)
+	return i, err
+}
+
+const getMilestonesForUser = `-- name: GetMilestonesForUser :many
+SELECT kind, tier, crossed_at FROM social_milestones
+WHERE user_id = $1 ORDER BY crossed_at DESC, kind, tier
+`
+
+type GetMilestonesForUserRow struct {
+	Kind      int16
+	Tier      int32
+	CrossedAt time.Time
+}
+
+func (q *Queries) GetMilestonesForUser(ctx context.Context, userID int64) ([]GetMilestonesForUserRow, error) {
+	rows, err := q.db.Query(ctx, getMilestonesForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMilestonesForUserRow
+	for rows.Next() {
+		var i GetMilestonesForUserRow
+		if err := rows.Scan(&i.Kind, &i.Tier, &i.CrossedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -4025,7 +4187,7 @@ func (q *Queries) GetSocialListsForUser(ctx context.Context, ownerUserID int64) 
 }
 
 const getSocialProfileByHandle = `-- name: GetSocialProfileByHandle :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery FROM social_profiles WHERE handle = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at FROM social_profiles WHERE handle = $1
 `
 
 // Tombstoned/erased handles have no profile row, so this only finds live ones.
@@ -4051,12 +4213,13 @@ func (q *Queries) GetSocialProfileByHandle(ctx context.Context, handle string) (
 		&i.RepliesSeenAt,
 		&i.SocialPushDisabled,
 		&i.HideFromDiscovery,
+		&i.DigestSentAt,
 	)
 	return i, err
 }
 
 const getSocialProfileByUserID = `-- name: GetSocialProfileByUserID :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery FROM social_profiles WHERE user_id = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at FROM social_profiles WHERE user_id = $1
 `
 
 func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (SocialProfile, error) {
@@ -4081,6 +4244,7 @@ func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (S
 		&i.RepliesSeenAt,
 		&i.SocialPushDisabled,
 		&i.HideFromDiscovery,
+		&i.DigestSentAt,
 	)
 	return i, err
 }
@@ -4991,6 +5155,25 @@ func (q *Queries) InsertGroupPost(ctx context.Context, arg InsertGroupPostParams
 	return i, err
 }
 
+const insertMilestone = `-- name: InsertMilestone :execrows
+INSERT INTO social_milestones (user_id, kind, tier) VALUES ($1, $2, $3)
+ON CONFLICT DO NOTHING
+`
+
+type InsertMilestoneParams struct {
+	UserID int64
+	Kind   int16
+	Tier   int32
+}
+
+func (q *Queries) InsertMilestone(ctx context.Context, arg InsertMilestoneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertMilestone, arg.UserID, arg.Kind, arg.Tier)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertModerationReport = `-- name: InsertModerationReport :exec
 INSERT INTO moderation_reports (target_user_id, reporter_user_id, source, reason, context, target_type, content_ref)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -5687,6 +5870,15 @@ func (q *Queries) SearchSocialProfiles(ctx context.Context, arg SearchSocialProf
 	return items, nil
 }
 
+const setDigestSent = `-- name: SetDigestSent :exec
+UPDATE social_profiles SET digest_sent_at = now() WHERE user_id = $1
+`
+
+func (q *Queries) SetDigestSent(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, setDigestSent, userID)
+	return err
+}
+
 const setGroupMemberNotify = `-- name: SetGroupMemberNotify :execrows
 UPDATE social_group_members SET notify_posts = $3
 WHERE group_id = $1 AND user_id = $2 AND role IN (1, 2)
@@ -6262,7 +6454,7 @@ UPDATE social_profiles SET
     hide_from_discovery = $13,
     updated_at = now()
 WHERE user_id = $1
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at
 `
 
 type UpdateSocialProfileParams struct {
@@ -6318,6 +6510,7 @@ func (q *Queries) UpdateSocialProfile(ctx context.Context, arg UpdateSocialProfi
 		&i.RepliesSeenAt,
 		&i.SocialPushDisabled,
 		&i.HideFromDiscovery,
+		&i.DigestSentAt,
 	)
 	return i, err
 }

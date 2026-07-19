@@ -1062,6 +1062,15 @@ FROM (
     JOIN social_groups g ON g.id = m.group_id AND g.visibility = 2
     JOIN followees f ON f.uid = m.user_id
     WHERE m.role IN (1, 2)
+  UNION ALL
+    -- Kind 10 (MILESTONE, ADR-0013): stats-visibility gated like the
+    -- heatmap. Reuses reaction_kind for the milestone kind and list_id for
+    -- the tier; the handler remaps for kind 10.
+    SELECT 10, sm.user_id, '', '', '', '', '', sm.kind::int, '', sm.crossed_at,
+           '', sm.tier::bigint
+    FROM social_milestones sm
+    JOIN followees f ON f.uid = sm.user_id
+    JOIN social_profiles asp ON asp.user_id = sm.user_id AND asp.stats_visibility IN (2, 3)
 ) events
 JOIN social_profiles actor ON actor.user_id = events.actor_id
 JOIN users au ON au.id = events.actor_id
@@ -1619,3 +1628,61 @@ DELETE FROM social_groups WHERE id = $1;
 -- name: GetGroupNotifyTargets :many
 SELECT user_id FROM social_group_members
 WHERE group_id = $1 AND role IN (1, 2) AND notify_posts AND user_id <> $2;
+
+-- Milestones (Slice 14, ADR-0013): materialized ladder crossings. kind
+-- 1=hours listened, 2=episodes finished.
+
+-- name: GetListeningTotals :one
+SELECT COALESCE(SUM(LEAST(GREATEST(played_up_to, 0),
+                          CASE WHEN duration > 0 THEN duration ELSE played_up_to END)), 0)::bigint AS listened_seconds,
+       COUNT(*) FILTER (WHERE playing_status = 3)::int AS episodes_finished
+FROM user_episodes WHERE user_id = $1;
+
+-- name: InsertMilestone :execrows
+INSERT INTO social_milestones (user_id, kind, tier) VALUES ($1, $2, $3)
+ON CONFLICT DO NOTHING;
+
+-- name: GetMilestonesForUser :many
+SELECT kind, tier, crossed_at FROM social_milestones
+WHERE user_id = $1 ORDER BY crossed_at DESC, kind, tier;
+
+-- name: GetFreshMilestones :many
+SELECT kind, tier FROM social_milestones
+WHERE user_id = $1 AND crossed_at > now() - interval '7 days'
+ORDER BY crossed_at DESC LIMIT 3;
+
+-- name: DeleteMilestonesForUser :exec
+DELETE FROM social_milestones WHERE user_id = $1;
+
+-- Weekly digest (push type 9): candidates are joined accounts past the
+-- watermark with a graph or a fresh milestone - never filler.
+
+-- name: GetDigestCandidates :many
+SELECT sp.user_id FROM social_profiles sp
+WHERE (sp.digest_sent_at IS NULL OR sp.digest_sent_at < now() - interval '6 days')
+  AND (EXISTS (SELECT 1 FROM social_follows sf
+               WHERE sf.follower_user_id = sp.user_id AND sf.status = 1)
+       OR EXISTS (SELECT 1 FROM social_milestones sm
+                  WHERE sm.user_id = sp.user_id AND sm.crossed_at > now() - interval '7 days'))
+LIMIT $1;
+
+-- name: SetDigestSent :exec
+UPDATE social_profiles SET digest_sent_at = now() WHERE user_id = $1;
+
+-- name: CountGraphHighlights :one
+SELECT (
+    (SELECT count(*) FROM podcast_reviews pr
+     JOIN social_follows sf ON sf.followee_user_id = pr.user_id
+      AND sf.follower_user_id = $1 AND sf.status = 1
+     WHERE pr.updated_at > now() - interval '7 days')
+  + (SELECT count(*) FROM social_lists sl
+     JOIN social_follows sf ON sf.followee_user_id = sl.owner_user_id
+      AND sf.follower_user_id = $1 AND sf.status = 1
+     WHERE sl.created_at > now() - interval '7 days' AND sl.visibility IN (2, 3))
+  + (SELECT count(*) FROM social_milestones sm
+     JOIN social_follows sf ON sf.followee_user_id = sm.user_id
+      AND sf.follower_user_id = $1 AND sf.status = 1
+     JOIN social_profiles asp ON asp.user_id = sm.user_id
+      AND asp.stats_visibility IN (2, 3)
+     WHERE sm.crossed_at > now() - interval '7 days')
+)::bigint;

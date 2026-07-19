@@ -1907,6 +1907,7 @@ message PublicProfileResponse {
   int64 following_count = 13;
   FollowState your_follow_state = 14;
   repeated SharedList lists = 15;      // visibility-filtered for this viewer // authenticated viewers only
+  repeated Milestone milestones = 16;  // present only when stats are visible (Slice 14)
 }
 
 // A podcast entry in a public-profile section (followed shows / top podcasts).
@@ -2163,6 +2164,7 @@ enum FeedItemKind {
   FEED_ITEM_KIND_COMMENTED = 7;
   FEED_ITEM_KIND_PUBLISHED_LIST = 8;
   FEED_ITEM_KIND_JOINED_GROUP = 9;
+  FEED_ITEM_KIND_MILESTONE = 10;
 }
 message FeedItem {
   FeedItemKind kind = 1;
@@ -2181,6 +2183,8 @@ message FeedItem {
   int64 list_id = 14;                 // PUBLISHED_LIST
   int64 group_id = 15;                // JOINED_GROUP
   string group_title = 16;            // JOINED_GROUP
+  int32 milestone_kind = 17;          // MILESTONE (1=hours, 2=episodes)
+  int32 milestone_tier = 18;          // MILESTONE
 }
 message FeedResponse {
   repeated FeedItem items = 1;
@@ -2384,6 +2388,7 @@ enum SocialPushType {
   SOCIAL_PUSH_TYPE_LIST_INVITE = 6;
   SOCIAL_PUSH_TYPE_GROUP_INVITE = 7;
   SOCIAL_PUSH_TYPE_GROUP_POST = 8;
+  SOCIAL_PUSH_TYPE_DIGEST = 9;
 }
 
 // ---- Groups (Slice 13, ADR-0012): one entity, two configurations. ----
@@ -2491,6 +2496,13 @@ message GroupPostsResponse {
 }
 message GroupPostEditRequest { int64 id = 1; string text = 2; }
 message GroupPostDeleteRequest { int64 id = 1; }
+
+// ---- Milestones (Slice 14, ADR-0013): materialized ladder crossings. ----
+message Milestone {
+  int32 kind = 1;                       // 1 = hours listened, 2 = episodes finished
+  int32 tier = 2;
+  google.protobuf.Timestamp crossed_at = 3;
+}
 
 
 // ---- Slice 9: find people (docs/Social.md) ----

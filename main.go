@@ -380,6 +380,69 @@ func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawle
 	return srv.Shutdown
 }
 
+// digestScheduler runs the weekly-digest sweep (Slice 14): hourly tick, real
+// sends only in the Sunday 17:00 UTC window; the per-profile digest_sent_at
+// watermark makes the sweep idempotent across restarts and ticks.
+func digestScheduler(ctx context.Context, querier db.Store, notifier *push.Notifier) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
+			if now.Weekday() != time.Sunday || now.Hour() != 17 {
+				continue
+			}
+			digestSweep(ctx, querier, notifier)
+		}
+	}
+}
+
+// digestSweep composes and sends one digest per eligible account: own fresh
+// milestones + the graph's week. Guarded candidates only (joined AND (graph
+// OR fresh milestone)); zero-content accounts still advance the watermark so
+// the sweep stays cheap.
+func digestSweep(ctx context.Context, querier db.Store, notifier *push.Notifier) {
+	users, err := querier.GetDigestCandidates(ctx, 500)
+	if err != nil {
+		slog.Warn("Digest sweep query failed", "error", err)
+		return
+	}
+	for _, userID := range users {
+		body := composeDigestBody(ctx, querier, userID)
+		if body != "" {
+			notifier.NotifyDigest(ctx, userID, "Your week in podcasts", body)
+		}
+		if err := querier.SetDigestSent(ctx, userID); err != nil {
+			slog.Warn("Unable to set digest watermark", "user", userID, "error", err)
+		}
+	}
+	slog.Info("Digest sweep complete", "candidates", len(users))
+}
+
+func composeDigestBody(ctx context.Context, querier db.Store, userID int64) string {
+	var parts []string
+	if fresh, err := querier.GetFreshMilestones(ctx, userID); err == nil && len(fresh) > 0 {
+		m := fresh[0]
+		if m.Kind == 1 {
+			parts = append(parts, fmt.Sprintf("You crossed %d hours listened", m.Tier))
+		} else {
+			parts = append(parts, fmt.Sprintf("You finished your %dth episode", m.Tier))
+		}
+	}
+	if highlights, err := querier.CountGraphHighlights(ctx, userID); err == nil && highlights > 0 {
+		if highlights == 1 {
+			parts = append(parts, "1 new highlight from people you follow")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d new highlights from people you follow", highlights))
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
 // refreshScheduler periodically enqueues a sweep of catalog podcasts whose
 // next_refresh_at has passed.
 func refreshScheduler(ctx context.Context, queueClient *tasks.QueueClient) {
@@ -598,6 +661,9 @@ func main() {
 
 	if queueClient != nil {
 		go refreshScheduler(ctx, queueClient)
+		if notifier != nil {
+			go digestScheduler(ctx, querier, notifier)
+		}
 	}
 
 	// /health reports the queue's Redis as a dependency when enabled

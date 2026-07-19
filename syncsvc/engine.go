@@ -43,8 +43,20 @@ func (e *Engine) ApplyUpdate(ctx context.Context, userID int64, req *pb.SyncUpda
 
 		token := NextToken(user.SyncLastModified)
 
+		hasEpisodeRecords := false
 		for _, record := range req.Records {
 			if err := applyRecord(ctx, q, userID, token, record); err != nil {
+				return err
+			}
+			if _, ok := record.Record.(*pb.Record_Episode); ok {
+				hasEpisodeRecords = true
+			}
+		}
+		if hasEpisodeRecords {
+			// Milestone detection (Slice 14, ADR-0013): the crossing moment
+			// is state, captured here where playback rows change. Insert is
+			// idempotent, so re-detection is free.
+			if err := detectMilestones(ctx, q, userID); err != nil {
 				return err
 			}
 		}
@@ -458,4 +470,41 @@ func decodePlaylistEpisodes(raw []byte) []*pb.SyncPlaylistEpisode {
 		episodes = append(episodes, ep)
 	}
 	return episodes
+}
+
+// Milestone ladders (Slice 14, ADR-0013): two global ladders, tiers shared.
+// kind 1 = hours listened, 2 = episodes finished.
+var milestoneTiers = []int{10, 50, 100, 250, 500, 1000}
+
+const (
+	milestoneKindHours    = int16(1)
+	milestoneKindEpisodes = int16(2)
+)
+
+// detectMilestones materializes any ladder crossings implied by the user's
+// current playback aggregates. Rows are facts about the past; ON CONFLICT
+// DO NOTHING makes re-detection idempotent.
+func detectMilestones(ctx context.Context, q db.Querier, userID int64) error {
+	totals, err := q.GetListeningTotals(ctx, userID)
+	if err != nil {
+		return err
+	}
+	hours := int(totals.ListenedSeconds / 3600)
+	for _, tier := range milestoneTiers {
+		if hours >= tier {
+			if _, err := q.InsertMilestone(ctx, db.InsertMilestoneParams{
+				UserID: userID, Kind: milestoneKindHours, Tier: int32(tier),
+			}); err != nil {
+				return err
+			}
+		}
+		if int(totals.EpisodesFinished) >= tier {
+			if _, err := q.InsertMilestone(ctx, db.InsertMilestoneParams{
+				UserID: userID, Kind: milestoneKindEpisodes, Tier: int32(tier),
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

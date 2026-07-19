@@ -349,6 +349,12 @@ func (h Handlers) PostFeed(w http.ResponseWriter, r *http.Request) {
 			item.GroupId, item.GroupTitle = item.ListId, item.ListTitle
 			item.ListId, item.ListTitle = 0, ""
 		}
+		// Kind 10 rides reaction_kind (milestone kind) and list_id (tier).
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_MILESTONE {
+			item.MilestoneKind = int32(item.ReactionKind)
+			item.MilestoneTier = int32(item.ListId)
+			item.ReactionKind, item.ListId = 0, 0
+		}
 		resp.Items = append(resp.Items, item)
 	}
 	writeProto(w, http.StatusOK, resp)

@@ -92,6 +92,7 @@ const (
 	SocialPushListInvite     = 6
 	SocialPushGroupInvite    = 7
 	SocialPushGroupPost      = 8
+	SocialPushDigest         = 9
 )
 
 // NotifySocial delivers one social event to every push-enabled device of one
@@ -99,7 +100,7 @@ const (
 // social_push_disabled bitmask (bit n = type n+1 off). Best-effort like
 // NotifyNewEpisodes; the actor's display name leads the alert body.
 func (n *Notifier) NotifySocial(ctx context.Context, targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string) {
-	if pushType < SocialPushFollowRequest || pushType > SocialPushGroupPost {
+	if pushType < SocialPushFollowRequest || pushType > SocialPushDigest {
 		return // corrupt/unknown type: never reach the shift below (QA finding)
 	}
 	profile, err := n.DB.GetSocialProfileByUserID(ctx, targetUserID)
@@ -171,6 +172,36 @@ func (n *Notifier) NotifySocial(ctx context.Context, targetUserID int64, pushTyp
 				continue
 			}
 			slog.Warn("social push delivery failed", "err", err, "type", pushType)
+		}
+	}
+}
+
+// NotifyDigest delivers the weekly digest (Slice 14): one pre-composed push,
+// gated by bitmask bit 9 like every social type, collapse-id "digest" so a
+// stale digest never stacks on a fresh one.
+func (n *Notifier) NotifyDigest(ctx context.Context, targetUserID int64, title, body string) {
+	profile, err := n.DB.GetSocialProfileByUserID(ctx, targetUserID)
+	if err != nil {
+		return
+	}
+	if profile.SocialPushDisabled&(1<<(SocialPushDigest-1)) != 0 {
+		return
+	}
+	targets, err := n.DB.GetPushTargetsForUser(ctx, targetUserID)
+	if err != nil || len(targets) == 0 {
+		return
+	}
+	for _, target := range targets {
+		notification := Notification{
+			Title: title, Body: body,
+			Category:   "so",
+			CollapseID: "digest",
+			Data:       map[string]string{"social_type": "9"},
+		}
+		if err := n.Sender.Send(ctx, target.PushToken, notification); err != nil {
+			if errors.Is(err, ErrUnregistered) {
+				_ = n.DB.ClearPushToken(ctx, target.PushToken)
+			}
 		}
 	}
 }
