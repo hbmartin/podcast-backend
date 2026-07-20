@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/jackc/pgx/v5"
 	"net/http"
 	"strconv"
 	"time"
@@ -63,8 +64,13 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ADR-0015: store canonically so device- and catalog-keyed viewers see
+	// one thread. The listen-gate below still checks the RAW uuid too —
+	// playback rows sync under the device's uuid.
+	canonicalUuid := h.canonicalEpisodeUuid(r, req.EpisodeUuid)
+
 	params := db.InsertCommentParams{
-		EpisodeUuid:  req.EpisodeUuid,
+		EpisodeUuid:  canonicalUuid,
 		PodcastUuid:  req.PodcastUuid,
 		EpisodeTitle: truncateRunes(req.EpisodeTitle, maxTitleLen),
 		PodcastTitle: truncateRunes(req.PodcastTitle, maxTitleLen),
@@ -81,7 +87,7 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		parent, err := h.Queries.GetCommentByID(r.Context(), req.ParentId)
-		if err != nil || parent.EpisodeUuid != req.EpisodeUuid || parent.RemovedAt != nil {
+		if err != nil || parent.EpisodeUuid != canonicalUuid || parent.RemovedAt != nil {
 			pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "parent not found")
 			return
 		}
@@ -115,9 +121,26 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Top-level comment (or Moment when timestamped): the caller must
 		// have played >=25% of the episode, per the reaction-gate precedent.
-		playback, err := h.Queries.GetEpisodePlaybackForGate(r.Context(), db.GetEpisodePlaybackForGateParams{
-			UserID: user.ID, EpisodeUuid: req.EpisodeUuid,
-		})
+		// The gate checks every identity the episode is known under: the
+		// submitted uuid, the canonical form, and any device aliases —
+		// playback rows sync under whichever scheme the device uses.
+		gateUuids := []string{req.EpisodeUuid}
+		if canonicalUuid != req.EpisodeUuid {
+			gateUuids = append(gateUuids, canonicalUuid)
+		}
+		if aliases, aliasErr := h.Queries.ReverseEpisodeAliases(r.Context(), canonicalUuid); aliasErr == nil {
+			gateUuids = append(gateUuids, aliases...)
+		}
+		var playback db.GetEpisodePlaybackForGateRow
+		err := pgx.ErrNoRows
+		for _, gateUuid := range gateUuids {
+			playback, err = h.Queries.GetEpisodePlaybackForGate(r.Context(), db.GetEpisodePlaybackForGateParams{
+				UserID: user.ID, EpisodeUuid: gateUuid,
+			})
+			if err == nil {
+				break
+			}
+		}
 		completed := err == nil && playback.PlayingStatus == 3
 		playedEnough := err == nil && playback.Duration > 0 && playback.PlayedUpTo*4 >= playback.Duration
 		if !completed && !playedEnough {
@@ -263,8 +286,9 @@ func (h Handlers) PostEpisodeComments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	viewerID := h.optionalViewerID(r)
+	episodeUuid := h.canonicalEpisodeUuid(r, req.EpisodeUuid)
 	rows, err := h.Queries.GetEpisodeComments(r.Context(), db.GetEpisodeCommentsParams{
-		EpisodeUuid: req.EpisodeUuid, Limit: limit, Offset: max(req.Offset, 0),
+		EpisodeUuid: episodeUuid, Limit: limit, Offset: max(req.Offset, 0),
 		Viewer: viewerRef(viewerID),
 	})
 	if err != nil {
@@ -272,7 +296,7 @@ func (h Handlers) PostEpisodeComments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	total, err := h.Queries.CountEpisodeComments(r.Context(), db.CountEpisodeCommentsParams{
-		EpisodeUuid: req.EpisodeUuid, Viewer: viewerRef(viewerID),
+		EpisodeUuid: episodeUuid, Viewer: viewerRef(viewerID),
 	})
 	if err != nil {
 		writeError(w, r, err)
@@ -458,6 +482,19 @@ func commentToProto(row commentRow) *pb.SocialComment {
 		}
 	}
 	return comment
+}
+
+// canonicalEpisodeUuid resolves a device-scheme episode uuid to the catalog
+// uuid when the alias bridge knows it (ADR-0015); unknown uuids pass through
+// so uncataloged episodes keep working device-keyed.
+func (h Handlers) canonicalEpisodeUuid(r *http.Request, episodeUuid string) string {
+	if episodeUuid == "" {
+		return episodeUuid
+	}
+	if canonical, err := h.Queries.ResolveEpisodeAlias(r.Context(), episodeUuid); err == nil && canonical != "" {
+		return canonical
+	}
+	return episodeUuid
 }
 
 // optionalViewerID resolves the DB id of an optionally-authenticated caller;

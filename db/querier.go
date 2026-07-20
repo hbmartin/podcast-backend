@@ -261,4 +261,13 @@ type Querier interface {
 	// Curators (Slice 15, ADR-0014).
 	GetCurators(ctx context.Context, arg GetCuratorsParams) ([]GetCuratorsRow, error)
 	ClearGroupInviteAttributionForUser(ctx context.Context, invitedBy *int64) error
+
+	// Episode aliases (Slice 16, ADR-0015).
+	UpsertEpisodeAlias(ctx context.Context, arg UpsertEpisodeAliasParams) error
+	ResolveEpisodeAlias(ctx context.Context, deviceUuid string) (string, error)
+	CountEpisodeAliases(ctx context.Context) (int64, error)
+	GetEpisodesForAliasBackfill(ctx context.Context, arg GetEpisodesForAliasBackfillParams) ([]GetEpisodesForAliasBackfillRow, error)
+	InsertMilestoneBackdated(ctx context.Context, arg InsertMilestoneBackdatedParams) (int64, error)
+	CountMilestonesForUser(ctx context.Context, userID int64) (int64, error)
+	ReverseEpisodeAliases(ctx context.Context, catalogUuid string) ([]string, error)
 }

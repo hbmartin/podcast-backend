@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/hbmartin/podcast-backend/crawler"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
 
 	"github.com/stretchr/testify/assert"
@@ -1382,4 +1383,94 @@ func TestCuratorsAndRecommendations(t *testing.T) {
 		RecipientHandle: handleB, Note: "nothing attached",
 	}, nil)
 	require.Equal(t, http.StatusBadRequest, status)
+}
+
+// TestEpisodeAliasBridge proves the Slice-16 fix for the QA-walk repro: a
+// comment written under the DEVICE-scheme episode uuid and one written under
+// the CATALOG uuid land in the same thread, readable from either key
+// (ADR-0015). The alias is written by the crawler at ingest.
+func TestEpisodeAliasBridge(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("alias-a-%d@e2e.test", suffix))
+
+	status := postProto(t, "/social/join", tokenA, &pb.JoinRequest{
+		Handle: fmt.Sprintf("e2e_alias_%d", suffix%1_000_000_000), AcceptedTermsVersion: 1, DisplayName: "Alias A",
+	}, &pb.JoinResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	podcastUUID := ingestFixturePodcast(t)
+	catalogUUID := episodesOfPodcast(t, podcastUUID)[0]
+
+	// Derive the device-scheme uuid exactly as the app would, from the
+	// episode's stored guid.
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, os.Getenv("E2E_DB_CONNECTION_STRING"))
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+	var guid string
+	require.NoError(t, conn.QueryRow(ctx,
+		"SELECT guid FROM episodes WHERE uuid = $1", catalogUUID).Scan(&guid))
+	deviceUUID := crawler.DeviceEpisodeUUID(guid)
+	require.NotEmpty(t, deviceUUID)
+	require.NotEqual(t, catalogUUID, deviceUUID, "the schemes must diverge for the bridge to matter")
+
+	// The crawler wrote the alias at ingest.
+	var mapped string
+	require.NoError(t, conn.QueryRow(ctx,
+		"SELECT catalog_uuid FROM episode_aliases WHERE device_uuid = $1", deviceUUID).Scan(&mapped))
+	assert.Equal(t, catalogUUID, mapped)
+
+	// A's playback synced under the DEVICE uuid (as real devices do) must
+	// satisfy the listen-gate for a comment submitted under either key.
+	now := time.Now().UnixMilli()
+	sync := &pb.SyncUpdateRequest{DeviceUtcTimeMs: now}
+	sync.Records = append(sync.Records, &pb.Record{Record: &pb.Record_Episode{Episode: &pb.SyncUserEpisode{
+		Uuid: deviceUUID, PodcastUuid: podcastUUID,
+		Duration: wrapperspb.Int64(1800), DurationModified: wrapperspb.Int64(now),
+		PlayedUpTo: wrapperspb.Int64(1700), PlayedUpToModified: wrapperspb.Int64(now),
+		PlayingStatus: wrapperspb.Int32(3), PlayingStatusModified: wrapperspb.Int64(now),
+	}}})
+	status = postProto(t, "/user/sync/update", tokenA, sync, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// Comment via the device uuid; read via the catalog uuid.
+	status = postProto(t, "/social/comment/submit", tokenA, &pb.CommentSubmitRequest{
+		EpisodeUuid: deviceUUID, PodcastUuid: podcastUUID, Text: "written device-keyed",
+	}, &pb.SocialComment{})
+	require.Equal(t, http.StatusOK, status)
+
+	// The fixture episode is shared across the suite (deterministic ingest),
+	// so match this test's comments by text rather than by count.
+	containsText := func(list *pb.CommentsResponse, text string) bool {
+		for _, comment := range list.Comments {
+			if comment.Text == text {
+				return true
+			}
+		}
+		return false
+	}
+	list := &pb.CommentsResponse{}
+	status = postProto(t, "/episode/comments", "", &pb.EpisodeCommentsRequest{EpisodeUuid: catalogUUID}, list)
+	require.Equal(t, http.StatusOK, status)
+	require.True(t, containsText(list, "written device-keyed"), "device-keyed write must be catalog-readable")
+
+	// Comment via the catalog uuid; read via the device uuid: one thread.
+	status = postProto(t, "/social/comment/submit", tokenA, &pb.CommentSubmitRequest{
+		EpisodeUuid: catalogUUID, PodcastUuid: podcastUUID, Text: "written catalog-keyed",
+	}, &pb.SocialComment{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/episode/comments", "", &pb.EpisodeCommentsRequest{EpisodeUuid: deviceUUID}, list)
+	require.Equal(t, http.StatusOK, status)
+	assert.True(t, containsText(list, "written device-keyed"), "device-keyed write readable device-side")
+	assert.True(t, containsText(list, "written catalog-keyed"), "one thread across both uuid spaces")
+
+	// Reactions bridge the same way.
+	status = postProto(t, "/social/reaction/set", tokenA, &pb.EpisodeReactionSetRequest{
+		EpisodeUuid: deviceUUID, Kind: pb.ReactionKind_REACTION_KIND_HEART,
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	reactions := &pb.EpisodeReactionsResponse{}
+	status = postProto(t, "/episode/reactions", tokenA, &pb.EpisodeReactionsRequest{EpisodeUuid: catalogUUID}, reactions)
+	require.Equal(t, http.StatusOK, status)
+	require.NotEmpty(t, reactions.Counts, "device-keyed reaction must be catalog-readable")
 }

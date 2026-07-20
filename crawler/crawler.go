@@ -126,6 +126,16 @@ func (c *Crawler) Crawl(ctx context.Context, podcast db.Podcast) error {
 			return errs.E(op, errs.Database, err)
 		}
 
+		// The device-scheme alias (ADR-0015): both uuid schemes derive from
+		// the same stored key, so the bridge is written at ingest for free.
+		if deviceUuid := DeviceEpisodeUUID(episode.Guid); deviceUuid != "" && deviceUuid != episode.Uuid {
+			if err := c.DB.UpsertEpisodeAlias(ctx, db.UpsertEpisodeAliasParams{
+				DeviceUuid: deviceUuid, CatalogUuid: episode.Uuid,
+			}); err != nil {
+				return errs.E(op, errs.Database, err)
+			}
+		}
+
 		if episode.PublishedAt != nil && (latestPublished == nil || episode.PublishedAt.After(*latestPublished)) {
 			latestPublished = episode.PublishedAt
 			uuid := episode.Uuid

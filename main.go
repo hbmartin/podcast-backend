@@ -455,6 +455,44 @@ func composeDigestBody(ctx context.Context, querier db.Store, userID int64) stri
 	return strings.Join(parts, " · ")
 }
 
+// backfillEpisodeAliases derives device-scheme aliases for every catalog
+// episode once (ADR-0015). Runs at startup in the background; batches keep
+// memory flat.
+func backfillEpisodeAliases(ctx context.Context, querier db.Store) {
+	count, err := querier.CountEpisodeAliases(ctx)
+	if err != nil || count > 0 {
+		return
+	}
+	const batch = 500
+	total := 0
+	for offset := int32(0); ; offset += batch {
+		episodes, err := querier.GetEpisodesForAliasBackfill(ctx, db.GetEpisodesForAliasBackfillParams{
+			Limit: batch, Offset: offset,
+		})
+		if err != nil {
+			slog.Warn("Episode-alias backfill query failed", "error", err)
+			return
+		}
+		if len(episodes) == 0 {
+			break
+		}
+		for _, episode := range episodes {
+			deviceUuid := crawler.DeviceEpisodeUUID(episode.Guid)
+			if deviceUuid == "" || deviceUuid == episode.Uuid {
+				continue
+			}
+			if err := querier.UpsertEpisodeAlias(ctx, db.UpsertEpisodeAliasParams{
+				DeviceUuid: deviceUuid, CatalogUuid: episode.Uuid,
+			}); err != nil {
+				slog.Warn("Episode-alias backfill insert failed", "error", err)
+				return
+			}
+			total++
+		}
+	}
+	slog.Info("Episode-alias backfill complete", "aliases", total)
+}
+
 // refreshScheduler periodically enqueues a sweep of catalog podcasts whose
 // next_refresh_at has passed.
 func refreshScheduler(ctx context.Context, queueClient *tasks.QueueClient) {
@@ -679,6 +717,11 @@ func main() {
 	if notifier != nil {
 		go digestScheduler(ctx, querier, notifier)
 	}
+
+	// One-time episode-alias backfill (ADR-0015): cover the catalog that
+	// predates the alias bridge. Idempotent (keyed on table emptiness plus
+	// ON CONFLICT DO NOTHING inserts) and cheap at fork scale.
+	go backfillEpisodeAliases(ctx, querier)
 
 	// /health reports the queue's Redis as a dependency when enabled
 	var queuePing func(ctx context.Context) error

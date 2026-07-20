@@ -489,19 +489,34 @@ func detectMilestones(ctx context.Context, q db.Querier, userID int64) error {
 	if err != nil {
 		return err
 	}
+	// First-ever detection backdates its crossings out of the 7-day fresh
+	// window: adoption is not news — feed and digest should only carry
+	// crossings that happen after the feature saw this account (QA batch).
+	existing, err := q.CountMilestonesForUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	insert := func(kind int16, tier int) error {
+		if existing == 0 {
+			_, err := q.InsertMilestoneBackdated(ctx, db.InsertMilestoneBackdatedParams{
+				UserID: userID, Kind: kind, Tier: int32(tier),
+			})
+			return err
+		}
+		_, err := q.InsertMilestone(ctx, db.InsertMilestoneParams{
+			UserID: userID, Kind: kind, Tier: int32(tier),
+		})
+		return err
+	}
 	hours := int(totals.ListenedSeconds / 3600)
 	for _, tier := range milestoneTiers {
 		if hours >= tier {
-			if _, err := q.InsertMilestone(ctx, db.InsertMilestoneParams{
-				UserID: userID, Kind: milestoneKindHours, Tier: int32(tier),
-			}); err != nil {
+			if err := insert(milestoneKindHours, tier); err != nil {
 				return err
 			}
 		}
 		if int(totals.EpisodesFinished) >= tier {
-			if _, err := q.InsertMilestone(ctx, db.InsertMilestoneParams{
-				UserID: userID, Kind: milestoneKindEpisodes, Tier: int32(tier),
-			}); err != nil {
+			if err := insert(milestoneKindEpisodes, tier); err != nil {
 				return err
 			}
 		}

@@ -101,7 +101,7 @@ func (h Handlers) PostShareSend(w http.ResponseWriter, r *http.Request) {
 	_, err = h.Queries.InsertSharedItem(r.Context(), db.InsertSharedItemParams{
 		SenderUserID:     user.ID,
 		RecipientUserID:  recipientProfile.UserID,
-		EpisodeUuid:      req.EpisodeUuid,
+		EpisodeUuid:      h.canonicalEpisodeUuid(r, req.EpisodeUuid),
 		PodcastUuid:      req.PodcastUuid,
 		EpisodeTitle:     truncateRunes(req.EpisodeTitle, maxTitleLen),
 		PodcastTitle:     truncateRunes(req.PodcastTitle, maxTitleLen),

@@ -437,14 +437,15 @@ func (h Handlers) PostGroupDiscover(w http.ResponseWriter, r *http.Request) {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
 		return
 	}
-	if _, _, ok := h.requireJoined(w, r); !ok {
+	user, _, ok := h.requireJoined(w, r)
+	if !ok {
 		return
 	}
 	limit := req.Limit
 	if limit <= 0 || limit > 20 {
 		limit = 20
 	}
-	rows, err := h.Queries.DiscoverGroups(r.Context(), db.DiscoverGroupsParams{Limit: limit})
+	rows, err := h.Queries.DiscoverGroups(r.Context(), db.DiscoverGroupsParams{Limit: limit, Viewer: &user.ID})
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -465,7 +466,9 @@ func (h Handlers) PostGroupsForPodcast(w http.ResponseWriter, r *http.Request) {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
 		return
 	}
-	rows, err := h.Queries.DiscoverGroups(r.Context(), db.DiscoverGroupsParams{Limit: 20, PodcastUuid: &req.PodcastUuid})
+	rows, err := h.Queries.DiscoverGroups(r.Context(), db.DiscoverGroupsParams{
+		Limit: 20, PodcastUuid: &req.PodcastUuid, Viewer: viewerRef(h.optionalViewerID(r)),
+	})
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -504,7 +507,7 @@ func (h Handlers) PostGroupMembers(w http.ResponseWriter, r *http.Request) {
 		limit = maxGroupPageSize
 	}
 	rows, err := h.Queries.GetGroupMembers(r.Context(), db.GetGroupMembersParams{
-		GroupID: req.GroupId, Limit: limit, Offset: max(req.Offset, 0),
+		GroupID: req.GroupId, Limit: limit, Offset: max(req.Offset, 0), Viewer: &user.ID,
 	})
 	if err != nil {
 		writeError(w, r, err)

@@ -235,14 +235,16 @@ func (h Handlers) PostReactionSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ADR-0015: reactions store canonically like comments.
+	episodeUuid := h.canonicalEpisodeUuid(r, req.EpisodeUuid)
 	var err error
 	if kind == 0 {
 		_, err = h.Queries.DeleteEpisodeReaction(r.Context(), db.DeleteEpisodeReactionParams{
-			UserID: user.ID, EpisodeUuid: req.EpisodeUuid,
+			UserID: user.ID, EpisodeUuid: episodeUuid,
 		})
 	} else {
 		err = h.Queries.UpsertEpisodeReaction(r.Context(), db.UpsertEpisodeReactionParams{
-			UserID: user.ID, EpisodeUuid: req.EpisodeUuid, Kind: kind,
+			UserID: user.ID, EpisodeUuid: episodeUuid, Kind: kind,
 		})
 	}
 	if err != nil {
@@ -262,7 +264,8 @@ func (h Handlers) PostEpisodeReactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.Queries.GetEpisodeReactionCounts(r.Context(), req.EpisodeUuid)
+	episodeUuid := h.canonicalEpisodeUuid(r, req.EpisodeUuid)
+	rows, err := h.Queries.GetEpisodeReactionCounts(r.Context(), episodeUuid)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -278,7 +281,7 @@ func (h Handlers) PostEpisodeReactions(w http.ResponseWriter, r *http.Request) {
 	if ctxUser := getUser(r.Context()); ctxUser != nil {
 		if viewer, err := h.Queries.GetUserByUUID(r.Context(), ctxUser.UUID); err == nil {
 			if kind, err := h.Queries.GetOwnEpisodeReaction(r.Context(), db.GetOwnEpisodeReactionParams{
-				UserID: viewer.ID, EpisodeUuid: req.EpisodeUuid,
+				UserID: viewer.ID, EpisodeUuid: episodeUuid,
 			}); err == nil {
 				resp.YourReaction = pb.ReactionKind(kind)
 			}

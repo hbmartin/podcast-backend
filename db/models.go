@@ -77,6 +77,12 @@ type Episode struct {
 	ChaptersUrl  string
 }
 
+type EpisodeAlias struct {
+	DeviceUuid  string
+	CatalogUuid string
+	CreatedAt   time.Time
+}
+
 type EpisodeComment struct {
 	ID               int64
 	EpisodeUuid      string

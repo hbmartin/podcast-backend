@@ -161,6 +161,14 @@ func (m *QuerierMock) ClearGroupInviteAttributionForUser(ctx context.Context, in
 	return nil
 }
 
+func (m *QuerierMock) ReverseEpisodeAliases(ctx context.Context, catalogUuid string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) ResolveEpisodeAlias(ctx context.Context, deviceUuid string) (string, error) {
+	return "", pgx.ErrNoRows
+}
+
 func (m *QuerierMock) TombstoneGroupPostsForUser(ctx context.Context, userID *int64) error {
 	return nil
 }
