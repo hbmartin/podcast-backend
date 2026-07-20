@@ -217,4 +217,57 @@ type Querier interface {
 	MarkInboxItemsRead(ctx context.Context, arg MarkInboxItemsReadParams) error
 	DeleteInboxItem(ctx context.Context, arg DeleteInboxItemParams) (int64, error)
 	DeleteSharedItemsForUser(ctx context.Context, userID int64) error
+
+	// Groups (Slice 13, ADR-0012).
+	CreateSocialGroup(ctx context.Context, arg CreateSocialGroupParams) (CreateSocialGroupRow, error)
+	GetSocialGroup(ctx context.Context, arg GetSocialGroupParams) (GetSocialGroupRow, error)
+	UpdateSocialGroup(ctx context.Context, arg UpdateSocialGroupParams) (int64, error)
+	DeleteSocialGroup(ctx context.Context, arg DeleteSocialGroupParams) (int64, error)
+	GetGroupMember(ctx context.Context, arg GetGroupMemberParams) (GetGroupMemberRow, error)
+	UpsertGroupMember(ctx context.Context, arg UpsertGroupMemberParams) error
+	DeleteGroupMember(ctx context.Context, arg DeleteGroupMemberParams) (int64, error)
+	SetGroupMemberNotify(ctx context.Context, arg SetGroupMemberNotifyParams) (int64, error)
+	GetGroupsForUser(ctx context.Context, arg GetGroupsForUserParams) ([]GetGroupsForUserRow, error)
+	DiscoverGroups(ctx context.Context, arg DiscoverGroupsParams) ([]DiscoverGroupsRow, error)
+	GetGroupMembers(ctx context.Context, arg GetGroupMembersParams) ([]GetGroupMembersRow, error)
+	CountGroupMembers(ctx context.Context, groupID int64) (int64, error)
+	InsertGroupPost(ctx context.Context, arg InsertGroupPostParams) (InsertGroupPostRow, error)
+	GetGroupPostByID(ctx context.Context, id int64) (GetGroupPostByIDRow, error)
+	GetGroupPosts(ctx context.Context, arg GetGroupPostsParams) ([]GetGroupPostsRow, error)
+	CountGroupPosts(ctx context.Context, arg CountGroupPostsParams) (int64, error)
+	EditGroupPost(ctx context.Context, arg EditGroupPostParams) (int64, error)
+	TombstoneGroupPost(ctx context.Context, arg TombstoneGroupPostParams) (int64, error)
+	TombstoneGroupPostAsOwner(ctx context.Context, arg TombstoneGroupPostAsOwnerParams) (int64, error)
+	TombstoneGroupPostsForUser(ctx context.Context, userID *int64) error
+	DeleteGroupMembershipsForUser(ctx context.Context, userID int64) error
+	DeleteOwnedPrivateGroups(ctx context.Context, ownerUserID int64) error
+	GetOwnedPublicGroupIDs(ctx context.Context, ownerUserID int64) ([]int64, error)
+	FindGroupSuccessor(ctx context.Context, arg FindGroupSuccessorParams) (int64, error)
+	TransferGroupOwner(ctx context.Context, arg TransferGroupOwnerParams) error
+	PromoteGroupMemberToOwner(ctx context.Context, arg PromoteGroupMemberToOwnerParams) error
+	DeleteSocialGroupByID(ctx context.Context, id int64) error
+	GetGroupNotifyTargets(ctx context.Context, arg GetGroupNotifyTargetsParams) ([]int64, error)
+
+	// Milestones + weekly digest (Slice 14, ADR-0013).
+	GetListeningTotals(ctx context.Context, userID int64) (GetListeningTotalsRow, error)
+	InsertMilestone(ctx context.Context, arg InsertMilestoneParams) (int64, error)
+	GetMilestonesForUser(ctx context.Context, userID int64) ([]GetMilestonesForUserRow, error)
+	GetFreshMilestones(ctx context.Context, userID int64) ([]GetFreshMilestonesRow, error)
+	DeleteMilestonesForUser(ctx context.Context, userID int64) error
+	GetDigestCandidates(ctx context.Context, limit int32) ([]int64, error)
+	SetDigestSent(ctx context.Context, userID int64) error
+	CountGraphHighlights(ctx context.Context, followerUserID int64) (int64, error)
+
+	// Curators (Slice 15, ADR-0014).
+	GetCurators(ctx context.Context, arg GetCuratorsParams) ([]GetCuratorsRow, error)
+	ClearGroupInviteAttributionForUser(ctx context.Context, invitedBy *int64) error
+
+	// Episode aliases (Slice 16, ADR-0015).
+	UpsertEpisodeAlias(ctx context.Context, arg UpsertEpisodeAliasParams) error
+	ResolveEpisodeAlias(ctx context.Context, deviceUuid string) (string, error)
+	CountEpisodeAliases(ctx context.Context) (int64, error)
+	GetEpisodesForAliasBackfill(ctx context.Context, arg GetEpisodesForAliasBackfillParams) ([]GetEpisodesForAliasBackfillRow, error)
+	InsertMilestoneBackdated(ctx context.Context, arg InsertMilestoneBackdatedParams) (int64, error)
+	CountMilestonesForUser(ctx context.Context, userID int64) (int64, error)
+	ReverseEpisodeAliases(ctx context.Context, catalogUuid string) ([]string, error)
 }

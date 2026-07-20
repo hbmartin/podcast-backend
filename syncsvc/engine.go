@@ -22,6 +22,11 @@ type Engine struct {
 	DB db.Store
 }
 
+// OnUnknownPodcast is the sync-ingestion hook (Slice 11): called with a feed
+// URL whenever a synced subscription references a podcast the catalog has
+// never seen. Wired by main; nil-safe.
+var OnUnknownPodcast func(feedURL string)
+
 // ApplyUpdate implements POST user/sync/update: applies the request's records
 // under a fresh sync token and returns every record changed after the
 // client's lastModified (including echoes of the records just applied — the
@@ -38,8 +43,20 @@ func (e *Engine) ApplyUpdate(ctx context.Context, userID int64, req *pb.SyncUpda
 
 		token := NextToken(user.SyncLastModified)
 
+		hasEpisodeRecords := false
 		for _, record := range req.Records {
 			if err := applyRecord(ctx, q, userID, token, record); err != nil {
+				return err
+			}
+			if _, ok := record.Record.(*pb.Record_Episode); ok {
+				hasEpisodeRecords = true
+			}
+		}
+		if hasEpisodeRecords {
+			// Milestone detection (Slice 14, ADR-0013): the crossing moment
+			// is state, captured here where playback rows change. Insert is
+			// idempotent, so re-detection is free.
+			if err := detectMilestones(ctx, q, userID); err != nil {
 				return err
 			}
 		}
@@ -121,6 +138,21 @@ func applyPodcastRecord(ctx context.Context, q db.Querier, userID int64, token i
 		params.IsDeleted = rec.IsDeleted.Value
 		if rec.IsDeleted.Value {
 			params.Subscribed = false
+		}
+	}
+	if found {
+		params.SyncedTitle = existing.SyncedTitle
+		params.SyncedFeedUrl = existing.SyncedFeedUrl
+	}
+	if title := rec.GetTitle().GetValue(); title != "" {
+		params.SyncedTitle = title
+	}
+	if feedURL := rec.GetFeedUrl().GetValue(); feedURL != "" {
+		params.SyncedFeedUrl = feedURL
+		// Unknown in the catalog: hand the URL to the ingestion hook so the
+		// crawl fills catalog/episodes/artwork (Slice 11, QA follow-up).
+		if _, catErr := q.GetPodcastByUUID(ctx, rec.Uuid); errors.Is(catErr, pgx.ErrNoRows) && OnUnknownPodcast != nil {
+			OnUnknownPodcast(feedURL)
 		}
 	}
 	if rec.AutoStartFrom != nil {
@@ -438,4 +470,56 @@ func decodePlaylistEpisodes(raw []byte) []*pb.SyncPlaylistEpisode {
 		episodes = append(episodes, ep)
 	}
 	return episodes
+}
+
+// Milestone ladders (Slice 14, ADR-0013): two global ladders, tiers shared.
+// kind 1 = hours listened, 2 = episodes finished.
+var milestoneTiers = []int{10, 50, 100, 250, 500, 1000}
+
+const (
+	milestoneKindHours    = int16(1)
+	milestoneKindEpisodes = int16(2)
+)
+
+// detectMilestones materializes any ladder crossings implied by the user's
+// current playback aggregates. Rows are facts about the past; ON CONFLICT
+// DO NOTHING makes re-detection idempotent.
+func detectMilestones(ctx context.Context, q db.Querier, userID int64) error {
+	totals, err := q.GetListeningTotals(ctx, userID)
+	if err != nil {
+		return err
+	}
+	// First-ever detection backdates its crossings out of the 7-day fresh
+	// window: adoption is not news — feed and digest should only carry
+	// crossings that happen after the feature saw this account (QA batch).
+	existing, err := q.CountMilestonesForUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	insert := func(kind int16, tier int) error {
+		if existing == 0 {
+			_, err := q.InsertMilestoneBackdated(ctx, db.InsertMilestoneBackdatedParams{
+				UserID: userID, Kind: kind, Tier: int32(tier),
+			})
+			return err
+		}
+		_, err := q.InsertMilestone(ctx, db.InsertMilestoneParams{
+			UserID: userID, Kind: kind, Tier: int32(tier),
+		})
+		return err
+	}
+	hours := int(totals.ListenedSeconds / 3600)
+	for _, tier := range milestoneTiers {
+		if hours >= tier {
+			if err := insert(milestoneKindHours, tier); err != nil {
+				return err
+			}
+		}
+		if int(totals.EpisodesFinished) >= tier {
+			if err := insert(milestoneKindEpisodes, tier); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/hbmartin/podcast-backend/itunes"
 	"github.com/hbmartin/podcast-backend/middlewares"
 	"github.com/hbmartin/podcast-backend/push"
+	"github.com/hbmartin/podcast-backend/syncsvc"
 	"github.com/hbmartin/podcast-backend/tasks"
 	"github.com/hbmartin/podcast-backend/telemetry"
 )
@@ -280,6 +281,24 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /social/suggestions", authChain(controllers.PostSocialSuggestions))
 	router.Handle("POST /social/contacts/salt", authChain(controllers.PostContactsSalt))
 	router.Handle("POST /social/contacts/match", authChain(controllers.PostContactsMatch))
+	router.Handle("POST /social/group/create", authChain(controllers.PostGroupCreate))
+	router.Handle("POST /social/group/update", authChain(controllers.PostGroupUpdate))
+	router.Handle("POST /social/group/delete", authChain(controllers.PostGroupDelete))
+	router.Handle("POST /social/group/join", authChain(controllers.PostGroupJoin))
+	router.Handle("POST /social/group/leave", authChain(controllers.PostGroupLeave))
+	router.Handle("POST /social/group/invite", authChain(controllers.PostGroupInvite))
+	router.Handle("POST /social/group/invite/respond", authChain(controllers.PostGroupInviteRespond))
+	router.Handle("POST /social/group/kick", authChain(controllers.PostGroupKick))
+	router.Handle("POST /social/group/alert", authChain(controllers.PostGroupAlert))
+	router.Handle("POST /social/groups", authChain(controllers.PostGroups))
+	router.Handle("POST /social/group/discover", authChain(controllers.PostGroupDiscover))
+	router.Handle("POST /social/group/for-podcast", authChain(controllers.PostGroupsForPodcast))
+	router.Handle("POST /social/group/members", authChain(controllers.PostGroupMembers))
+	router.Handle("POST /social/group/post/submit", authChain(controllers.PostGroupPostSubmit))
+	router.Handle("POST /social/group/posts", optionalAuthChain(controllers.PostGroupPosts))
+	router.Handle("POST /social/group/post/edit", authChain(controllers.PostGroupPostEdit))
+	router.Handle("POST /social/group/post/delete", authChain(controllers.PostGroupPostDelete))
+	router.Handle("POST /social/curators", authChain(controllers.PostCurators))
 	router.Handle("POST /social/trending", authChain(controllers.PostSocialTrending))
 	router.Handle("POST /social/podcast/proof", authChain(controllers.PostPodcastProof))
 
@@ -360,6 +379,118 @@ func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawle
 	}()
 
 	return srv.Shutdown
+}
+
+// digestScheduler runs the weekly-digest sweep (Slice 14): hourly tick, real
+// sends only in the Sunday 17:00 UTC window; the per-profile digest_sent_at
+// watermark makes the sweep idempotent across restarts and ticks.
+func digestScheduler(ctx context.Context, querier db.Store, notifier *push.Notifier) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
+			if now.Weekday() != time.Sunday || now.Hour() != 17 {
+				continue
+			}
+			digestSweep(ctx, querier, notifier)
+		}
+	}
+}
+
+// digestSweep composes and sends one digest per eligible account: own fresh
+// milestones + the graph's week. Guarded candidates only (joined AND (graph
+// OR fresh milestone)); zero-content accounts still advance the watermark so
+// the sweep stays cheap.
+func digestSweep(ctx context.Context, querier db.Store, notifier *push.Notifier) {
+	// Drain in batches: the watermark advances per user, so each query
+	// returns the next unserved cohort until none remain (QA review: a
+	// single capped batch starved everyone past the first 500).
+	total := 0
+	for {
+		users, err := querier.GetDigestCandidates(ctx, 500)
+		if err != nil {
+			slog.Warn("Digest sweep query failed", "error", err)
+			return
+		}
+		if len(users) == 0 {
+			break
+		}
+		for _, userID := range users {
+			body := composeDigestBody(ctx, querier, userID)
+			if body != "" {
+				notifier.NotifyDigest(ctx, userID, "Your week in podcasts", body)
+			}
+			if err := querier.SetDigestSent(ctx, userID); err != nil {
+				slog.Warn("Unable to set digest watermark", "user", userID, "error", err)
+				return // avoid a hot loop re-selecting the same user
+			}
+		}
+		total += len(users)
+	}
+	slog.Info("Digest sweep complete", "sent", total)
+}
+
+func composeDigestBody(ctx context.Context, querier db.Store, userID int64) string {
+	var parts []string
+	if fresh, err := querier.GetFreshMilestones(ctx, userID); err == nil && len(fresh) > 0 {
+		m := fresh[0]
+		if m.Kind == 1 {
+			parts = append(parts, fmt.Sprintf("You crossed %d hours listened", m.Tier))
+		} else {
+			parts = append(parts, fmt.Sprintf("You finished your %dth episode", m.Tier))
+		}
+	}
+	if highlights, err := querier.CountGraphHighlights(ctx, userID); err == nil && highlights > 0 {
+		if highlights == 1 {
+			parts = append(parts, "1 new highlight from people you follow")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d new highlights from people you follow", highlights))
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// backfillEpisodeAliases derives device-scheme aliases for every catalog
+// episode once (ADR-0015). Runs at startup in the background; batches keep
+// memory flat.
+func backfillEpisodeAliases(ctx context.Context, querier db.Store) {
+	count, err := querier.CountEpisodeAliases(ctx)
+	if err != nil || count > 0 {
+		return
+	}
+	const batch = 500
+	total := 0
+	for offset := int32(0); ; offset += batch {
+		episodes, err := querier.GetEpisodesForAliasBackfill(ctx, db.GetEpisodesForAliasBackfillParams{
+			Limit: batch, Offset: offset,
+		})
+		if err != nil {
+			slog.Warn("Episode-alias backfill query failed", "error", err)
+			return
+		}
+		if len(episodes) == 0 {
+			break
+		}
+		for _, episode := range episodes {
+			deviceUuid := crawler.DeviceEpisodeUUID(episode.Guid)
+			if deviceUuid == "" || deviceUuid == episode.Uuid {
+				continue
+			}
+			if err := querier.UpsertEpisodeAlias(ctx, db.UpsertEpisodeAliasParams{
+				DeviceUuid: deviceUuid, CatalogUuid: episode.Uuid,
+			}); err != nil {
+				slog.Warn("Episode-alias backfill insert failed", "error", err)
+				return
+			}
+			total++
+		}
+	}
+	slog.Info("Episode-alias backfill complete", "aliases", total)
 }
 
 // refreshScheduler periodically enqueues a sweep of catalog podcasts whose
@@ -552,9 +683,45 @@ func main() {
 		}
 	}
 
+	// Sync-driven catalog ingestion (Slice 11): unknown subscribed feeds get
+	// crawled via the OPML-import path (queue) or directly when queue-less.
+	if queueClient != nil {
+		ingestQueue := queueClient
+		syncsvc.OnUnknownPodcast = func(feedURL string) {
+			if err := ingestQueue.EnqueueOpmlImport(context.Background(), []string{feedURL}); err != nil {
+				slog.Warn("sync ingestion enqueue failed", "err", err)
+			}
+		}
+	} else {
+		syncsvc.OnUnknownPodcast = func(feedURL string) {
+			go func() {
+				ingestCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer cancel()
+				podcast, err := feedCrawler.EnsurePodcast(ingestCtx, feedURL)
+				if err != nil {
+					slog.Warn("sync ingestion failed", "err", err)
+					return
+				}
+				if err := feedCrawler.Crawl(ingestCtx, podcast); err != nil {
+					slog.Warn("sync ingestion crawl failed", "err", err)
+				}
+			}()
+		}
+	}
+
 	if queueClient != nil {
 		go refreshScheduler(ctx, queueClient)
 	}
+	// The digest needs only DB + APNs — it must run in queue-less
+	// deployments too (QA review finding).
+	if notifier != nil {
+		go digestScheduler(ctx, querier, notifier)
+	}
+
+	// One-time episode-alias backfill (ADR-0015): cover the catalog that
+	// predates the alias bridge. Idempotent (keyed on table emptiness plus
+	// ON CONFLICT DO NOTHING inserts) and cheap at fork scale.
+	go backfillEpisodeAliases(ctx, querier)
 
 	// /health reports the queue's Redis as a dependency when enabled
 	var queuePing func(ctx context.Context) error

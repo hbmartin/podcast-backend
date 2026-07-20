@@ -3,19 +3,25 @@
 package e2e
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/hbmartin/podcast-backend/crawler"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -532,11 +538,19 @@ func TestCommentTree(t *testing.T) {
 		EpisodeUuid: episodeUUID, PodcastUuid: podcastUUID,
 		EpisodeTitle: "Fixture Episode", PodcastTitle: "Fixture Podcast",
 		Text: "this bit at two minutes", TimestampSeconds: &ts,
+		Quote: "we shipped it on a friday", QuoteSource: 1, QuoteSegment: 7,
 	}, seed)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, handleA, seed.Handle)
 	require.NotNil(t, seed.TimestampSeconds)
 	assert.Equal(t, int32(125), *seed.TimestampSeconds)
+	assert.Equal(t, "we shipped it on a friday", seed.Quote)
+
+	// Slice 12: a quote without a timestamp is rejected.
+	status = postProto(t, "/social/comment/submit", tokenA, &pb.CommentSubmitRequest{
+		EpisodeUuid: episodeUUID, PodcastUuid: podcastUUID, Text: "x", Quote: "orphan quote",
+	}, nil)
+	require.Equal(t, http.StatusBadRequest, status)
 
 	// B replies without ever playing: no gate on replies.
 	reply := &pb.SocialComment{}
@@ -552,6 +566,9 @@ func TestCommentTree(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	require.Len(t, list.Comments, 1)
 	assert.Equal(t, int32(1), list.Comments[0].ReplyCount)
+	assert.Equal(t, "we shipped it on a friday", list.Comments[0].Quote)
+	assert.Equal(t, int32(1), list.Comments[0].QuoteSource)
+	assert.Equal(t, int32(7), list.Comments[0].QuoteSegment)
 
 	replies := &pb.CommentsResponse{}
 	status = postProto(t, "/social/comment/replies", "",
@@ -608,6 +625,7 @@ func TestCommentTree(t *testing.T) {
 	postProto(t, "/episode/comments", "", &pb.EpisodeCommentsRequest{EpisodeUuid: episodeUUID}, list)
 	require.Len(t, list.Comments, 1)
 	assert.True(t, list.Comments[0].Removed)
+	assert.Empty(t, list.Comments[0].Quote)
 	assert.Empty(t, list.Comments[0].Text)
 	assert.Equal(t, int32(1), list.Comments[0].ReplyCount)
 
@@ -1009,4 +1027,450 @@ func TestDiscovery(t *testing.T) {
 	require.Len(t, proof.VisibleHandles, 1)
 	assert.Equal(t, handleB, proof.VisibleHandles[0])
 	assert.Equal(t, int32(1), proof.TotalCount)
+}
+
+// TestSyncIngestion (Slice 11): a synced subscription carrying the fork feed
+// URL + title renders titles immediately (COALESCE fallback) and triggers
+// catalog ingestion of the unknown feed.
+func TestSyncIngestion(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("ing-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("ing-b-%d@e2e.test", suffix))
+	handleB := fmt.Sprintf("e2e_ing_b_%d", suffix%1_000_000_000)
+	for _, pair := range []struct{ token, handle string }{
+		{tokenA, fmt.Sprintf("e2e_ing_a_%d", suffix%1_000_000_000)}, {tokenB, handleB},
+	} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: "Ingest " + pair.handle,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+	status := postProto(t, "/social/follow", tokenA, &pb.FollowRequest{Handle: handleB}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/profile/update", tokenB, &pb.ProfileUpdateRequest{
+		DisplayName: "Ingest B", FollowedShowsVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// B subscribes to an unknown uuid, carrying the fork feed URL + title.
+	unknownUuid := fmt.Sprintf("feed%04d-1111-2222-3333-999988887777", suffix%10_000)
+	now := time.Now().UnixMilli()
+	status = postProto(t, "/user/sync/update", tokenB, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now,
+		Records: []*pb.Record{{Record: &pb.Record_Podcast{Podcast: &pb.SyncUserPodcast{
+			Uuid: unknownUuid, Subscribed: wrapperspb.Bool(true),
+			DateAdded: timestamppb.New(time.Now()),
+			FeedUrl:   wrapperspb.String(feedServer.URL + "/feed.xml"),
+			Title:     wrapperspb.String("Synced Fallback Title"),
+		}}}},
+	}, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// The feed shows the followed-show event with the synced title at once.
+	feed := &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenA, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	foundTitle := false
+	for _, item := range feed.Items {
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_FOLLOWED_SHOW && item.PodcastTitle == "Synced Fallback Title" {
+			foundTitle = true
+		}
+	}
+	assert.True(t, foundTitle, "the synced title must render before any crawl")
+}
+
+// TestGroups walks Slice 13 (ADR-0012): one entity, two configurations.
+// Private circle: any-member invite, Inbox respond, member cap semantics.
+// Public hub: one-tap join, ban blocks rejoin, posts readable while logged
+// out, succession on owner erasure, joined-group feed kind.
+func TestGroups(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("group-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("group-b-%d@e2e.test", suffix))
+	tokenC, _ := registerUser(t, fmt.Sprintf("group-c-%d@e2e.test", suffix))
+
+	handles := map[string]string{}
+	for i, pair := range []struct {
+		token, name string
+	}{{tokenA, "Owner A"}, {tokenB, "Member B"}, {tokenC, "Follower C"}} {
+		handle := fmt.Sprintf("e2e_grp_%c_%d", 'a'+rune(i), suffix%1_000_000_000)
+		handles[pair.token] = handle
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// A creates a private circle and a public hub.
+	circle := &pb.SocialGroup{}
+	status := postProto(t, "/social/group/create", tokenA, &pb.GroupCreateRequest{
+		Title: "The Circle", Visibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PRIVATE,
+	}, circle)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, pb.GroupRole_GROUP_ROLE_OWNER, circle.YourRole)
+
+	hub := &pb.SocialGroup{}
+	status = postProto(t, "/social/group/create", tokenA, &pb.GroupCreateRequest{
+		Title: "Fixture Fans", Visibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC,
+	}, hub)
+	require.Equal(t, http.StatusOK, status)
+
+	// B cannot see the private circle's posts (no-leak 404).
+	status = postProto(t, "/social/group/posts", tokenB, &pb.GroupPostsRequest{GroupId: circle.Id}, nil)
+	require.Equal(t, http.StatusNotFound, status)
+
+	// A invites B to the circle; B sees the invite and accepts.
+	status = postProto(t, "/social/group/invite", tokenA, &pb.GroupInviteRequest{
+		GroupId: circle.Id, Handle: handles[tokenB],
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	groups := &pb.GroupsResponse{}
+	status = postProto(t, "/social/groups", tokenB, &pb.GroupsRequest{}, groups)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, groups.Invites, 1)
+	status = postProto(t, "/social/group/invite/respond", tokenB, &pb.GroupInviteRespondRequest{
+		GroupId: circle.Id, Accept: true,
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	// B (a plain member) invites C — any-member invites.
+	status = postProto(t, "/social/group/invite", tokenB, &pb.GroupInviteRequest{
+		GroupId: circle.Id, Handle: handles[tokenC],
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	// B posts into the circle; A replies; the reply is gate-free and nested.
+	post := &pb.GroupPost{}
+	status = postProto(t, "/social/group/post/submit", tokenB, &pb.GroupPostRequest{
+		GroupId: circle.Id, Text: "first circle post",
+	}, post)
+	require.Equal(t, http.StatusOK, status)
+	reply := &pb.GroupPost{}
+	status = postProto(t, "/social/group/post/submit", tokenA, &pb.GroupPostRequest{
+		GroupId: circle.Id, ParentId: post.Id, Text: "welcome!",
+	}, reply)
+	require.Equal(t, http.StatusOK, status)
+
+	page := &pb.GroupPostsResponse{}
+	status = postProto(t, "/social/group/posts", tokenB, &pb.GroupPostsRequest{GroupId: circle.Id}, page)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, page.Posts, 1)
+	assert.Equal(t, int32(1), page.Posts[0].ReplyCount)
+	require.NotNil(t, page.Group)
+	assert.Equal(t, int32(2), page.Group.MemberCount)
+
+	// C joins the public hub one-tap; the hub feed is readable logged out.
+	status = postProto(t, "/social/group/join", tokenC, &pb.GroupJoinRequest{Id: hub.Id}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/group/posts", "", &pb.GroupPostsRequest{GroupId: hub.Id}, &pb.GroupPostsResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// Kick C from the hub with ban: rejoin is refused.
+	status = postProto(t, "/social/group/kick", tokenA, &pb.GroupKickRequest{
+		GroupId: hub.Id, Handle: handles[tokenC], Ban: true,
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/group/join", tokenC, &pb.GroupJoinRequest{Id: hub.Id}, nil)
+	require.Equal(t, http.StatusForbidden, status)
+
+	// B joins the hub, follows... rather: C follows B? Feed kind 9: B follows
+	// nobody; use C->B: C is banned from hub but joins are B's acts. B joins
+	// the hub (public act), C follows B and sees JOINED_GROUP in the feed.
+	status = postProto(t, "/social/group/join", tokenB, &pb.GroupJoinRequest{Id: hub.Id}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/follow", tokenC, &pb.FollowRequest{Handle: handles[tokenB]}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	feed := &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenC, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	found := false
+	for _, item := range feed.Items {
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_JOINED_GROUP && item.GroupId == hub.Id {
+			found = true
+			assert.Equal(t, "Fixture Fans", item.GroupTitle)
+		}
+		require.NotEqual(t, circle.Id, item.GroupId, "private membership must never emit")
+	}
+	assert.True(t, found, "public hub join must surface as a feed item")
+
+	// Succession: B enables per-group alerts (proves member row survives),
+	// then A erases. The hub passes to its longest-tenured member (B); the
+	// circle dies; A's posts tombstone.
+	status = postProto(t, "/social/group/alert", tokenB, &pb.GroupAlertRequest{GroupId: hub.Id, Enabled: true}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/erase", tokenA, &pb.EraseRequest{}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	groups = &pb.GroupsResponse{}
+	status = postProto(t, "/social/groups", tokenB, &pb.GroupsRequest{}, groups)
+	require.Equal(t, http.StatusOK, status)
+	var hubAfter *pb.SocialGroup
+	for _, g := range groups.Groups {
+		require.NotEqual(t, circle.Id, g.Id, "private circle dies with its owner")
+		if g.Id == hub.Id {
+			hubAfter = g
+		}
+	}
+	require.NotNil(t, hubAfter, "hub survives via succession")
+	assert.Equal(t, pb.GroupRole_GROUP_ROLE_OWNER, hubAfter.YourRole)
+	assert.True(t, hubAfter.NotifyPosts, "member state survives succession")
+}
+
+// TestMilestones walks Slice 14 (ADR-0013): syncing playback that crosses a
+// ladder tier materializes the crossing; the feed shows it to followers only
+// when stats are visible; the profile carries the milestones line under the
+// same gate; erase deletes the rows.
+func TestMilestones(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("mile-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("mile-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_mile_a_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Milestone A"}, {tokenB, fmt.Sprintf("e2e_mile_b_%d", suffix%1_000_000_000), "Watcher B"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// A syncs 12 finished episodes (~ >10h too): crossings materialize for
+	// tier 10 on both ladders.
+	sync := &pb.SyncUpdateRequest{DeviceUtcTimeMs: time.Now().UnixMilli()}
+	for i := 0; i < 12; i++ {
+		episode := &pb.SyncUserEpisode{
+			Uuid:                  fmt.Sprintf("abcd%04d-00aa-4000-8000-%012d", i, suffix%1_000_000_000_000),
+			PodcastUuid:           "dcba0000-00aa-4000-8000-000000000001",
+			Duration:              wrapperspb.Int64(3600),
+			DurationModified:      wrapperspb.Int64(sync.DeviceUtcTimeMs),
+			PlayedUpTo:            wrapperspb.Int64(3600),
+			PlayedUpToModified:    wrapperspb.Int64(sync.DeviceUtcTimeMs),
+			PlayingStatus:         wrapperspb.Int32(3),
+			PlayingStatusModified: wrapperspb.Int64(sync.DeviceUtcTimeMs),
+		}
+		sync.Records = append(sync.Records, &pb.Record{Record: &pb.Record_Episode{Episode: episode}})
+	}
+	status := postProto(t, "/user/sync/update", tokenA, sync, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// B follows A. Stats are private by default: no milestone feed item, no
+	// profile line.
+	status = postProto(t, "/social/follow", tokenB, &pb.FollowRequest{Handle: handleA}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	feed := &pb.FeedResponse{}
+	status = postProto(t, "/social/feed", tokenB, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	for _, item := range feed.Items {
+		require.NotEqual(t, pb.FeedItemKind_FEED_ITEM_KIND_MILESTONE, item.Kind,
+			"private stats must hide milestones")
+	}
+
+	// A makes stats public: the crossing surfaces in B's feed and on the
+	// public profile.
+	status = postProto(t, "/social/profile/update", tokenA, &pb.ProfileUpdateRequest{
+		DisplayName: "Milestone A", StatsVisibility: pb.SocialVisibility_SOCIAL_VISIBILITY_PUBLIC,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	status = postProto(t, "/social/feed", tokenB, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	var crossed []int32
+	for _, item := range feed.Items {
+		if item.Kind == pb.FeedItemKind_FEED_ITEM_KIND_MILESTONE && item.ActorHandle == handleA {
+			crossed = append(crossed, item.MilestoneTier)
+			assert.Contains(t, []int32{1, 2}, item.MilestoneKind)
+		}
+	}
+	assert.NotEmpty(t, crossed, "tier-10 crossings must surface once stats are public")
+	for _, tier := range crossed {
+		assert.Equal(t, int32(10), tier)
+	}
+
+	profile := &pb.PublicProfileResponse{}
+	status = postProto(t, "/social/profile/public", tokenB, &pb.PublicProfileRequest{Handle: handleA}, profile)
+	require.Equal(t, http.StatusOK, status)
+	require.NotEmpty(t, profile.Milestones)
+
+	// Erase A: milestones die with the profile.
+	status = postProto(t, "/social/erase", tokenA, &pb.EraseRequest{}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/feed", tokenB, &pb.FeedRequest{}, feed)
+	require.Equal(t, http.StatusOK, status)
+	for _, item := range feed.Items {
+		require.NotEqual(t, pb.FeedItemKind_FEED_ITEM_KIND_MILESTONE, item.Kind)
+	}
+}
+
+// TestCuratorsAndRecommendations walks Slice 15 (ADR-0014): operator
+// designation is a DB act (done here directly, as in production), the
+// directory is follower-ranked and composes with hide_from_discovery, and a
+// show recommendation is a podcast-level Shared Item riding the Inbox.
+func TestCuratorsAndRecommendations(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("cur-a-%d@e2e.test", suffix))
+	tokenB, _ := registerUser(t, fmt.Sprintf("cur-b-%d@e2e.test", suffix))
+
+	handleA := fmt.Sprintf("e2e_cur_a_%d", suffix%1_000_000_000)
+	for _, pair := range []struct {
+		token, handle, name string
+	}{{tokenA, handleA, "Curator A"}, {tokenB, fmt.Sprintf("e2e_cur_b_%d", suffix%1_000_000_000), "Listener B"}} {
+		status := postProto(t, "/social/join", pair.token, &pb.JoinRequest{
+			Handle: pair.handle, AcceptedTermsVersion: 1, DisplayName: pair.name,
+		}, &pb.JoinResponse{})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	// Operator designation: a direct DB act, exactly as in production.
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, os.Getenv("E2E_DB_CONNECTION_STRING"))
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+	_, err = conn.Exec(ctx,
+		"UPDATE social_profiles SET curator = true WHERE handle = $1", handleA)
+	require.NoError(t, err)
+
+	// B follows A, then reads the directory: A listed with the follower count.
+	status := postProto(t, "/social/follow", tokenB, &pb.FollowRequest{Handle: handleA}, &pb.FollowResponse{})
+	require.Equal(t, http.StatusOK, status)
+	curators := &pb.CuratorsResponse{}
+	status = postProto(t, "/social/curators", tokenB, &pb.CuratorsRequest{}, curators)
+	require.Equal(t, http.StatusOK, status)
+	var entry *pb.CuratorEntry
+	for _, c := range curators.Curators {
+		if c.Handle == handleA {
+			entry = c
+		}
+	}
+	require.NotNil(t, entry, "designated curator must be listed")
+	assert.Equal(t, int64(1), entry.FollowerCount)
+
+	// The curator badge rides the public profile.
+	profile := &pb.PublicProfileResponse{}
+	status = postProto(t, "/social/profile/public", tokenB, &pb.PublicProfileRequest{Handle: handleA}, profile)
+	require.Equal(t, http.StatusOK, status)
+	assert.True(t, profile.Curator)
+
+	// hide_from_discovery composes: a hidden curator leaves the directory.
+	status = postProto(t, "/social/profile/update", tokenA, &pb.ProfileUpdateRequest{
+		DisplayName: "Curator A", HideFromDiscovery: true,
+	}, &pb.ProfileResponse{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/social/curators", tokenB, &pb.CuratorsRequest{}, curators)
+	require.Equal(t, http.StatusOK, status)
+	for _, c := range curators.Curators {
+		require.NotEqual(t, handleA, c.Handle, "hidden curators must not be listed")
+	}
+
+	// A recommends a SHOW to B: podcast fields only, note attached.
+	handleB := fmt.Sprintf("e2e_cur_b_%d", suffix%1_000_000_000)
+	status = postProto(t, "/social/share/send", tokenA, &pb.SharedItemSendRequest{
+		RecipientHandle: handleB, PodcastUuid: "dcba0000-00dd-4000-8000-000000000001",
+		PodcastTitle: "A Recommended Show", Note: "start with the pilot",
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+
+	inbox := &pb.InboxResponse{}
+	status = postProto(t, "/social/inbox", tokenB, &pb.InboxRequest{}, inbox)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, inbox.Items, 1)
+	assert.Empty(t, inbox.Items[0].EpisodeUuid)
+	assert.Equal(t, "A Recommended Show", inbox.Items[0].PodcastTitle)
+	assert.Equal(t, "start with the pilot", inbox.Items[0].Note)
+
+	// Neither episode nor podcast: rejected.
+	status = postProto(t, "/social/share/send", tokenA, &pb.SharedItemSendRequest{
+		RecipientHandle: handleB, Note: "nothing attached",
+	}, nil)
+	require.Equal(t, http.StatusBadRequest, status)
+}
+
+// TestEpisodeAliasBridge proves the Slice-16 fix for the QA-walk repro: a
+// comment written under the DEVICE-scheme episode uuid and one written under
+// the CATALOG uuid land in the same thread, readable from either key
+// (ADR-0015). The alias is written by the crawler at ingest.
+func TestEpisodeAliasBridge(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	tokenA, _ := registerUser(t, fmt.Sprintf("alias-a-%d@e2e.test", suffix))
+
+	status := postProto(t, "/social/join", tokenA, &pb.JoinRequest{
+		Handle: fmt.Sprintf("e2e_alias_%d", suffix%1_000_000_000), AcceptedTermsVersion: 1, DisplayName: "Alias A",
+	}, &pb.JoinResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	podcastUUID := ingestFixturePodcast(t)
+	catalogUUID := episodesOfPodcast(t, podcastUUID)[0]
+
+	// Derive the device-scheme uuid exactly as the app would, from the
+	// episode's stored guid.
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, os.Getenv("E2E_DB_CONNECTION_STRING"))
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+	var guid string
+	require.NoError(t, conn.QueryRow(ctx,
+		"SELECT guid FROM episodes WHERE uuid = $1", catalogUUID).Scan(&guid))
+	deviceUUID := crawler.DeviceEpisodeUUID(guid)
+	require.NotEmpty(t, deviceUUID)
+	require.NotEqual(t, catalogUUID, deviceUUID, "the schemes must diverge for the bridge to matter")
+
+	// The crawler wrote the alias at ingest.
+	var mapped string
+	require.NoError(t, conn.QueryRow(ctx,
+		"SELECT catalog_uuid FROM episode_aliases WHERE device_uuid = $1", deviceUUID).Scan(&mapped))
+	assert.Equal(t, catalogUUID, mapped)
+
+	// A's playback synced under the DEVICE uuid (as real devices do) must
+	// satisfy the listen-gate for a comment submitted under either key.
+	now := time.Now().UnixMilli()
+	sync := &pb.SyncUpdateRequest{DeviceUtcTimeMs: now}
+	sync.Records = append(sync.Records, &pb.Record{Record: &pb.Record_Episode{Episode: &pb.SyncUserEpisode{
+		Uuid: deviceUUID, PodcastUuid: podcastUUID,
+		Duration: wrapperspb.Int64(1800), DurationModified: wrapperspb.Int64(now),
+		PlayedUpTo: wrapperspb.Int64(1700), PlayedUpToModified: wrapperspb.Int64(now),
+		PlayingStatus: wrapperspb.Int32(3), PlayingStatusModified: wrapperspb.Int64(now),
+	}}})
+	status = postProto(t, "/user/sync/update", tokenA, sync, &pb.SyncUpdateResponse{})
+	require.Equal(t, http.StatusOK, status)
+
+	// Comment via the device uuid; read via the catalog uuid.
+	status = postProto(t, "/social/comment/submit", tokenA, &pb.CommentSubmitRequest{
+		EpisodeUuid: deviceUUID, PodcastUuid: podcastUUID, Text: "written device-keyed",
+	}, &pb.SocialComment{})
+	require.Equal(t, http.StatusOK, status)
+
+	// The fixture episode is shared across the suite (deterministic ingest),
+	// so match this test's comments by text rather than by count.
+	containsText := func(list *pb.CommentsResponse, text string) bool {
+		for _, comment := range list.Comments {
+			if comment.Text == text {
+				return true
+			}
+		}
+		return false
+	}
+	list := &pb.CommentsResponse{}
+	status = postProto(t, "/episode/comments", "", &pb.EpisodeCommentsRequest{EpisodeUuid: catalogUUID}, list)
+	require.Equal(t, http.StatusOK, status)
+	require.True(t, containsText(list, "written device-keyed"), "device-keyed write must be catalog-readable")
+
+	// Comment via the catalog uuid; read via the device uuid: one thread.
+	status = postProto(t, "/social/comment/submit", tokenA, &pb.CommentSubmitRequest{
+		EpisodeUuid: catalogUUID, PodcastUuid: podcastUUID, Text: "written catalog-keyed",
+	}, &pb.SocialComment{})
+	require.Equal(t, http.StatusOK, status)
+	status = postProto(t, "/episode/comments", "", &pb.EpisodeCommentsRequest{EpisodeUuid: deviceUUID}, list)
+	require.Equal(t, http.StatusOK, status)
+	assert.True(t, containsText(list, "written device-keyed"), "device-keyed write readable device-side")
+	assert.True(t, containsText(list, "written catalog-keyed"), "one thread across both uuid spaces")
+
+	// Reactions bridge the same way.
+	status = postProto(t, "/social/reaction/set", tokenA, &pb.EpisodeReactionSetRequest{
+		EpisodeUuid: deviceUUID, Kind: pb.ReactionKind_REACTION_KIND_HEART,
+	}, &pb.SocialAck{})
+	require.Equal(t, http.StatusOK, status)
+	reactions := &pb.EpisodeReactionsResponse{}
+	status = postProto(t, "/episode/reactions", tokenA, &pb.EpisodeReactionsRequest{EpisodeUuid: catalogUUID}, reactions)
+	require.Equal(t, http.StatusOK, status)
+	require.NotEmpty(t, reactions.Counts, "device-keyed reaction must be catalog-readable")
 }

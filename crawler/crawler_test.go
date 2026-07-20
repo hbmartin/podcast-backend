@@ -65,6 +65,10 @@ func (f *catalogFake) PodcastHasSubscribers(ctx context.Context, podcastUuid str
 	return f.subscribers[podcastUuid], nil
 }
 
+func (f *catalogFake) UpsertEpisodeAlias(ctx context.Context, arg db.UpsertEpisodeAliasParams) error {
+	return nil
+}
+
 func (f *catalogFake) UpsertEpisode(ctx context.Context, arg db.UpsertEpisodeParams) error {
 	f.episodes[arg.Uuid] = arg
 	return nil

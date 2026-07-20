@@ -149,6 +149,42 @@ func (m *QuerierMock) DeleteReviewsForUser(ctx context.Context, userID int64) er
 	return nil
 }
 
+func (m *QuerierMock) DeleteMilestonesForUser(ctx context.Context, userID int64) error {
+	return nil
+}
+
+func (m *QuerierMock) GetMilestonesForUser(ctx context.Context, userID int64) ([]db.GetMilestonesForUserRow, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) ClearGroupInviteAttributionForUser(ctx context.Context, invitedBy *int64) error {
+	return nil
+}
+
+func (m *QuerierMock) ReverseEpisodeAliases(ctx context.Context, catalogUuid string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) ResolveEpisodeAlias(ctx context.Context, deviceUuid string) (string, error) {
+	return "", pgx.ErrNoRows
+}
+
+func (m *QuerierMock) TombstoneGroupPostsForUser(ctx context.Context, userID *int64) error {
+	return nil
+}
+
+func (m *QuerierMock) GetOwnedPublicGroupIDs(ctx context.Context, ownerUserID int64) ([]int64, error) {
+	return nil, nil
+}
+
+func (m *QuerierMock) DeleteOwnedPrivateGroups(ctx context.Context, ownerUserID int64) error {
+	return nil
+}
+
+func (m *QuerierMock) DeleteGroupMembershipsForUser(ctx context.Context, userID int64) error {
+	return nil
+}
+
 func (m *QuerierMock) DeleteSharedItemsForUser(ctx context.Context, userID int64) error {
 	return nil
 }
@@ -473,7 +509,6 @@ func TestErrorTranslationServerError(t *testing.T) {
 
 	assert.Equal(t, "Unknown error", result.Errors[0])
 }
-
 
 func (m *QuerierMock) CountPendingFollowRequests(ctx context.Context, followeeUserID int64) (int64, error) {
 	return 0, nil

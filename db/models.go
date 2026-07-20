@@ -77,6 +77,12 @@ type Episode struct {
 	ChaptersUrl  string
 }
 
+type EpisodeAlias struct {
+	DeviceUuid  string
+	CatalogUuid string
+	CreatedAt   time.Time
+}
+
 type EpisodeComment struct {
 	ID               int64
 	EpisodeUuid      string
@@ -91,6 +97,9 @@ type EpisodeComment struct {
 	CreatedAt        time.Time
 	EditedAt         *time.Time
 	RemovedAt        *time.Time
+	Quote            string
+	QuoteSource      int32
+	QuoteSegment     int32
 }
 
 type EpisodeReaction struct {
@@ -267,6 +276,45 @@ type SocialFollow struct {
 	ApprovedAt     *time.Time
 }
 
+type SocialGroup struct {
+	ID           int64
+	OwnerUserID  int64
+	Title        string
+	Description  string
+	Visibility   int16
+	PodcastUuid  string
+	PodcastTitle string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type SocialGroupMember struct {
+	GroupID     int64
+	UserID      int64
+	Role        int16
+	InvitedBy   *int64
+	NotifyPosts bool
+	CreatedAt   time.Time
+}
+
+type SocialGroupPost struct {
+	ID           int64
+	GroupID      int64
+	UserID       *int64
+	ParentID     *int64
+	RootID       *int64
+	Text         string
+	EpisodeUuid  string
+	PodcastUuid  string
+	EpisodeTitle string
+	PodcastTitle string
+	ListID       int64
+	ListTitle    string
+	CreatedAt    time.Time
+	EditedAt     *time.Time
+	RemovedAt    *time.Time
+}
+
 type SocialHandle struct {
 	Handle     string
 	UserID     *int64
@@ -303,6 +351,13 @@ type SocialListMember struct {
 	CreatedAt time.Time
 }
 
+type SocialMilestone struct {
+	UserID    int64
+	Kind      int16
+	Tier      int32
+	CrossedAt time.Time
+}
+
 type SocialProfile struct {
 	UserID                  int64
 	Handle                  string
@@ -322,6 +377,8 @@ type SocialProfile struct {
 	RepliesSeenAt           time.Time
 	SocialPushDisabled      int64
 	HideFromDiscovery       bool
+	DigestSentAt            *time.Time
+	Curator                 bool
 }
 
 type SocialRelationship struct {
@@ -425,6 +482,8 @@ type UserPodcast struct {
 	Settings          []byte
 	ModifiedAt        int64
 	NotifyEnabled     bool
+	SyncedTitle       string
+	SyncedFeedUrl     string
 }
 
 type UserSetting struct {

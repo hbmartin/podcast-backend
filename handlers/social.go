@@ -333,6 +333,7 @@ func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.Pub
 		UserId:      owner.Uuid,
 		Handle:      profile.Handle,
 		DisplayName: profile.DisplayName,
+		Curator:     profile.Curator,
 		CreatedAt:   timestamppb.New(profile.CreatedAt),
 	}
 	// Phase 1 exposes only the public tier to non-owners; followers-only
@@ -422,6 +423,16 @@ func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.Pub
 		resp.Stats = &pb.SocialProfileStats{
 			TimeListenedSeconds: totals.TimeListened,
 			ListeningSince:      timestamppb.New(since),
+		}
+		// Milestones share the stats gate (Slice 14, ADR-0013).
+		milestones, err := h.Queries.GetMilestonesForUser(r.Context(), profile.UserID)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, m := range milestones {
+			resp.Milestones = append(resp.Milestones, &pb.Milestone{
+				Kind: int32(m.Kind), Tier: m.Tier, CrossedAt: timestamppb.New(m.CrossedAt),
+			})
 		}
 	}
 
@@ -684,6 +695,52 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 		if err := q.ClearSocialListAttributionForUser(r.Context(), &userID); err != nil {
 			return err
 		}
+		// Group posts tombstone like comments; private groups die with
+		// their owner; a public hub passes to the longest-tenured member,
+		// or dies when none remains (ADR-0012 succession).
+		if err := q.TombstoneGroupPostsForUser(r.Context(), &userID); err != nil {
+			return err
+		}
+		publicGroups, err := q.GetOwnedPublicGroupIDs(r.Context(), userID)
+		if err != nil {
+			return err
+		}
+		for _, groupID := range publicGroups {
+			successor, err := q.FindGroupSuccessor(r.Context(), db.FindGroupSuccessorParams{
+				GroupID: groupID, UserID: userID,
+			})
+			if err != nil {
+				if !errors.Is(err, pgx.ErrNoRows) {
+					return err
+				}
+				if err := q.DeleteSocialGroupByID(r.Context(), groupID); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := q.TransferGroupOwner(r.Context(), db.TransferGroupOwnerParams{
+				ID: groupID, OwnerUserID: successor,
+			}); err != nil {
+				return err
+			}
+			if err := q.PromoteGroupMemberToOwner(r.Context(), db.PromoteGroupMemberToOwnerParams{
+				GroupID: groupID, UserID: successor,
+			}); err != nil {
+				return err
+			}
+		}
+		if err := q.DeleteOwnedPrivateGroups(r.Context(), userID); err != nil {
+			return err
+		}
+		if err := q.DeleteGroupMembershipsForUser(r.Context(), userID); err != nil {
+			return err
+		}
+		if err := q.ClearGroupInviteAttributionForUser(r.Context(), &userID); err != nil {
+			return err
+		}
+		if err := q.DeleteMilestonesForUser(r.Context(), userID); err != nil {
+			return err
+		}
 		return q.DeleteRelationshipsForUser(r.Context(), userID)
 	})
 }
@@ -718,5 +775,6 @@ func profileToProto(row db.SocialProfile, userUuid string) *pb.SocialProfile {
 		RequireFollowApproval:   row.RequireFollowApproval,
 		SocialPushDisabled:      row.SocialPushDisabled,
 		HideFromDiscovery:       row.HideFromDiscovery,
+		Curator:                 row.Curator,
 	}
 }

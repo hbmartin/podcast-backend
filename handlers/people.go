@@ -176,3 +176,35 @@ func (h Handlers) PostContactsMatch(w http.ResponseWriter, r *http.Request) {
 	}
 	writeProto(w, http.StatusOK, resp)
 }
+
+// PostCurators handles POST /social/curators (joined required): the
+// operator-designated directory, follower-ranked (Slice 15, ADR-0014).
+// Designation itself has no endpoint — it is an admin/DB act.
+func (h Handlers) PostCurators(w http.ResponseWriter, r *http.Request) {
+	req := &pb.CuratorsRequest{}
+	if err := bindProto(r, req); err != nil {
+		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
+		return
+	}
+	user, _, ok := h.requireJoined(w, r)
+	if !ok {
+		return
+	}
+	limit := req.Limit
+	if limit <= 0 || limit > 50 {
+		limit = 50
+	}
+	rows, err := h.Queries.GetCurators(r.Context(), db.GetCuratorsParams{Limit: limit, Viewer: &user.ID})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	resp := &pb.CuratorsResponse{}
+	for _, row := range rows {
+		resp.Curators = append(resp.Curators, &pb.CuratorEntry{
+			Handle: row.Handle, DisplayName: row.DisplayName,
+			Bio: row.Bio, FollowerCount: row.FollowerCount,
+		})
+	}
+	writeProto(w, http.StatusOK, resp)
+}

@@ -111,7 +111,6 @@ func (m *socialMock) authorBits(c *mockComment) (uuid *string, handle, name stri
 	return uuid, handle, name
 }
 
-
 // viewerHidden mirrors the SQL relationship guard: blocked either way, or
 // muted by the viewer; tombstones (nil author) always visible.
 func (m *socialMock) viewerHidden(viewer *int64, author *int64) bool {
@@ -380,6 +379,40 @@ func TestCommentGateAndSubmit(t *testing.T) {
 		&pb.CommentRepliesRequest{ParentId: parentID}, replies)
 	assert.Equal(t, http.StatusOK, code)
 	assert.Len(t, replies.Comments, 1)
+}
+
+func TestCommentQuoteContract(t *testing.T) {
+	_, router := joinedCommentsMock(t)
+
+	// A quote without a timestamp is rejected — quotes are Moments by
+	// construction (Slice 12).
+	code, _, _ := makeProtoRequest(router, "/social/comment/submit",
+		&pb.CommentSubmitRequest{EpisodeUuid: commentedEpisodeUUID, Text: "hi", Quote: "so we tried it"}, &pb.SocialComment{})
+	assert.Equal(t, http.StatusBadRequest, code)
+
+	// Quoted Moment lands and echoes quote + advisory segment ref.
+	ts := int32(95)
+	resp := &pb.SocialComment{}
+	code, _, err := makeProtoRequest(router, "/social/comment/submit",
+		&pb.CommentSubmitRequest{
+			EpisodeUuid: commentedEpisodeUUID, Text: "this bit", TimestampSeconds: &ts,
+			Quote: "so we tried it", QuoteSource: 1, QuoteSegment: 42,
+		}, resp)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "so we tried it", resp.Quote)
+	assert.Equal(t, int32(1), resp.QuoteSource)
+	assert.Equal(t, int32(42), resp.QuoteSegment)
+
+	// A quote on a reply is rejected (replies carry no timestamps).
+	code, _, _ = makeProtoRequest(router, "/social/comment/submit",
+		&pb.CommentSubmitRequest{EpisodeUuid: commentedEpisodeUUID, Text: "re", ParentId: resp.Id, Quote: "so we tried it"}, &pb.SocialComment{})
+	assert.Equal(t, http.StatusBadRequest, code)
+
+	// The quote goes through the text filter like any UGC.
+	code, _, _ = makeProtoRequest(router, "/social/comment/submit",
+		&pb.CommentSubmitRequest{EpisodeUuid: commentedEpisodeUUID, Text: "fine", TimestampSeconds: &ts, Quote: "bad\x00quote"}, &pb.SocialComment{})
+	assert.Equal(t, http.StatusUnprocessableEntity, code)
 }
 
 func TestCommentEditGraceWindow(t *testing.T) {
