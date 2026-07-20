@@ -47,6 +47,12 @@ func (h Handlers) PostShareSend(w http.ResponseWriter, r *http.Request) {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "note rejected: "+err.Error())
 		return
 	}
+	// Titles are denormalized free text bound for the recipient's inbox and
+	// push — they go through the same character-level filter as the note.
+	if moderation.CheckText(req.EpisodeTitle) != nil || moderation.CheckText(req.PodcastTitle) != nil {
+		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid title")
+		return
+	}
 
 	user, ok := h.currentDbUser(w, r)
 	if !ok {

@@ -186,14 +186,15 @@ func (h Handlers) PostCurators(w http.ResponseWriter, r *http.Request) {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
 		return
 	}
-	if _, _, ok := h.requireJoined(w, r); !ok {
+	user, _, ok := h.requireJoined(w, r)
+	if !ok {
 		return
 	}
 	limit := req.Limit
 	if limit <= 0 || limit > 50 {
 		limit = 50
 	}
-	rows, err := h.Queries.GetCurators(r.Context(), limit)
+	rows, err := h.Queries.GetCurators(r.Context(), db.GetCuratorsParams{Limit: limit, Viewer: &user.ID})
 	if err != nil {
 		writeError(w, r, err)
 		return

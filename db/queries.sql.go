@@ -69,6 +69,15 @@ func (q *Queries) ClaimHandle(ctx context.Context, arg ClaimHandleParams) error 
 	return err
 }
 
+const clearGroupInviteAttributionForUser = `-- name: ClearGroupInviteAttributionForUser :exec
+UPDATE social_group_members SET invited_by = NULL WHERE invited_by = $1
+`
+
+func (q *Queries) ClearGroupInviteAttributionForUser(ctx context.Context, invitedBy *int64) error {
+	_, err := q.db.Exec(ctx, clearGroupInviteAttributionForUser, invitedBy)
+	return err
+}
+
 const clearPushStateForUser = `-- name: ClearPushStateForUser :exec
 UPDATE devices SET push_token = '', push_on = false WHERE user_id = $1
 `
@@ -1493,9 +1502,20 @@ SELECT sp.handle, sp.display_name,
         WHERE sf.followee_user_id = sp.user_id AND sf.status = 1) AS follower_count
 FROM social_profiles sp
 WHERE sp.curator AND NOT sp.hide_from_discovery
+  AND sp.user_id <> $2::bigint
+  AND NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE sr.kind = 0
+      AND ((sr.user_id = $2 AND sr.target_user_id = sp.user_id)
+        OR (sr.user_id = sp.user_id AND sr.target_user_id = $2)))
 ORDER BY follower_count DESC, sp.handle
 LIMIT $1
 `
+
+type GetCuratorsParams struct {
+	Limit  int32
+	Viewer *int64
+}
 
 type GetCuratorsRow struct {
 	Handle        string
@@ -1507,8 +1527,8 @@ type GetCuratorsRow struct {
 // Curators (Slice 15, ADR-0014): the operator-designated directory,
 // follower-ranked. Hidden-from-discovery still applies — a curator who
 // hides stays hidden (the flags compose, they don't override).
-func (q *Queries) GetCurators(ctx context.Context, limit int32) ([]GetCuratorsRow, error) {
-	rows, err := q.db.Query(ctx, getCurators, limit)
+func (q *Queries) GetCurators(ctx context.Context, arg GetCuratorsParams) ([]GetCuratorsRow, error) {
+	rows, err := q.db.Query(ctx, getCurators, arg.Limit, arg.Viewer)
 	if err != nil {
 		return nil, err
 	}
@@ -2545,7 +2565,8 @@ WHERE p.group_id = $1
                          OR (sr.user_id = p.user_id AND sr.target_user_id = $5)))
        OR (sr.kind = 1 AND sr.user_id = $5 AND sr.target_user_id = p.user_id)))
 ORDER BY CASE WHEN p.parent_id IS NULL THEN p.created_at END DESC,
-         CASE WHEN p.parent_id IS NOT NULL THEN p.created_at END ASC
+         CASE WHEN p.parent_id IS NOT NULL THEN p.created_at END ASC,
+         p.id
 LIMIT $2 OFFSET $3
 `
 
@@ -6045,7 +6066,8 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) (int64, error) {
 
 const tombstoneComment = `-- name: TombstoneComment :execrows
 UPDATE episode_comments
-SET text = '', quote = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', quote = '', quote_source = 0, quote_segment = 0,
+    timestamp_seconds = NULL, user_id = NULL, edited_at = NULL, removed_at = now()
 WHERE id = $1 AND user_id = $2 AND removed_at IS NULL
 `
 
@@ -6064,7 +6086,8 @@ func (q *Queries) TombstoneComment(ctx context.Context, arg TombstoneCommentPara
 
 const tombstoneCommentsForUser = `-- name: TombstoneCommentsForUser :exec
 UPDATE episode_comments
-SET text = '', quote = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', quote = '', quote_source = 0, quote_segment = 0,
+    timestamp_seconds = NULL, user_id = NULL, edited_at = NULL, removed_at = now()
 WHERE user_id = $1 AND removed_at IS NULL
 `
 
@@ -6075,7 +6098,9 @@ func (q *Queries) TombstoneCommentsForUser(ctx context.Context, userID *int64) e
 
 const tombstoneGroupPost = `-- name: TombstoneGroupPost :execrows
 UPDATE social_group_posts
-SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now(),
+    episode_uuid = '', podcast_uuid = '', episode_title = '', podcast_title = '',
+    list_id = 0, list_title = ''
 WHERE id = $1 AND user_id = $2 AND removed_at IS NULL
 `
 
@@ -6094,7 +6119,9 @@ func (q *Queries) TombstoneGroupPost(ctx context.Context, arg TombstoneGroupPost
 
 const tombstoneGroupPostAsOwner = `-- name: TombstoneGroupPostAsOwner :execrows
 UPDATE social_group_posts p
-SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now(),
+    episode_uuid = '', podcast_uuid = '', episode_title = '', podcast_title = '',
+    list_id = 0, list_title = ''
 FROM social_groups g
 WHERE p.id = $1 AND g.id = p.group_id AND g.owner_user_id = $2 AND p.removed_at IS NULL
 `
@@ -6114,7 +6141,9 @@ func (q *Queries) TombstoneGroupPostAsOwner(ctx context.Context, arg TombstoneGr
 
 const tombstoneGroupPostsForUser = `-- name: TombstoneGroupPostsForUser :exec
 UPDATE social_group_posts
-SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now(),
+    episode_uuid = '', podcast_uuid = '', episode_title = '', podcast_title = '',
+    list_id = 0, list_title = ''
 WHERE user_id = $1 AND removed_at IS NULL
 `
 
@@ -6876,6 +6905,7 @@ const upsertGroupMember = `-- name: UpsertGroupMember :exec
 INSERT INTO social_group_members (group_id, user_id, role, invited_by)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (group_id, user_id) DO UPDATE SET role = EXCLUDED.role
+WHERE social_group_members.role <> 4 OR EXCLUDED.role = 4
 `
 
 type UpsertGroupMemberParams struct {

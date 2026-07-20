@@ -259,5 +259,6 @@ type Querier interface {
 	CountGraphHighlights(ctx context.Context, followerUserID int64) (int64, error)
 
 	// Curators (Slice 15, ADR-0014).
-	GetCurators(ctx context.Context, limit int32) ([]GetCuratorsRow, error)
+	GetCurators(ctx context.Context, arg GetCuratorsParams) ([]GetCuratorsRow, error)
+	ClearGroupInviteAttributionForUser(ctx context.Context, invitedBy *int64) error
 }

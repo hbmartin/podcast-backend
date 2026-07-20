@@ -157,6 +157,10 @@ func (m *QuerierMock) GetMilestonesForUser(ctx context.Context, userID int64) ([
 	return nil, nil
 }
 
+func (m *QuerierMock) ClearGroupInviteAttributionForUser(ctx context.Context, invitedBy *int64) error {
+	return nil
+}
+
 func (m *QuerierMock) TombstoneGroupPostsForUser(ctx context.Context, userID *int64) error {
 	return nil
 }

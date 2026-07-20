@@ -710,6 +710,9 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 				GroupID: groupID, UserID: userID,
 			})
 			if err != nil {
+				if !errors.Is(err, pgx.ErrNoRows) {
+					return err
+				}
 				if err := q.DeleteSocialGroupByID(r.Context(), groupID); err != nil {
 					return err
 				}
@@ -730,6 +733,9 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 			return err
 		}
 		if err := q.DeleteGroupMembershipsForUser(r.Context(), userID); err != nil {
+			return err
+		}
+		if err := q.ClearGroupInviteAttributionForUser(r.Context(), &userID); err != nil {
 			return err
 		}
 		if err := q.DeleteMilestonesForUser(r.Context(), userID); err != nil {

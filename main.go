@@ -292,7 +292,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /social/group/alert", authChain(controllers.PostGroupAlert))
 	router.Handle("POST /social/groups", authChain(controllers.PostGroups))
 	router.Handle("POST /social/group/discover", authChain(controllers.PostGroupDiscover))
-	router.Handle("POST /social/group/for-podcast", optionalAuthChain(controllers.PostGroupsForPodcast))
+	router.Handle("POST /social/group/for-podcast", authChain(controllers.PostGroupsForPodcast))
 	router.Handle("POST /social/group/members", authChain(controllers.PostGroupMembers))
 	router.Handle("POST /social/group/post/submit", authChain(controllers.PostGroupPostSubmit))
 	router.Handle("POST /social/group/posts", optionalAuthChain(controllers.PostGroupPosts))
@@ -407,21 +407,32 @@ func digestScheduler(ctx context.Context, querier db.Store, notifier *push.Notif
 // OR fresh milestone)); zero-content accounts still advance the watermark so
 // the sweep stays cheap.
 func digestSweep(ctx context.Context, querier db.Store, notifier *push.Notifier) {
-	users, err := querier.GetDigestCandidates(ctx, 500)
-	if err != nil {
-		slog.Warn("Digest sweep query failed", "error", err)
-		return
-	}
-	for _, userID := range users {
-		body := composeDigestBody(ctx, querier, userID)
-		if body != "" {
-			notifier.NotifyDigest(ctx, userID, "Your week in podcasts", body)
+	// Drain in batches: the watermark advances per user, so each query
+	// returns the next unserved cohort until none remain (QA review: a
+	// single capped batch starved everyone past the first 500).
+	total := 0
+	for {
+		users, err := querier.GetDigestCandidates(ctx, 500)
+		if err != nil {
+			slog.Warn("Digest sweep query failed", "error", err)
+			return
 		}
-		if err := querier.SetDigestSent(ctx, userID); err != nil {
-			slog.Warn("Unable to set digest watermark", "user", userID, "error", err)
+		if len(users) == 0 {
+			break
 		}
+		for _, userID := range users {
+			body := composeDigestBody(ctx, querier, userID)
+			if body != "" {
+				notifier.NotifyDigest(ctx, userID, "Your week in podcasts", body)
+			}
+			if err := querier.SetDigestSent(ctx, userID); err != nil {
+				slog.Warn("Unable to set digest watermark", "user", userID, "error", err)
+				return // avoid a hot loop re-selecting the same user
+			}
+		}
+		total += len(users)
 	}
-	slog.Info("Digest sweep complete", "candidates", len(users))
+	slog.Info("Digest sweep complete", "sent", total)
 }
 
 func composeDigestBody(ctx context.Context, querier db.Store, userID int64) string {
@@ -662,9 +673,11 @@ func main() {
 
 	if queueClient != nil {
 		go refreshScheduler(ctx, queueClient)
-		if notifier != nil {
-			go digestScheduler(ctx, querier, notifier)
-		}
+	}
+	// The digest needs only DB + APNs — it must run in queue-less
+	// deployments too (QA review finding).
+	if notifier != nil {
+		go digestScheduler(ctx, querier, notifier)
 	}
 
 	// /health reports the queue's Redis as a dependency when enabled

@@ -1163,12 +1163,14 @@ WHERE id = $1 AND user_id = $2 AND removed_at IS NULL;
 
 -- name: TombstoneComment :execrows
 UPDATE episode_comments
-SET text = '', quote = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', quote = '', quote_source = 0, quote_segment = 0,
+    timestamp_seconds = NULL, user_id = NULL, edited_at = NULL, removed_at = now()
 WHERE id = $1 AND user_id = $2 AND removed_at IS NULL;
 
 -- name: TombstoneCommentsForUser :exec
 UPDATE episode_comments
-SET text = '', quote = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', quote = '', quote_source = 0, quote_segment = 0,
+    timestamp_seconds = NULL, user_id = NULL, edited_at = NULL, removed_at = now()
 WHERE user_id = $1 AND removed_at IS NULL;
 
 -- name: GetEpisodePlaybackForGate :one
@@ -1494,7 +1496,8 @@ WHERE group_id = $1 AND user_id = $2;
 -- name: UpsertGroupMember :exec
 INSERT INTO social_group_members (group_id, user_id, role, invited_by)
 VALUES ($1, $2, $3, sqlc.narg('invited_by'))
-ON CONFLICT (group_id, user_id) DO UPDATE SET role = EXCLUDED.role;
+ON CONFLICT (group_id, user_id) DO UPDATE SET role = EXCLUDED.role
+WHERE social_group_members.role <> 4 OR EXCLUDED.role = 4;
 
 -- name: DeleteGroupMember :execrows
 DELETE FROM social_group_members WHERE group_id = $1 AND user_id = $2;
@@ -1568,7 +1571,8 @@ WHERE p.group_id = $1
                          OR (sr.user_id = p.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
        OR (sr.kind = 1 AND sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = p.user_id)))
 ORDER BY CASE WHEN p.parent_id IS NULL THEN p.created_at END DESC,
-         CASE WHEN p.parent_id IS NOT NULL THEN p.created_at END ASC
+         CASE WHEN p.parent_id IS NOT NULL THEN p.created_at END ASC,
+         p.id
 LIMIT $2 OFFSET $3;
 
 -- name: CountGroupPosts :one
@@ -1588,22 +1592,31 @@ WHERE id = $1 AND user_id = $2 AND removed_at IS NULL;
 
 -- name: TombstoneGroupPost :execrows
 UPDATE social_group_posts
-SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now(),
+    episode_uuid = '', podcast_uuid = '', episode_title = '', podcast_title = '',
+    list_id = 0, list_title = ''
 WHERE id = $1 AND user_id = $2 AND removed_at IS NULL;
 
 -- name: TombstoneGroupPostAsOwner :execrows
 UPDATE social_group_posts p
-SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now(),
+    episode_uuid = '', podcast_uuid = '', episode_title = '', podcast_title = '',
+    list_id = 0, list_title = ''
 FROM social_groups g
 WHERE p.id = $1 AND g.id = p.group_id AND g.owner_user_id = $2 AND p.removed_at IS NULL;
 
 -- name: TombstoneGroupPostsForUser :exec
 UPDATE social_group_posts
-SET text = '', user_id = NULL, edited_at = NULL, removed_at = now()
+SET text = '', user_id = NULL, edited_at = NULL, removed_at = now(),
+    episode_uuid = '', podcast_uuid = '', episode_title = '', podcast_title = '',
+    list_id = 0, list_title = ''
 WHERE user_id = $1 AND removed_at IS NULL;
 
 -- name: DeleteGroupMembershipsForUser :exec
 DELETE FROM social_group_members WHERE user_id = $1;
+
+-- name: ClearGroupInviteAttributionForUser :exec
+UPDATE social_group_members SET invited_by = NULL WHERE invited_by = $1;
 
 -- name: DeleteOwnedPrivateGroups :exec
 DELETE FROM social_groups WHERE owner_user_id = $1 AND visibility = 1;
@@ -1698,5 +1711,11 @@ SELECT sp.handle, sp.display_name,
         WHERE sf.followee_user_id = sp.user_id AND sf.status = 1) AS follower_count
 FROM social_profiles sp
 WHERE sp.curator AND NOT sp.hide_from_discovery
+  AND sp.user_id <> sqlc.narg('viewer')::bigint
+  AND NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE sr.kind = 0
+      AND ((sr.user_id = sqlc.narg('viewer') AND sr.target_user_id = sp.user_id)
+        OR (sr.user_id = sp.user_id AND sr.target_user_id = sqlc.narg('viewer'))))
 ORDER BY follower_count DESC, sp.handle
 LIMIT $1;

@@ -129,8 +129,11 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 			params.TimestampSeconds = &ts
 		}
 		params.Quote = truncateRunes(req.Quote, quoteMaxLength)
-		params.QuoteSource = req.QuoteSource
-		params.QuoteSegment = req.QuoteSegment
+		params.QuoteSource = max(req.QuoteSource, 0)
+		params.QuoteSegment = max(req.QuoteSegment, 0)
+		if params.Quote == "" {
+			params.QuoteSource, params.QuoteSegment = 0, 0
+		}
 	}
 
 	inserted, err := h.Queries.InsertComment(r.Context(), params)

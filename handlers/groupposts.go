@@ -103,9 +103,15 @@ func (h Handlers) PostGroupPostSubmit(w http.ResponseWriter, r *http.Request) {
 			GroupID: req.GroupId, UserID: user.ID,
 		}); err == nil {
 			for _, target := range targets {
-				if !h.mutedBy(r, target, user.ID) {
-					h.notifySocial(target, push.SocialPushGroupPost, profile.Handle, profile.DisplayName, groupData)
+				// Blocked pairs can share a group (blocks sever follows, not
+				// memberships): the fan-out must honor mutual invisibility.
+				blocked, err := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
+					UserID: user.ID, TargetUserID: target,
+				})
+				if err != nil || blocked || h.mutedBy(r, target, user.ID) {
+					continue
 				}
+				h.notifySocial(target, push.SocialPushGroupPost, profile.Handle, profile.DisplayName, groupData)
 			}
 		}
 	}
