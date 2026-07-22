@@ -88,7 +88,7 @@ func loadAuthConfig() (*AuthConfiguration, error) {
 	}
 	config.JWTSecret = secret
 
-	config.AccessTokenTTL = 24 * time.Hour
+	config.AccessTokenTTL = time.Hour
 	if ttl, ok := os.LookupEnv("AUTH_ACCESS_TOKEN_TTL"); ok {
 		parsed, err := time.ParseDuration(ttl)
 		if err != nil || parsed <= 0 {

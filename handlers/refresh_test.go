@@ -73,6 +73,16 @@ func (m *refreshMock) GetEpisodeByUUID(ctx context.Context, uuid string) (db.Epi
 	return db.Episode{}, pgx.ErrNoRows
 }
 
+func (m *refreshMock) GetEpisodesByUUIDs(ctx context.Context, uuids []string) ([]db.Episode, error) {
+	var out []db.Episode
+	for _, uuid := range uuids {
+		if episode, ok := m.byUUID[uuid]; ok {
+			out = append(out, episode)
+		}
+	}
+	return out, nil
+}
+
 func (m *refreshMock) GetEpisodesByPodcastID(ctx context.Context, arg db.GetEpisodesByPodcastIDParams) ([]db.Episode, error) {
 	rows := m.episodes[podcastUUIDByID(m.podcasts, arg.PodcastID)]
 	if int32(len(rows)) > arg.Limit {
@@ -175,6 +185,26 @@ func TestRefreshUserUpdateUpToDate(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 200, code)
 	assert.Empty(t, resp.Result.PodcastUpdates)
+}
+
+func TestRefreshUserUpdateRejectsCrossPodcastCutoff(t *testing.T) {
+	m := newRefreshMock()
+	seedCatalog(m)
+	otherPodcast := "11111111-2222-4333-8444-555555555555"
+	m.podcasts[otherPodcast] = db.Podcast{ID: 2, Uuid: otherPodcast, RefreshStatus: "ok"}
+	future := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	foreignEpisode := db.Episode{ID: 3, Uuid: "cccccccc-0000-4000-8000-000000000003", PodcastID: 2, PublishedAt: &future}
+	m.byUUID[foreignEpisode.Uuid] = foreignEpisode
+	router := refreshRouter(m, nil)
+
+	code, resp, _, err := makeRequest[refreshEnvelope](router, "POST", "/user/update", map[string]string{
+		"podcasts": testPodcastUUID, "last_episodes": foreignEpisode.Uuid,
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, code)
+	assert.Len(t, resp.Result.PodcastUpdates[testPodcastUUID], 2,
+		"a cutoff belonging to another podcast must fall back to recent episodes")
 }
 
 func TestRefreshUserUpdateUnknownPodcastSkipped(t *testing.T) {

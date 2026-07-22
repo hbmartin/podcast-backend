@@ -45,7 +45,8 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Quote != "" {
+	boundedQuote := truncateRunes(req.Quote, quoteMaxLength)
+	if boundedQuote != "" {
 		// A quote always implies a Moment: top-level + timestamped. The
 		// quote is UGC-adjacent (it can be hand-edited client-side), so it
 		// goes through the same filter as the text.
@@ -53,7 +54,7 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 			pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "quotes require a timestamp")
 			return
 		}
-		if err := moderation.CheckText(req.Quote); err != nil {
+		if err := moderation.CheckText(boundedQuote); err != nil {
 			pcerrors.Write(w, http.StatusUnprocessableEntity, pcerrors.AccessDenied, "quote rejected")
 			return
 		}
@@ -95,7 +96,11 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 			blocked, err := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
 				UserID: user.ID, TargetUserID: *parent.UserID,
 			})
-			if err == nil && blocked {
+			if err != nil {
+				writeError(w, r, err)
+				return
+			}
+			if blocked {
 				pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "parent not found")
 				return
 			}
@@ -151,7 +156,7 @@ func (h Handlers) PostCommentSubmit(w http.ResponseWriter, r *http.Request) {
 			ts := *req.TimestampSeconds
 			params.TimestampSeconds = &ts
 		}
-		params.Quote = truncateRunes(req.Quote, quoteMaxLength)
+		params.Quote = boundedQuote
 		params.QuoteSource = max(req.QuoteSource, 0)
 		params.QuoteSegment = max(req.QuoteSegment, 0)
 		if params.Quote == "" {

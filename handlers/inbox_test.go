@@ -181,6 +181,17 @@ func TestShareSendGates(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, code)
 	code, _, _ = makeProtoRequest(router2, "/social/share/send", sendRequest("e1", strings.Repeat("x", maxNoteLen+1)), nil)
 	assert.Equal(t, http.StatusBadRequest, code)
+
+	// An episode cannot be resolved without its owning podcast. Podcast-only
+	// show recommendations remain valid.
+	missingPodcast := sendRequest("e1", "hi")
+	missingPodcast.PodcastUuid = ""
+	code, _, _ = makeProtoRequest(router2, "/social/share/send", missingPodcast, nil)
+	assert.Equal(t, http.StatusBadRequest, code)
+
+	showOnly := sendRequest("", "hi")
+	code, _, _ = makeProtoRequest(router2, "/social/share/send", showOnly, nil)
+	assert.Equal(t, http.StatusOK, code)
 }
 
 func TestSendInboxReadDelete(t *testing.T) {

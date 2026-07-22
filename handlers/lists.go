@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/hbmartin/podcast-backend/pcerrors"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
 	"github.com/hbmartin/podcast-backend/push"
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -50,35 +53,50 @@ func (h Handlers) PostSocialListCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := h.Queries.CreateSocialList(r.Context(), db.CreateSocialListParams{
-		OwnerUserID: user.ID,
-		Title:       req.Title,
-		Description: req.Description,
-		Visibility:  visibilityToStored(req.Visibility),
-	})
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
-
-	// Initial snapshot (materialize-to-share): positions follow given order.
+	// Initial snapshot (materialize-to-share): validate and bound every entry
+	// before opening the transaction, then insert the batch with the list.
+	initialEntries := make([]map[string]any, 0, len(req.Entries))
 	for index, entry := range req.Entries {
 		if entry.EpisodeUuid == "" || len(entry.EpisodeUuid) > maxUuidFieldLen ||
 			len(entry.PodcastUuid) > maxUuidFieldLen {
 			continue
 		}
-		if err := h.Queries.UpsertSocialListEntry(r.Context(), db.UpsertSocialListEntryParams{
-			ListID:       created.ID,
-			EpisodeUuid:  entry.EpisodeUuid,
-			PodcastUuid:  entry.PodcastUuid,
-			EpisodeTitle: truncateRunes(entry.EpisodeTitle, maxTitleLen),
-			PodcastTitle: truncateRunes(entry.PodcastTitle, maxTitleLen),
-			Position:     int32(index),
-			AddedBy:      &user.ID,
-		}); err != nil {
-			writeError(w, r, err)
-			return
+		initialEntries = append(initialEntries, map[string]any{
+			"episode_uuid":  entry.EpisodeUuid,
+			"podcast_uuid":  entry.PodcastUuid,
+			"episode_title": truncateRunes(entry.EpisodeTitle, maxTitleLen),
+			"podcast_title": truncateRunes(entry.PodcastTitle, maxTitleLen),
+			"position":      int32(index),
+		})
+	}
+	entriesJSON, err := json.Marshal(initialEntries)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	var created db.CreateSocialListRow
+	err = h.Queries.InTx(r.Context(), func(q db.Querier) error {
+		var createErr error
+		created, createErr = q.CreateSocialList(r.Context(), db.CreateSocialListParams{
+			OwnerUserID: user.ID,
+			Title:       req.Title,
+			Description: req.Description,
+			Visibility:  visibilityToStored(req.Visibility),
+		})
+		if createErr != nil {
+			return createErr
 		}
+		if len(initialEntries) == 0 {
+			return nil
+		}
+		return q.UpsertSocialListEntries(r.Context(), db.UpsertSocialListEntriesParams{
+			ListID: created.ID, AddedBy: &user.ID, Entries: entriesJSON,
+		})
+	})
+	if err != nil {
+		writeError(w, r, err)
+		return
 	}
 
 	resp := &pb.SharedList{
@@ -90,7 +108,7 @@ func (h Handlers) PostSocialListCreate(w http.ResponseWriter, r *http.Request) {
 		Visibility:       pb.SocialVisibility(visibilityToStored(req.Visibility)),
 		CreatedAt:        timestamppb.New(created.CreatedAt),
 		UpdatedAt:        timestamppb.New(created.UpdatedAt),
-		EntryCount:       int32(len(req.Entries)),
+		EntryCount:       int32(len(initialEntries)),
 		YourRole:         pb.SharedListRole_SHARED_LIST_ROLE_OWNER,
 	}
 	writeProto(w, http.StatusOK, resp)
@@ -175,8 +193,17 @@ func (h Handlers) PostSocialListEntries(w http.ResponseWriter, r *http.Request) 
 	}
 
 	viewerID := h.optionalViewerID(r)
-	role := h.socialListRole(r, list.OwnerUserID, req.ListId, viewerID)
-	if !h.canViewSocialList(r, list.OwnerUserID, list.Visibility, viewerID, role) {
+	role, err := h.socialListRole(r, list.OwnerUserID, req.ListId, viewerID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	allowed, err := h.canViewSocialList(r, list.OwnerUserID, list.Visibility, viewerID, role)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if !allowed {
 		pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "list not found")
 		return
 	}
@@ -235,12 +262,21 @@ func (h Handlers) PostSocialListEntryOp(w http.ResponseWriter, r *http.Request) 
 		pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "list not found")
 		return
 	}
-	role := h.socialListRole(r, list.OwnerUserID, req.ListId, user.ID)
+	role, err := h.socialListRole(r, list.OwnerUserID, req.ListId, user.ID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
 	if role != pb.SharedListRole_SHARED_LIST_ROLE_OWNER && role != pb.SharedListRole_SHARED_LIST_ROLE_COLLABORATOR {
 		pcerrors.Write(w, http.StatusForbidden, pcerrors.AccessDenied, "not an editor")
 		return
 	}
-	if !h.canViewSocialList(r, list.OwnerUserID, list.Visibility, user.ID, role) {
+	allowed, err := h.canViewSocialList(r, list.OwnerUserID, list.Visibility, user.ID, role)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if !allowed {
 		pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "list not found")
 		return
 	}
@@ -381,14 +417,21 @@ func (h Handlers) PostSocialListInviteRespond(w http.ResponseWriter, r *http.Req
 		pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "invite not found")
 		return
 	}
-	if list, err := h.Queries.GetSocialList(r.Context(), req.ListId); err == nil {
-		blocked, berr := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
-			UserID: user.ID, TargetUserID: list.OwnerUserID,
-		})
-		if berr == nil && blocked {
-			pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "invite not found")
-			return
-		}
+	list, err := h.Queries.GetSocialList(r.Context(), req.ListId)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	blocked, err := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
+		UserID: user.ID, TargetUserID: list.OwnerUserID,
+	})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if blocked {
+		pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "invite not found")
+		return
 	}
 	if req.Accept {
 		err = h.Queries.UpsertSocialListMember(r.Context(), db.UpsertSocialListMemberParams{
@@ -433,6 +476,10 @@ func (h Handlers) PostSocialListSubscribe(w http.ResponseWriter, r *http.Request
 	existing, err := h.Queries.GetSocialListMember(r.Context(), db.GetSocialListMemberParams{
 		ListID: req.ListId, UserID: user.ID,
 	})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, r, err)
+		return
+	}
 	hasRow := err == nil
 
 	if !req.Subscribe {
@@ -454,8 +501,17 @@ func (h Handlers) PostSocialListSubscribe(w http.ResponseWriter, r *http.Request
 		writeProto(w, http.StatusOK, &pb.SocialAck{Success: true})
 		return
 	}
-	role := h.socialListRole(r, list.OwnerUserID, req.ListId, user.ID)
-	if !h.canViewSocialList(r, list.OwnerUserID, list.Visibility, user.ID, role) {
+	role, err := h.socialListRole(r, list.OwnerUserID, req.ListId, user.ID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	allowed, err := h.canViewSocialList(r, list.OwnerUserID, list.Visibility, user.ID, role)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if !allowed {
 		pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "list not found")
 		return
 	}
@@ -556,60 +612,72 @@ func (h Handlers) PostSocialListMemberRemove(w http.ResponseWriter, r *http.Requ
 // ---- helpers ----
 
 // socialListRole resolves the caller's role on a list (proto-space).
-func (h Handlers) socialListRole(r *http.Request, ownerID, listID, viewerID int64) pb.SharedListRole {
+func (h Handlers) socialListRole(r *http.Request, ownerID, listID, viewerID int64) (pb.SharedListRole, error) {
 	if viewerID == 0 {
-		return pb.SharedListRole_SHARED_LIST_ROLE_NONE
+		return pb.SharedListRole_SHARED_LIST_ROLE_NONE, nil
 	}
 	if viewerID == ownerID {
-		return pb.SharedListRole_SHARED_LIST_ROLE_OWNER
+		return pb.SharedListRole_SHARED_LIST_ROLE_OWNER, nil
 	}
 	role, err := h.Queries.GetSocialListMember(r.Context(), db.GetSocialListMemberParams{
 		ListID: listID, UserID: viewerID,
 	})
 	if err != nil {
-		return pb.SharedListRole_SHARED_LIST_ROLE_NONE
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pb.SharedListRole_SHARED_LIST_ROLE_NONE, nil
+		}
+		return pb.SharedListRole_SHARED_LIST_ROLE_NONE, err
 	}
 	switch role {
 	case listRoleCollaborator:
-		return pb.SharedListRole_SHARED_LIST_ROLE_COLLABORATOR
+		return pb.SharedListRole_SHARED_LIST_ROLE_COLLABORATOR, nil
 	case listRoleSubscriber:
-		return pb.SharedListRole_SHARED_LIST_ROLE_SUBSCRIBER
+		return pb.SharedListRole_SHARED_LIST_ROLE_SUBSCRIBER, nil
 	case listRoleInvited:
-		return pb.SharedListRole_SHARED_LIST_ROLE_INVITED
+		return pb.SharedListRole_SHARED_LIST_ROLE_INVITED, nil
 	}
-	return pb.SharedListRole_SHARED_LIST_ROLE_NONE
+	return pb.SharedListRole_SHARED_LIST_ROLE_NONE, nil
 }
 
 // canViewSocialList applies visibility + block gating: members always see the
 // list; private = members only; public = anyone not blocked-either-way with
 // the owner; followers = active followers.
-func (h Handlers) canViewSocialList(r *http.Request, ownerID int64, visibility int16, viewerID int64, role pb.SharedListRole) bool {
+func (h Handlers) canViewSocialList(r *http.Request, ownerID int64, visibility int16, viewerID int64, role pb.SharedListRole) (bool, error) {
 	// A block severs everything, member roles included (QA finding) — only
 	// the owner is exempt from the check against themselves.
 	if viewerID != 0 && viewerID != ownerID {
 		blocked, err := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
 			UserID: viewerID, TargetUserID: ownerID,
 		})
-		if err == nil && blocked {
-			return false
+		if err != nil {
+			return false, err
+		}
+		if blocked {
+			return false, nil
 		}
 	}
 	if role != pb.SharedListRole_SHARED_LIST_ROLE_NONE {
-		return true
+		return true, nil
 	}
 	switch visibility {
 	case 2: // public
-		return true
+		return true, nil
 	case 3: // followers-only
 		if viewerID == 0 {
-			return false
+			return false, nil
 		}
 		state, err := h.Queries.GetFollowState(r.Context(), db.GetFollowStateParams{
 			FollowerUserID: viewerID, FolloweeUserID: ownerID,
 		})
-		return err == nil && state == followStatusActive
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			return false, err
+		}
+		return state == followStatusActive, nil
 	default: // private
-		return false
+		return false, nil
 	}
 }
 

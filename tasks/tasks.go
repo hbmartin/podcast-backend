@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/hibiken/asynq"
 
@@ -22,6 +23,7 @@ const (
 	TypeNotifyNewEpisodes  = "push:new_episodes"
 	TypeSocialPush         = "push:social"
 	TypeSightingFetch      = "transcript:sighting_fetch"
+	TypeGroupPostFanout    = "push:group_post_fanout"
 )
 
 // Queue names, in priority order.
@@ -62,6 +64,16 @@ type SocialPushPayload struct {
 // server should fetch and store.
 type SightingFetchPayload struct {
 	SightingID int64 `json:"sighting_id"`
+}
+
+// GroupPostFanoutPayload moves potentially large public-hub notification
+// fan-out off the request path.
+type GroupPostFanoutPayload struct {
+	GroupID          int64  `json:"group_id"`
+	PostID           int64  `json:"post_id"`
+	ActorUserID      int64  `json:"actor_user_id"`
+	ActorHandle      string `json:"actor_handle"`
+	ActorDisplayName string `json:"actor_display_name"`
 }
 
 // QueueClient enqueues background tasks onto the Redis queue.
@@ -191,6 +203,24 @@ func (qc *QueueClient) EnqueueSightingFetch(ctx context.Context, sightingID int6
 
 	task := asynq.NewTask(TypeSightingFetch, payload)
 	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow)); err != nil {
+		return errs.E(op, err)
+	}
+	return nil
+}
+
+func (qc *QueueClient) EnqueueGroupPostFanout(ctx context.Context, payload GroupPostFanoutPayload) error {
+	const op errs.Op = "tasks/QueueClient.EnqueueGroupPostFanout"
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return errs.E(op, errs.Internal, err)
+	}
+	taskID := fmt.Sprintf("%s:%d", TypeGroupPostFanout, payload.PostID)
+	if err := qc.Enqueue(ctx, asynq.NewTask(TypeGroupPostFanout, raw),
+		asynq.Queue(QueueLow), asynq.TaskID(taskID)); err != nil {
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
+			return nil
+		}
 		return errs.E(op, err)
 	}
 	return nil

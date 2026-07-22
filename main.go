@@ -4,6 +4,8 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -382,8 +384,8 @@ func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawle
 }
 
 // digestScheduler runs the weekly-digest sweep (Slice 14): hourly tick, real
-// sends only in the Sunday 17:00 UTC window; the per-profile digest_sent_at
-// watermark makes the sweep idempotent across restarts and ticks.
+// sends on Sunday at or after 17:00 UTC; atomic claims and the per-profile
+// watermark make the sweep replica-safe and restart-safe.
 func digestScheduler(ctx context.Context, querier db.Store, notifier *push.Notifier) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
@@ -394,12 +396,17 @@ func digestScheduler(ctx context.Context, querier db.Store, notifier *push.Notif
 			return
 		case <-ticker.C:
 			now := time.Now().UTC()
-			if now.Weekday() != time.Sunday || now.Hour() != 17 {
+			if !shouldRunDigest(now) {
 				continue
 			}
 			digestSweep(ctx, querier, notifier)
 		}
 	}
+}
+
+func shouldRunDigest(now time.Time) bool {
+	now = now.UTC()
+	return now.Weekday() == time.Sunday && now.Hour() >= 17
 }
 
 // digestSweep composes and sends one digest per eligible account: own fresh
@@ -412,7 +419,7 @@ func digestSweep(ctx context.Context, querier db.Store, notifier *push.Notifier)
 	// single capped batch starved everyone past the first 500).
 	total := 0
 	for {
-		users, err := querier.GetDigestCandidates(ctx, 500)
+		users, err := querier.ClaimDigestCandidates(ctx, 500)
 		if err != nil {
 			slog.Warn("Digest sweep query failed", "error", err)
 			return
@@ -423,7 +430,10 @@ func digestSweep(ctx context.Context, querier db.Store, notifier *push.Notifier)
 		for _, userID := range users {
 			body := composeDigestBody(ctx, querier, userID)
 			if body != "" {
-				notifier.NotifyDigest(ctx, userID, "Your week in podcasts", body)
+				if err := notifier.NotifyDigest(ctx, userID, "Your week in podcasts", body); err != nil {
+					slog.Warn("Digest push failed", "user", userID, "error", err)
+					continue
+				}
 			}
 			if err := querier.SetDigestSent(ctx, userID); err != nil {
 				slog.Warn("Unable to set digest watermark", "user", userID, "error", err)
@@ -538,13 +548,13 @@ func probeURL(webPort string, useTLS bool) string {
 func runHealthProbe() int {
 	useTLS := os.Getenv("TLS_CERT_FILE") != "" && os.Getenv("TLS_CERT_KEY_FILE") != ""
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client, err := healthProbeClient("")
 	if useTLS {
-		// the loopback connection won't match the cert's hostnames, and a
-		// self-signed cert is common; the probe only checks liveness
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
+		client, err = healthProbeClient(os.Getenv("TLS_CERT_FILE"))
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "health probe configuration failed:", err)
+		return 1
 	}
 
 	resp, err := client.Get(probeURL(os.Getenv("WEB_PORT"), useTLS))
@@ -558,6 +568,51 @@ func runHealthProbe() int {
 		return 1
 	}
 	return 0
+}
+
+func healthProbeClient(certFile string) (*http.Client, error) {
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errors.New("health probe redirects are not allowed")
+		},
+	}
+	if certFile == "" {
+		return client, nil
+	}
+
+	pemBytes, err := os.ReadFile(certFile)
+	if err != nil {
+		return nil, fmt.Errorf("read TLS certificate: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(pemBytes) {
+		return nil, errors.New("TLS certificate file contains no certificates")
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil, errors.New("TLS certificate file has no leaf certificate")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse TLS certificate: %w", err)
+	}
+	serverName := ""
+	if len(cert.DNSNames) > 0 {
+		serverName = cert.DNSNames[0]
+	} else if len(cert.IPAddresses) > 0 {
+		serverName = cert.IPAddresses[0].String()
+	}
+	if serverName == "" {
+		return nil, errors.New("TLS certificate needs a DNS or IP subject alternative name")
+	}
+
+	client.Transport = &http.Transport{TLSClientConfig: &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    roots,
+		ServerName: serverName,
+	}}
+	return client, nil
 }
 
 func main() {
@@ -596,7 +651,8 @@ func main() {
 	querier, dbDispose := initDB(ctx, configValues)
 	defer dbDispose()
 
-	feedCrawler := &crawler.Crawler{DB: querier, Fetcher: crawler.NewHTTPFetcher()}
+	allowPrivateFeeds := os.Getenv("ENV") == "e2e" && os.Getenv("ALLOW_PRIVATE_FEED_URLS") == "true"
+	feedCrawler := &crawler.Crawler{DB: querier, Fetcher: crawler.NewHTTPFetcher(allowPrivateFeeds)}
 	searcher := itunes.NewClient(os.Getenv("ITUNES_BASE_URL"))
 
 	// APNs push: new-episode alerts, delivered via the task queue when it is
@@ -683,31 +739,18 @@ func main() {
 		}
 	}
 
-	// Sync-driven catalog ingestion (Slice 11): unknown subscribed feeds get
-	// crawled via the OPML-import path (queue) or directly when queue-less.
-	if queueClient != nil {
-		ingestQueue := queueClient
-		syncsvc.OnUnknownPodcast = func(feedURL string) {
-			if err := ingestQueue.EnqueueOpmlImport(context.Background(), []string{feedURL}); err != nil {
-				slog.Warn("sync ingestion enqueue failed", "err", err)
-			}
+	// Sync-driven catalog ingestion (Slice 11): dispatch only after the sync
+	// transaction commits, with per-user admission control, global
+	// de-duplication, and bounded concurrency.
+	ingest := func(ingestCtx context.Context, feedURL string) error {
+		if queueClient != nil {
+			return queueClient.EnqueueOpmlImport(ingestCtx, []string{feedURL})
 		}
-	} else {
-		syncsvc.OnUnknownPodcast = func(feedURL string) {
-			go func() {
-				ingestCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-				defer cancel()
-				podcast, err := feedCrawler.EnsurePodcast(ingestCtx, feedURL)
-				if err != nil {
-					slog.Warn("sync ingestion failed", "err", err)
-					return
-				}
-				if err := feedCrawler.Crawl(ingestCtx, podcast); err != nil {
-					slog.Warn("sync ingestion crawl failed", "err", err)
-				}
-			}()
-		}
+		_, err := feedCrawler.EnsurePodcast(ingestCtx, feedURL)
+		return err
 	}
+	ingestionDispatcher := newFeedIngestionDispatcher(ctx, 4, 128, allowPrivateFeeds, ingest)
+	syncsvc.OnUnknownPodcast = ingestionDispatcher.Submit
 
 	if queueClient != nil {
 		go refreshScheduler(ctx, queueClient)

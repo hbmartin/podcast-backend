@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/hbmartin/podcast-backend/db"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
 
 	"github.com/stretchr/testify/assert"
@@ -55,6 +56,42 @@ func TestApplyUpdateSubscribeAndEcho(t *testing.T) {
 	assert.Equal(t, "pod-1", echoed.Uuid)
 	assert.True(t, echoed.Subscribed.GetValue())
 	assert.False(t, echoed.IsDeleted.GetValue())
+}
+
+func TestApplyUpdateDispatchesUnknownFeedsAfterCommitAndDeduplicates(t *testing.T) {
+	store := newFakeStore()
+	engine := &Engine{DB: store}
+	originalHook := OnUnknownPodcast
+	t.Cleanup(func() { OnUnknownPodcast = originalHook })
+
+	var gotUserID int64
+	var gotFeeds []string
+	OnUnknownPodcast = func(userID int64, feedURL string) {
+		assert.False(t, store.inTx, "network/queue work must run after commit")
+		gotUserID = userID
+		gotFeeds = append(gotFeeds, feedURL)
+	}
+	record := func() *pb.Record {
+		return &pb.Record{Record: &pb.Record_Podcast{Podcast: &pb.SyncUserPodcast{
+			Uuid:       "unknown-podcast",
+			Subscribed: wrapperspb.Bool(true),
+			FeedUrl:    wrapperspb.String("https://example.com/feed.xml"),
+		}}}
+	}
+
+	_, err := engine.ApplyUpdate(context.Background(), 1, &pb.SyncUpdateRequest{
+		Records: []*pb.Record{record(), record()},
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), gotUserID)
+	assert.Equal(t, []string{"https://example.com/feed.xml"}, gotFeeds)
+
+	store.catalogFeeds["https://example.com/feed.xml"] = db.Podcast{Uuid: "catalog-podcast"}
+	_, err = engine.ApplyUpdate(context.Background(), 1, &pb.SyncUpdateRequest{Records: []*pb.Record{record()}})
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"https://example.com/feed.xml"}, gotFeeds,
+		"a feed already ingested under its canonical catalog UUID must not be enqueued again")
 }
 
 func TestApplyUpdateIncrementalReadback(t *testing.T) {
@@ -293,10 +330,12 @@ func TestHistoryAddDeleteClearAndCap(t *testing.T) {
 
 	// delete one
 	resp, err = engine.SyncHistory(ctx, 1, &pb.HistorySyncRequest{Changes: []*pb.HistoryChange{
-		{Action: historyActionDelete, Episode: uuidLike(104)},
+		{Action: historyActionDelete, Episode: uuidLike(104), ModifiedAt: 2000},
 	}})
 	assert.NoError(t, err)
-	assert.Len(t, resp.Changes, 99)
+	assert.Len(t, resp.Changes, 100)
+	assert.Equal(t, int32(historyActionDelete), resp.Changes[0].Action)
+	assert.Equal(t, uuidLike(104), resp.Changes[0].Episode)
 
 	// clear all up to a point
 	resp, err = engine.SyncHistory(ctx, 1, &pb.HistorySyncRequest{Changes: []*pb.HistoryChange{
@@ -339,6 +378,7 @@ func TestSettingsMergeAndResponse(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, int32(30), resp.SkipForward.Value.GetValue())
 	assert.True(t, resp.SkipForward.Changed.GetValue())
+	assert.Greater(t, store.user.SyncLastModified, int64(0))
 	// only stored keys are populated
 	assert.Nil(t, resp.SkipBack)
 

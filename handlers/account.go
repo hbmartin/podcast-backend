@@ -19,7 +19,10 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-const minPasswordLength = 6
+const (
+	minPasswordLength = 6
+	maxPasswordBytes  = 72 // bcrypt input limit
+)
 
 // PostUserLogin handles POST /user/login: email/password exchange for an
 // access token (Api_UserLoginRequest -> Api_UserLoginResponse).
@@ -92,6 +95,10 @@ func (h Handlers) PostUserRegister(w http.ResponseWriter, r *http.Request) {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.PasswordInvalid, "password is too short")
 		return
 	}
+	if len(req.Password) > maxPasswordBytes {
+		pcerrors.Write(w, http.StatusBadRequest, pcerrors.PasswordInvalid, "password is too long")
+		return
+	}
 
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
@@ -144,7 +151,35 @@ func (h Handlers) PostUserToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stored, err := h.Queries.GetRefreshTokenByHash(r.Context(), auth.HashRefreshToken(req.RefreshToken))
+	var response *pb.TokenLoginResponse
+	err := h.Queries.InTx(r.Context(), func(q db.Querier) error {
+		stored, err := q.GetRefreshTokenByHash(r.Context(), auth.HashRefreshToken(req.RefreshToken))
+		if err != nil {
+			return err
+		}
+		user, err := q.GetUserByID(r.Context(), stored.UserID)
+		if err != nil {
+			return err
+		}
+		accessToken, expiresIn, err := auth.MintAccessToken(user.Uuid, user.Email, stored.Scope)
+		if err != nil {
+			return err
+		}
+		newRefresh, err := h.rotateRefreshToken(r.Context(), q, stored, user.ID)
+		if err != nil {
+			return err
+		}
+		response = &pb.TokenLoginResponse{
+			Email:        user.Email,
+			Uuid:         user.Uuid,
+			IsNew:        false,
+			AccessToken:  accessToken,
+			TokenType:    "Bearer",
+			ExpiresIn:    expiresIn,
+			RefreshToken: newRefresh,
+		}
+		return nil
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			pcerrors.Write(w, http.StatusBadRequest, pcerrors.InvalidGrant, "refresh token is invalid or expired")
@@ -153,39 +188,16 @@ func (h Handlers) PostUserToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-
-	user, err := h.Queries.GetUserByID(r.Context(), stored.UserID)
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
-
-	accessToken, expiresIn, err := auth.MintAccessToken(user.Uuid, user.Email, stored.Scope)
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
-
-	newRefresh, err := h.rotateRefreshToken(r.Context(), stored, user.ID)
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
-
-	writeProto(w, http.StatusOK, &pb.TokenLoginResponse{
-		Email:        user.Email,
-		Uuid:         user.Uuid,
-		IsNew:        false,
-		AccessToken:  accessToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    expiresIn,
-		RefreshToken: newRefresh,
-	})
+	writeProto(w, http.StatusOK, response)
 }
 
-func (h Handlers) rotateRefreshToken(ctx context.Context, old db.RefreshToken, userID int64) (string, error) {
-	if _, err := h.Queries.RevokeRefreshToken(ctx, old.TokenHash); err != nil {
+func (h Handlers) rotateRefreshToken(ctx context.Context, q db.Querier, old db.RefreshToken, userID int64) (string, error) {
+	revoked, err := q.RevokeRefreshToken(ctx, old.TokenHash)
+	if err != nil {
 		return "", err
+	}
+	if revoked != 1 {
+		return "", pgx.ErrNoRows
 	}
 
 	token, hash, err := auth.NewRefreshToken()
@@ -193,7 +205,7 @@ func (h Handlers) rotateRefreshToken(ctx context.Context, old db.RefreshToken, u
 		return "", err
 	}
 
-	_, err = h.Queries.CreateRefreshToken(ctx, db.CreateRefreshTokenParams{
+	_, err = q.CreateRefreshToken(ctx, db.CreateRefreshTokenParams{
 		UserID:    userID,
 		TokenHash: hash,
 		Scope:     old.Scope,
@@ -279,6 +291,10 @@ func (h Handlers) PostChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeProto(w, http.StatusOK, changeFailure(pcerrors.PasswordInvalid, "password is too short"))
 		return
 	}
+	if len(req.NewPassword) > maxPasswordBytes {
+		writeProto(w, http.StatusOK, changeFailure(pcerrors.PasswordInvalid, "password is too long"))
+		return
+	}
 
 	hash, err := auth.HashPassword(req.NewPassword)
 	if err != nil {
@@ -302,8 +318,9 @@ func (h Handlers) PostChangePassword(w http.ResponseWriter, r *http.Request) {
 // PostDeleteAccount handles POST /user/delete_account (authenticated):
 // erases the social profile (GDPR — profile PII deleted, handle tombstoned;
 // docs/SocialModeration.md), soft-deletes the user and revokes all refresh
-// tokens. Social erase runs first so a failure surfaces before the account
-// is gone; it is idempotent for never-joined accounts.
+// tokens. Every mutation shares one transaction so failures cannot leave a
+// partially erased account; social erasure is idempotent for never-joined
+// accounts.
 func (h Handlers) PostDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	req := &pb.BasicRequest{}
 	if err := bindProto(r, req); err != nil {
@@ -316,20 +333,21 @@ func (h Handlers) PostDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A deleted account's devices must stop receiving pushes (QA finding).
-	if err := h.Queries.ClearPushStateForUser(r.Context(), user.ID); err != nil {
-		writeError(w, r, err)
-		return
-	}
-	if err := h.socialErase(r, user.ID); err != nil {
-		writeError(w, r, err)
-		return
-	}
-	if _, err := h.Queries.SoftDeleteUser(r.Context(), user.ID); err != nil {
-		writeError(w, r, err)
-		return
-	}
-	if _, err := h.Queries.RevokeAllRefreshTokens(r.Context(), user.ID); err != nil {
+	err := h.Queries.InTx(r.Context(), func(q db.Querier) error {
+		// A deleted account's devices must stop receiving pushes (QA finding).
+		if err := q.ClearPushStateForUser(r.Context(), user.ID); err != nil {
+			return err
+		}
+		if err := socialEraseWithQuerier(r.Context(), q, user.ID); err != nil {
+			return err
+		}
+		if _, err := q.SoftDeleteUser(r.Context(), user.ID); err != nil {
+			return err
+		}
+		_, err := q.RevokeAllRefreshTokens(r.Context(), user.ID)
+		return err
+	})
+	if err != nil {
 		writeError(w, r, err)
 		return
 	}

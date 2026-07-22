@@ -3,9 +3,14 @@ package handlers
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
+
+	"github.com/hbmartin/podcast-backend/db"
 )
 
 func gz(t *testing.T, b []byte) []byte {
@@ -104,5 +109,55 @@ func TestAnonymousAttributionIDPerClient(t *testing.T) {
 	// same client IP (different ephemeral port) => same bucket
 	if mk("203.0.113.7:5000") != mk("203.0.113.7:6001") {
 		t.Fatal("same IP should map to the same anonymous bucket")
+	}
+}
+
+type transcriptQuotaStore struct {
+	db.Store
+	mu    sync.Mutex
+	count int64
+}
+
+func (s *transcriptQuotaStore) InTx(ctx context.Context, fn func(db.Querier) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return fn(s)
+}
+
+func (s *transcriptQuotaStore) LockRateLimitBucket(context.Context, string) error {
+	return nil
+}
+
+func (s *transcriptQuotaStore) CountRecentContributionsByAttribution(
+	context.Context,
+	db.CountRecentContributionsByAttributionParams,
+) (int64, error) {
+	return s.count, nil
+}
+
+func TestTranscriptQuotaReservationIsAtomic(t *testing.T) {
+	store := &transcriptQuotaStore{}
+	h := Handlers{Queries: store}
+	var accepted atomic.Int64
+	var wg sync.WaitGroup
+
+	for range 100 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := h.withTranscriptQuota(context.Background(), "contribution", "user", "one", 50, func(db.Querier) error {
+				store.count++
+				accepted.Add(1)
+				return nil
+			})
+			if err != nil && err != errTranscriptRateLimited {
+				t.Errorf("unexpected quota error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := accepted.Load(); got != 50 {
+		t.Fatalf("accepted %d submissions, want 50", got)
 	}
 }

@@ -859,6 +859,7 @@ func TestSocialPush(t *testing.T) {
 	// A different type still flows: a shared item (type 4).
 	status = postProto(t, "/social/share/send", tokenA, &pb.SharedItemSendRequest{
 		RecipientHandle: handleB, EpisodeUuid: fmt.Sprintf("push-ep-%d", suffix),
+		PodcastUuid: "push-podcast",
 		EpisodeTitle: "Pushed Episode",
 	}, &pb.SocialAck{})
 	require.Equal(t, http.StatusOK, status)

@@ -48,8 +48,23 @@ jobs:
       - name: Pull dependencies
         run: go mod download
 
+      - name: Reject tracked binaries
+        run: scripts/check-no-tracked-binaries.sh
+
       - name: Vet
         run: go vet ./...
+
+      - name: Install Semgrep
+        run: python -m pip install semgrep==1.151.0
+
+      - name: Repository security rules
+        run: make semgrep
+
+      - name: Go security analysis
+        run: make gosec
+
+      - name: Go vulnerability check
+        run: make govulncheck
 
       - uses: reviewdog/action-staticcheck@v1
         with:

@@ -52,6 +52,8 @@ var tokenishQueryName = regexp.MustCompile(`(?i)(token|sig|signature|key|auth|se
 // vttCueLine matches a WebVTT/SRT cue timing line and captures the end time.
 var vttCueLine = regexp.MustCompile(`-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})`)
 
+var errTranscriptRateLimited = errors.New("transcript attribution rate limit exceeded")
+
 // PostTranscriptContribute ingests a crowdsourced generated transcript
 // (docs/TranscriptContributions.md §3, §4). The attest middleware has already
 // verified any assertion and capped the compressed body.
@@ -77,7 +79,7 @@ func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	d := req.EpisodeDurationSeconds
-	if math.IsNaN(d) || math.IsInf(d, 0) || d < 0 {
+	if math.IsNaN(d) || math.IsInf(d, 0) || d <= 0 {
 		reject(w, "duration")
 		return
 	}
@@ -86,7 +88,7 @@ func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Reques
 		reject(w, "vtt")
 		return
 	}
-	if d > 0 && (end < d*(1-durationTolerance) || end > d*(1+durationTolerance)) {
+	if end < d*(1-durationTolerance) || end > d*(1+durationTolerance) {
 		reject(w, "duration")
 		return
 	}
@@ -103,9 +105,6 @@ func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Reques
 	}
 
 	attribution, attributionID := attribution(r)
-	if !h.withinRate(r.Context(), w, "contribution", attribution, attributionID, contributionDailyLimit) {
-		return
-	}
 
 	var createdAt *time.Time
 	if req.CreatedAt != nil {
@@ -113,7 +112,7 @@ func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Reques
 		createdAt = &t
 	}
 
-	if err := h.Queries.InsertTranscriptContribution(r.Context(), db.InsertTranscriptContributionParams{
+	params := db.InsertTranscriptContributionParams{
 		EpisodeUuid:            req.EpisodeUuid,
 		PodcastUuid:            req.PodcastUuid,
 		VttBlob:                req.Vtt,
@@ -127,7 +126,15 @@ func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Reques
 		CreatedAt:              createdAt,
 		Attribution:            attribution,
 		AttributionID:          attributionID,
-	}); err != nil {
+	}
+	err = h.withTranscriptQuota(r.Context(), "contribution", attribution, attributionID, contributionDailyLimit, func(q db.Querier) error {
+		return q.InsertTranscriptContribution(r.Context(), params)
+	})
+	if errors.Is(err, errTranscriptRateLimited) {
+		writeTranscriptRateLimit(w)
+		return
+	}
+	if err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -150,11 +157,8 @@ func (h Handlers) PostTranscriptSighting(w http.ResponseWriter, r *http.Request)
 	}
 
 	attribution, attributionID := attribution(r)
-	if !h.withinRate(r.Context(), w, "sighting", attribution, attributionID, sightingDailyLimit) {
-		return
-	}
 
-	id, err := h.Queries.InsertTranscriptSighting(r.Context(), db.InsertTranscriptSightingParams{
+	params := db.InsertTranscriptSightingParams{
 		EpisodeUuid:   req.EpisodeUuid,
 		PodcastUuid:   req.PodcastUuid,
 		TranscriptUrl: req.TranscriptUrl,
@@ -162,7 +166,17 @@ func (h Handlers) PostTranscriptSighting(w http.ResponseWriter, r *http.Request)
 		Language:      req.Language,
 		Attribution:   attribution,
 		AttributionID: attributionID,
+	}
+	var id int64
+	err := h.withTranscriptQuota(r.Context(), "sighting", attribution, attributionID, sightingDailyLimit, func(q db.Querier) error {
+		var insertErr error
+		id, insertErr = q.InsertTranscriptSighting(r.Context(), params)
+		return insertErr
 	})
+	if errors.Is(err, errTranscriptRateLimited) {
+		writeTranscriptRateLimit(w)
+		return
+	}
 	if err != nil {
 		// Only the ON CONFLICT DO NOTHING no-row result is a duplicate; real
 		// database failures must not be masked as a successful sighting.
@@ -252,26 +266,46 @@ func anonymousAttributionID(r *http.Request) string {
 	return "ip:" + hex.EncodeToString(sum[:8])
 }
 
-func (h Handlers) withinRate(ctx context.Context, w http.ResponseWriter, kind, attribution, attributionID string, limit int64) bool {
-	var count int64
-	var err error
-	cutoff := time.Now().Add(-rateLimitWindow)
-	if kind == "sighting" {
-		count, err = h.Queries.CountRecentSightingsByAttribution(ctx, db.CountRecentSightingsByAttributionParams{
-			Attribution: attribution, AttributionID: attributionID, ReceivedAt: cutoff,
-		})
-	} else {
-		count, err = h.Queries.CountRecentContributionsByAttribution(ctx, db.CountRecentContributionsByAttributionParams{
-			Attribution: attribution, AttributionID: attributionID, ReceivedAt: cutoff,
-		})
-	}
-	if err == nil && count >= limit {
-		metrics.TranscriptRejections.WithLabelValues("rate_limit").Inc()
-		w.Header().Set("Retry-After", rateLimitRetryAfter)
-		pcerrors.Write(w, http.StatusTooManyRequests, pcerrors.RateLimited, "rate limit exceeded")
-		return false
-	}
-	return true
+func (h Handlers) withTranscriptQuota(
+	ctx context.Context,
+	kind string,
+	attribution string,
+	attributionID string,
+	limit int64,
+	insert func(db.Querier) error,
+) error {
+	return h.Queries.InTx(ctx, func(q db.Querier) error {
+		lockKey := kind + ":" + attribution + ":" + attributionID
+		if err := q.LockRateLimitBucket(ctx, lockKey); err != nil {
+			return err
+		}
+
+		var count int64
+		var err error
+		cutoff := time.Now().Add(-rateLimitWindow)
+		if kind == "sighting" {
+			count, err = q.CountRecentSightingsByAttribution(ctx, db.CountRecentSightingsByAttributionParams{
+				Attribution: attribution, AttributionID: attributionID, ReceivedAt: cutoff,
+			})
+		} else {
+			count, err = q.CountRecentContributionsByAttribution(ctx, db.CountRecentContributionsByAttributionParams{
+				Attribution: attribution, AttributionID: attributionID, ReceivedAt: cutoff,
+			})
+		}
+		if err != nil {
+			return err
+		}
+		if count >= limit {
+			return errTranscriptRateLimited
+		}
+		return insert(q)
+	})
+}
+
+func writeTranscriptRateLimit(w http.ResponseWriter) {
+	metrics.TranscriptRejections.WithLabelValues("rate_limit").Inc()
+	w.Header().Set("Retry-After", rateLimitRetryAfter)
+	pcerrors.Write(w, http.StatusTooManyRequests, pcerrors.RateLimited, "rate limit exceeded")
 }
 
 // isTokenFreeURL re-validates a sighting URL server-side: http(s), no userinfo,

@@ -69,7 +69,7 @@ func TestLoadAuthConfigDefaults(t *testing.T) {
 	config, err := loadAuthConfig()
 
 	assert.Nil(t, err)
-	assert.Equal(t, 24*time.Hour, config.AccessTokenTTL)
+	assert.Equal(t, time.Hour, config.AccessTokenTTL)
 	assert.Equal(t, 365*24*time.Hour, config.RefreshTokenTTL)
 }
 

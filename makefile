@@ -15,7 +15,7 @@ ifneq ($(OS),Windows_NT)
 	GOHOME := $(HOME)/go/bin/
 endif
 
-.PHONY: all test build clean coverage lint lint-go vet-go e2e proto sqlc docker-build docker-run docker-stop docker-release help
+.PHONY: all test build clean coverage lint lint-go vet-go e2e proto sqlc semgrep gosec govulncheck security docker-build docker-run docker-stop docker-release help
 
 all: help
 
@@ -66,11 +66,11 @@ cobertura: ## Run the tests of the project and export a cobertura coverage xml
 
 ## Codegen:
 proto: ## Regenerate Go protobuf code from protos/api.proto
-	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 	PATH="$$PATH:$(GOHOME)" protoc -I protos --go_out=. --go_opt=module=github.com/hbmartin/podcast-backend protos/api.proto
 
 sqlc: ## Regenerate database code from db/queries.sql
-	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 	$(GOHOME)sqlc generate
 
 e2e: ## Run the end-to-end suite (needs Postgres; see readme)
@@ -85,6 +85,17 @@ lint-go: ## Use staticcheck on your project
 
 vet-go: ## Use go vet on your project
 	$(GOVET)
+
+semgrep: ## Run repository-specific security and correctness rules
+	semgrep --config .semgrep.yml --error .
+
+gosec: ## Run Go security analysis (tool version is pinned for reproducibility)
+	$(GOCMD) run github.com/securego/gosec/v2/cmd/gosec@v2.28.0 -exclude-generated -include=G402 ./...
+
+govulncheck: ## Check reachable Go dependencies for known vulnerabilities
+	$(GOCMD) run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
+security: semgrep gosec govulncheck ## Run all security prevention checks
 
 ## Docker:
 docker-build: ## Use the dockerfile to build the container

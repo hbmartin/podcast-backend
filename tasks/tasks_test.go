@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/errs"
 )
@@ -18,6 +23,19 @@ import (
 // panics on anything else.
 type storeStub struct {
 	db.Store
+}
+
+type opmlStoreStub struct {
+	db.Store
+	mu   sync.Mutex
+	seen []string
+}
+
+func (s *opmlStoreStub) GetPodcastByFeedURL(ctx context.Context, feedURL string) (db.Podcast, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen = append(s.seen, feedURL)
+	return db.Podcast{Uuid: crawler.PodcastUUID(feedURL), FeedUrl: feedURL, RefreshStatus: "ok"}, nil
 }
 
 func (s *storeStub) GetPodcastByUUID(ctx context.Context, uuid string) (db.Podcast, error) {
@@ -78,4 +96,48 @@ func TestHandleOpmlImportTaskBadPayload(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.True(t, errs.KindIs(err, errs.Internal))
 	assert.True(t, errors.Is(err, asynq.SkipRetry))
+}
+
+func TestHandleOpmlImportTaskSuccess(t *testing.T) {
+	store := &opmlStoreStub{}
+	worker := &WorkerServer{db: store, crawler: &crawler.Crawler{DB: store}}
+	payload, err := json.Marshal(OpmlImportPayload{FeedURLs: []string{
+		"https://example.com/one.xml", "https://example.com/two.xml",
+	}})
+	assert.NoError(t, err)
+
+	err = worker.HandleOpmlImportTask(context.Background(), asynq.NewTask(TypeOpmlImport, payload))
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"https://example.com/one.xml", "https://example.com/two.xml"}, store.seen)
+}
+
+func TestCrawlPodcastsBoundedDeduplicatesAndCapsConcurrency(t *testing.T) {
+	const workerCount = 4
+	var active atomic.Int32
+	var peak atomic.Int32
+	var calls atomic.Int32
+	podcasts := make([]db.Podcast, 0, 41)
+	for i := range 40 {
+		podcasts = append(podcasts, db.Podcast{Uuid: fmt.Sprintf("podcast-%d", i)})
+	}
+	podcasts = append(podcasts, podcasts[0])
+
+	err := crawlPodcastsBounded(context.Background(), podcasts, workerCount, func(db.Podcast) {
+		calls.Add(1)
+		current := active.Add(1)
+		for {
+			old := peak.Load()
+			if current <= old || peak.CompareAndSwap(old, current) {
+				break
+			}
+		}
+		time.Sleep(time.Millisecond)
+		active.Add(-1)
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, int32(40), calls.Load())
+	assert.LessOrEqual(t, peak.Load(), int32(workerCount))
+	assert.Greater(t, peak.Load(), int32(1))
 }

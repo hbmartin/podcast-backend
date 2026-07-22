@@ -37,7 +37,8 @@ RETURNING *;
 
 -- name: GetRefreshTokenByHash :one
 SELECT * FROM refresh_tokens
-WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now();
+WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+FOR UPDATE;
 
 -- name: RevokeRefreshToken :execrows
 UPDATE refresh_tokens SET revoked_at = now()
@@ -49,7 +50,7 @@ WHERE user_id = $1 AND revoked_at IS NULL;
 
 -- name: GetUserForUpdate :one
 SELECT * FROM users
-WHERE id = $1
+WHERE id = $1 AND deleted_at IS NULL
 FOR UPDATE;
 
 -- name: SetUserSyncLastModified :exec
@@ -282,18 +283,24 @@ INSERT INTO up_next_items (
 
 -- name: UpsertHistoryItem :exec
 INSERT INTO history (
-    user_id, episode_uuid, podcast_uuid, title, url, published, modified_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    user_id, episode_uuid, podcast_uuid, title, url, published, modified_at, is_deleted
+) VALUES ($1, $2, $3, $4, $5, $6, $7, false)
 ON CONFLICT (user_id, episode_uuid) DO UPDATE SET
     podcast_uuid = EXCLUDED.podcast_uuid,
     title = EXCLUDED.title,
     url = EXCLUDED.url,
     published = EXCLUDED.published,
-    modified_at = EXCLUDED.modified_at
+    modified_at = EXCLUDED.modified_at,
+    is_deleted = false
 WHERE EXCLUDED.modified_at > history.modified_at;
 
--- name: DeleteHistoryItem :exec
-DELETE FROM history WHERE user_id = $1 AND episode_uuid = $2;
+-- name: TombstoneHistoryItem :exec
+INSERT INTO history (user_id, episode_uuid, modified_at, is_deleted)
+VALUES ($1, $2, $3, true)
+ON CONFLICT (user_id, episode_uuid) DO UPDATE SET
+    modified_at = EXCLUDED.modified_at,
+    is_deleted = true
+WHERE EXCLUDED.modified_at > history.modified_at;
 
 -- name: DeleteHistoryBefore :exec
 DELETE FROM history WHERE user_id = $1 AND modified_at <= $2;
@@ -420,6 +427,9 @@ LIMIT $2;
 
 -- name: GetEpisodeByUUID :one
 SELECT * FROM episodes WHERE uuid = $1;
+
+-- name: GetEpisodesByUUIDs :many
+SELECT * FROM episodes WHERE uuid = ANY($1::uuid[]);
 
 -- name: GetEpisodesPublishedAfter :many
 SELECT * FROM episodes
@@ -605,6 +615,9 @@ WHERE key_id = $1 AND status = 'active' AND counter < $2;
 -- Transcript contributions & sightings (docs/TranscriptContributions.md §4)
 -- ============================================================================
 
+-- name: LockRateLimitBucket :exec
+SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(lock_key), 0));
+
 -- name: InsertTranscriptContribution :exec
 INSERT INTO transcript_contributions (
     episode_uuid, podcast_uuid, vtt_blob, fingerprint_blob, engine, model_id,
@@ -717,6 +730,10 @@ SELECT EXISTS (
 INSERT INTO moderation_reports (target_user_id, reporter_user_id, source, reason, context, target_type, content_ref)
 VALUES ($1, $2, $3, $4, $5, $6, $7);
 
+-- name: CountRecentModerationReportsByReporter :one
+SELECT count(*) FROM moderation_reports
+WHERE reporter_user_id = $1 AND created_at > $2;
+
 -- name: DeleteSocialProfile :execrows
 DELETE FROM social_profiles WHERE user_id = $1;
 
@@ -747,7 +764,7 @@ SELECT ue.podcast_uuid, COALESCE(p.title, '') AS title, COALESCE(p.author, '') A
        SUM(ue.played_up_to)::bigint AS played_seconds
 FROM user_episodes ue
 LEFT JOIN podcasts p ON p.uuid = ue.podcast_uuid
-WHERE ue.user_id = $1
+WHERE ue.user_id = $1 AND NOT ue.is_deleted
 GROUP BY ue.podcast_uuid, p.title, p.author
 HAVING SUM(ue.played_up_to) > 0
 ORDER BY played_seconds DESC
@@ -758,7 +775,7 @@ LIMIT $2;
 -- denormalized on the history row). modified_at is interaction millis.
 SELECT episode_uuid, podcast_uuid, title, modified_at
 FROM history
-WHERE user_id = $1
+WHERE user_id = $1 AND NOT is_deleted
 ORDER BY modified_at DESC
 LIMIT $2;
 
@@ -1320,6 +1337,33 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (list_id, episode_uuid) DO UPDATE SET
     position = EXCLUDED.position;
 
+-- name: UpsertSocialListEntries :exec
+INSERT INTO social_list_entries (
+    list_id, episode_uuid, podcast_uuid, episode_title, podcast_title, position, added_by
+)
+SELECT
+    sqlc.arg(list_id),
+    batch.episode_uuid,
+    batch.podcast_uuid,
+    batch.episode_title,
+    batch.podcast_title,
+    batch.position,
+    sqlc.narg(added_by)::bigint
+FROM jsonb_to_recordset(sqlc.arg(entries)::jsonb) AS batch(
+    episode_uuid text,
+    podcast_uuid text,
+    episode_title text,
+    podcast_title text,
+    position int
+)
+ON CONFLICT (list_id, episode_uuid) DO UPDATE
+SET podcast_uuid = EXCLUDED.podcast_uuid,
+    episode_title = EXCLUDED.episode_title,
+    podcast_title = EXCLUDED.podcast_title,
+    position = EXCLUDED.position,
+    added_by = EXCLUDED.added_by,
+    added_at = now();
+
 -- name: DeleteSocialListEntry :execrows
 DELETE FROM social_list_entries WHERE list_id = $1 AND episode_uuid = $2;
 
@@ -1417,7 +1461,13 @@ LIMIT $2;
 SELECT sp.user_id, sp.handle, sp.display_name, u.email
 FROM social_profiles sp
 JOIN users u ON u.id = sp.user_id
-WHERE NOT sp.hide_from_discovery;
+WHERE NOT sp.hide_from_discovery
+  AND sp.user_id <> $1
+  AND NOT EXISTS (
+    SELECT 1 FROM social_relationships sr
+    WHERE sr.kind = 0
+      AND ((sr.user_id = $1 AND sr.target_user_id = sp.user_id)
+        OR (sr.user_id = sp.user_id AND sr.target_user_id = $1)));
 
 -- Slice 10: social discovery. Trending ranks followees' recently finished
 -- episodes under each actor's HISTORY visibility; proof lists followees who
@@ -1673,8 +1723,24 @@ UPDATE social_group_members SET role = 2 WHERE group_id = $1 AND user_id = $2;
 DELETE FROM social_groups WHERE id = $1;
 
 -- name: GetGroupNotifyTargets :many
-SELECT user_id FROM social_group_members
-WHERE group_id = $1 AND role IN (1, 2) AND notify_posts AND user_id <> $2;
+SELECT gm.user_id
+FROM social_group_members gm
+WHERE gm.group_id = $1
+  AND gm.role IN (1, 2)
+  AND gm.notify_posts
+  AND gm.user_id <> $2
+  AND NOT EXISTS (
+      SELECT 1 FROM social_relationships blocked
+      WHERE blocked.kind = 0
+        AND ((blocked.user_id = $2 AND blocked.target_user_id = gm.user_id)
+          OR (blocked.user_id = gm.user_id AND blocked.target_user_id = $2))
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM social_relationships muted
+      WHERE muted.kind = 1
+        AND muted.user_id = gm.user_id
+        AND muted.target_user_id = $2
+  );
 
 -- Milestones (Slice 14, ADR-0013): materialized ladder crossings. kind
 -- 1=hours listened, 2=episodes finished.
@@ -1712,17 +1778,35 @@ DELETE FROM social_milestones WHERE user_id = $1;
 -- Weekly digest (push type 9): candidates are joined accounts past the
 -- watermark with a graph or a fresh milestone - never filler.
 
--- name: GetDigestCandidates :many
-SELECT sp.user_id FROM social_profiles sp
-WHERE (sp.digest_sent_at IS NULL OR sp.digest_sent_at < now() - interval '6 days')
-  AND (EXISTS (SELECT 1 FROM social_follows sf
-               WHERE sf.follower_user_id = sp.user_id AND sf.status = 1)
-       OR EXISTS (SELECT 1 FROM social_milestones sm
-                  WHERE sm.user_id = sp.user_id AND sm.crossed_at > now() - interval '7 days'))
-LIMIT $1;
+-- name: ClaimDigestCandidates :many
+WITH candidates AS (
+    SELECT sp.user_id, sp.digest_sent_at
+    FROM social_profiles sp
+    WHERE (sp.digest_sent_at IS NULL OR sp.digest_sent_at < now() - interval '6 days')
+      AND (sp.digest_claimed_at IS NULL OR sp.digest_claimed_at < now() - interval '15 minutes')
+      AND (EXISTS (SELECT 1 FROM social_follows sf
+                   WHERE sf.follower_user_id = sp.user_id AND sf.status = 1)
+           OR EXISTS (SELECT 1 FROM social_milestones sm
+                      WHERE sm.user_id = sp.user_id AND sm.crossed_at > now() - interval '7 days'))
+    ORDER BY sp.digest_sent_at ASC NULLS FIRST, sp.user_id
+    FOR UPDATE SKIP LOCKED
+    LIMIT $1
+), claimed AS (
+    UPDATE social_profiles sp
+    SET digest_claimed_at = now()
+    FROM candidates c
+    WHERE sp.user_id = c.user_id
+    RETURNING sp.user_id
+)
+SELECT claimed.user_id
+FROM claimed
+JOIN candidates USING (user_id)
+ORDER BY candidates.digest_sent_at ASC NULLS FIRST, claimed.user_id;
 
 -- name: SetDigestSent :exec
-UPDATE social_profiles SET digest_sent_at = now() WHERE user_id = $1;
+UPDATE social_profiles
+SET digest_sent_at = now(), digest_claimed_at = NULL
+WHERE user_id = $1;
 
 -- name: CountGraphHighlights :one
 SELECT (

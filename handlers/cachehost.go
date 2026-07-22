@@ -88,7 +88,9 @@ func (h Handlers) loadCrawledPodcast(w http.ResponseWriter, r *http.Request, uui
 
 	if podcast.RefreshStatus != "ok" {
 		if h.Queue != nil {
-			_ = h.Queue.EnqueuePodcastRefresh(r.Context(), podcast.Uuid, podcast.FeedUrl)
+			if err := h.Queue.EnqueuePodcastRefresh(r.Context(), podcast.Uuid, podcast.FeedUrl); err != nil {
+				slog.Warn("Pending cache-host podcast enqueue failed", "podcast_uuid", podcast.Uuid, "error", err)
+			}
 		}
 		w.WriteHeader(http.StatusNotFound)
 		return db.Podcast{}, false

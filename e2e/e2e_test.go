@@ -141,6 +141,7 @@ func TestMain(m *testing.M) {
 	server.Dir = ".." // migrations are read from db/migrations relative to cwd
 	server.Env = append(os.Environ(),
 		"ENV=e2e",
+		"ALLOW_PRIVATE_FEED_URLS=true",
 		"WEB_PORT="+port,
 		"DB_CONNECTION_STRING="+connString,
 		"AUTH_JWT_SECRET=e2e-secret-e2e-secret-e2e-secret-32",

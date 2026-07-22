@@ -182,18 +182,22 @@ func (n *Notifier) NotifySocial(ctx context.Context, targetUserID int64, pushTyp
 // NotifyDigest delivers the weekly digest (Slice 14): one pre-composed push,
 // gated by bitmask bit 9 like every social type, collapse-id "digest" so a
 // stale digest never stacks on a fresh one.
-func (n *Notifier) NotifyDigest(ctx context.Context, targetUserID int64, title, body string) {
+func (n *Notifier) NotifyDigest(ctx context.Context, targetUserID int64, title, body string) error {
 	profile, err := n.DB.GetSocialProfileByUserID(ctx, targetUserID)
 	if err != nil {
-		return
+		return err
 	}
 	if profile.SocialPushDisabled&(1<<(SocialPushDigest-1)) != 0 {
-		return
+		return nil
 	}
 	targets, err := n.DB.GetPushTargetsForUser(ctx, targetUserID)
-	if err != nil || len(targets) == 0 {
-		return
+	if err != nil {
+		return err
 	}
+	if len(targets) == 0 {
+		return nil
+	}
+	var failures []error
 	for _, target := range targets {
 		notification := Notification{
 			Title: title, Body: body,
@@ -203,8 +207,14 @@ func (n *Notifier) NotifyDigest(ctx context.Context, targetUserID int64, title, 
 		}
 		if err := n.Sender.Send(ctx, target.PushToken, notification); err != nil {
 			if errors.Is(err, ErrUnregistered) {
-				_ = n.DB.ClearPushToken(ctx, target.PushToken)
+				if clearErr := n.DB.ClearPushToken(ctx, target.PushToken); clearErr != nil {
+					failures = append(failures, clearErr)
+				}
+				continue
 			}
+			slog.Warn("digest push delivery failed", "user", targetUserID, "error", err)
+			failures = append(failures, err)
 		}
 	}
+	return errors.Join(failures...)
 }

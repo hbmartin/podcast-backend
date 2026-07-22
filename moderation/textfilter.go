@@ -70,6 +70,9 @@ func CheckText(s string) error {
 		if unicode.IsControl(r) {
 			return ErrBadRunes
 		}
+		if isDangerousFormatRune(r) {
+			return ErrBadRunes
+		}
 	}
 	lower := strings.ToLower(s)
 	for _, blocked := range Blocklist {
@@ -78,4 +81,25 @@ func CheckText(s string) error {
 		}
 	}
 	return nil
+}
+
+// isDangerousFormatRune rejects direction overrides/isolates and invisible
+// separators commonly used for display spoofing or blocklist evasion. ZWJ and
+// ZWNJ are intentionally allowed because they are meaningful in emoji and
+// several writing systems.
+func isDangerousFormatRune(r rune) bool {
+	switch r {
+	case '\u00ad', // soft hyphen
+		'\u061c',           // Arabic letter mark
+		'\u200b',           // zero-width space
+		'\u200e', '\u200f', // directional marks
+		'\u202a', '\u202b', '\u202c', '\u202d', '\u202e', // bidi embeddings/overrides
+		'\u2060',                               // word joiner
+		'\u2066', '\u2067', '\u2068', '\u2069', // bidi isolates
+		'\ufeff',                     // zero-width no-break space / BOM
+		'\ufff9', '\ufffa', '\ufffb': // interlinear annotation controls
+		return true
+	default:
+		return false
+	}
 }

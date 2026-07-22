@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/hbmartin/podcast-backend/pcerrors"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
 	"github.com/hbmartin/podcast-backend/push"
+	"github.com/hbmartin/podcast-backend/tasks"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -66,7 +69,11 @@ func (h Handlers) PostGroupPostSubmit(w http.ResponseWriter, r *http.Request) {
 			blocked, err := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
 				UserID: user.ID, TargetUserID: *parent.UserID,
 			})
-			if err == nil && blocked {
+			if err != nil {
+				writeError(w, r, err)
+				return
+			}
+			if blocked {
 				pcerrors.Write(w, http.StatusNotFound, pcerrors.AccessDenied, "post not found")
 				return
 			}
@@ -97,23 +104,10 @@ func (h Handlers) PostGroupPostSubmit(w http.ResponseWriter, r *http.Request) {
 		h.notifySocial(*parentAuthor, push.SocialPushCommentReply, profile.Handle, profile.DisplayName, groupData)
 	}
 	if req.ParentId == 0 {
-		// Quiet groups: new-post pushes go only to members who opted in
-		// per-group; the global type-8 bit still gates inside NotifySocial.
-		if targets, err := h.Queries.GetGroupNotifyTargets(r.Context(), db.GetGroupNotifyTargetsParams{
-			GroupID: req.GroupId, UserID: user.ID,
-		}); err == nil {
-			for _, target := range targets {
-				// Blocked pairs can share a group (blocks sever follows, not
-				// memberships): the fan-out must honor mutual invisibility.
-				blocked, err := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
-					UserID: user.ID, TargetUserID: target,
-				})
-				if err != nil || blocked || h.mutedBy(r, target, user.ID) {
-					continue
-				}
-				h.notifySocial(target, push.SocialPushGroupPost, profile.Handle, profile.DisplayName, groupData)
-			}
-		}
+		h.dispatchGroupPostFanout(tasks.GroupPostFanoutPayload{
+			GroupID: req.GroupId, PostID: inserted.ID, ActorUserID: user.ID,
+			ActorHandle: profile.Handle, ActorDisplayName: profile.DisplayName,
+		})
 	}
 
 	writeProto(w, http.StatusOK, &pb.GroupPost{
@@ -124,6 +118,44 @@ func (h Handlers) PostGroupPostSubmit(w http.ResponseWriter, r *http.Request) {
 		ListId: params.ListID, ListTitle: params.ListTitle,
 		CreatedAt: timestamppb.New(inserted.CreatedAt),
 	})
+}
+
+var directGroupFanoutSem = make(chan struct{}, 4)
+
+func (h Handlers) dispatchGroupPostFanout(payload tasks.GroupPostFanoutPayload) {
+	if h.Queue != nil {
+		if err := h.Queue.EnqueueGroupPostFanout(context.Background(), payload); err != nil {
+			slog.Warn("group post fanout enqueue failed", "post_id", payload.PostID, "error", err)
+		}
+		return
+	}
+	select {
+	case directGroupFanoutSem <- struct{}{}:
+	default:
+		slog.Warn("group post fanout dropped; concurrency limit reached", "post_id", payload.PostID)
+		return
+	}
+	// nosemgrep: go.request-loop-unbounded-goroutine -- fallback is globally bounded by directGroupFanoutSem.
+	go func() {
+		defer func() { <-directGroupFanoutSem }()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		targets, err := h.Queries.GetGroupNotifyTargets(ctx, db.GetGroupNotifyTargetsParams{
+			GroupID: payload.GroupID, UserID: payload.ActorUserID,
+		})
+		if err != nil {
+			slog.Warn("group post fanout target query failed", "post_id", payload.PostID, "error", err)
+			return
+		}
+		data := map[string]string{
+			"group_id": strconv.FormatInt(payload.GroupID, 10),
+			"post_id":  strconv.FormatInt(payload.PostID, 10),
+		}
+		for _, target := range targets {
+			h.notifySocial(target, push.SocialPushGroupPost,
+				payload.ActorHandle, payload.ActorDisplayName, data)
+		}
+	}()
 }
 
 // PostGroupPosts handles POST /social/group/posts: private groups are

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"sync"
 
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5"
@@ -59,6 +61,7 @@ func (w *WorkerServer) Start() error {
 	mux.HandleFunc(TypeNotifyNewEpisodes, w.HandleNotifyNewEpisodesTask)
 	mux.HandleFunc(TypeSocialPush, w.HandleSocialPushTask)
 	mux.HandleFunc(TypeSightingFetch, w.HandleSightingFetchTask)
+	mux.HandleFunc(TypeGroupPostFanout, w.HandleGroupPostFanoutTask)
 
 	return w.srv.Run(mux)
 }
@@ -135,15 +138,57 @@ func (w *WorkerServer) HandleRefreshDuePodcastsTask(ctx context.Context, t *asyn
 	}
 
 	slog.Info("Refreshing due podcasts", "count", len(due))
-	for _, podcast := range due {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
+	return crawlPodcastsBounded(ctx, due, scheduledCrawlWorkers, func(podcast db.Podcast) {
 		if err := w.crawler.Crawl(ctx, podcast); err != nil {
 			slog.Warn("Scheduled crawl failed", "uuid", podcast.Uuid, "error", err)
 		}
+	})
+}
+
+// crawlPodcastsBounded runs one de-duplicated crawl per podcast through a
+// fixed worker pool. The database batch cap bounds memory while this cap
+// bounds simultaneous outbound feed requests.
+func crawlPodcastsBounded(ctx context.Context, podcasts []db.Podcast, workers int, crawl func(db.Podcast)) error {
+	if workers < 1 {
+		workers = 1
 	}
-	return nil
+	jobs := make(chan db.Podcast)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case podcast, ok := <-jobs:
+					if !ok {
+						return
+					}
+					crawl(podcast)
+				}
+			}
+		}()
+	}
+
+	seen := make(map[string]struct{}, len(podcasts))
+	for _, podcast := range podcasts {
+		if _, exists := seen[podcast.Uuid]; exists {
+			continue
+		}
+		seen[podcast.Uuid] = struct{}{}
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return ctx.Err()
+		case jobs <- podcast:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	return ctx.Err()
 }
 
 // HandleNotifyNewEpisodesTask pushes new-episode alerts to registered
@@ -184,7 +229,40 @@ func (w *WorkerServer) HandleSocialPushTask(ctx context.Context, t *asynq.Task) 
 	return nil
 }
 
-const refreshBatchSize = 200
+func (w *WorkerServer) HandleGroupPostFanoutTask(ctx context.Context, t *asynq.Task) error {
+	const op errs.Op = "tasks/WorkerServer.HandleGroupPostFanoutTask"
+	if w.notifier == nil {
+		return nil
+	}
+
+	var payload GroupPostFanoutPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return errs.E(op, errs.Internal, fmt.Errorf("%w: %v", asynq.SkipRetry, err))
+	}
+	if payload.GroupID <= 0 || payload.PostID <= 0 || payload.ActorUserID <= 0 {
+		return fmt.Errorf("%w: invalid group post fanout payload", asynq.SkipRetry)
+	}
+	targets, err := w.db.GetGroupNotifyTargets(ctx, db.GetGroupNotifyTargetsParams{
+		GroupID: payload.GroupID, UserID: payload.ActorUserID,
+	})
+	if err != nil {
+		return errs.E(op, errs.Database, err)
+	}
+	data := map[string]string{
+		"group_id": strconv.FormatInt(payload.GroupID, 10),
+		"post_id":  strconv.FormatInt(payload.PostID, 10),
+	}
+	for _, target := range targets {
+		w.notifier.NotifySocial(ctx, target, push.SocialPushGroupPost,
+			payload.ActorHandle, payload.ActorDisplayName, data)
+	}
+	return nil
+}
+
+const (
+	refreshBatchSize      = 200
+	scheduledCrawlWorkers = 8
+)
 
 // slogAdapter bridges asynq's Logger interface to the application's slog logger.
 type slogAdapter struct {

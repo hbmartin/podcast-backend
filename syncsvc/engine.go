@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/errs"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
@@ -22,10 +23,10 @@ type Engine struct {
 	DB db.Store
 }
 
-// OnUnknownPodcast is the sync-ingestion hook (Slice 11): called with a feed
-// URL whenever a synced subscription references a podcast the catalog has
-// never seen. Wired by main; nil-safe.
-var OnUnknownPodcast func(feedURL string)
+// OnUnknownPodcast is the sync-ingestion hook (Slice 11): called after the
+// sync transaction commits when a subscription references a podcast the
+// catalog has never seen. Wired by main; nil-safe.
+var OnUnknownPodcast func(userID int64, feedURL string)
 
 // ApplyUpdate implements POST user/sync/update: applies the request's records
 // under a fresh sync token and returns every record changed after the
@@ -35,6 +36,7 @@ func (e *Engine) ApplyUpdate(ctx context.Context, userID int64, req *pb.SyncUpda
 	const op errs.Op = "syncsvc/Engine.ApplyUpdate"
 
 	var resp *pb.SyncUpdateResponse
+	unknownFeeds := make(map[string]struct{})
 	err := e.DB.InTx(ctx, func(q db.Querier) error {
 		user, err := q.GetUserForUpdate(ctx, userID)
 		if err != nil {
@@ -45,7 +47,9 @@ func (e *Engine) ApplyUpdate(ctx context.Context, userID int64, req *pb.SyncUpda
 
 		hasEpisodeRecords := false
 		for _, record := range req.Records {
-			if err := applyRecord(ctx, q, userID, token, record); err != nil {
+			if err := applyRecord(ctx, q, userID, token, record, func(feedURL string) {
+				unknownFeeds[feedURL] = struct{}{}
+			}); err != nil {
 				return err
 			}
 			if _, ok := record.Record.(*pb.Record_Episode); ok {
@@ -76,13 +80,18 @@ func (e *Engine) ApplyUpdate(ctx context.Context, userID int64, req *pb.SyncUpda
 	if err != nil {
 		return nil, errs.E(op, errs.Database, err)
 	}
+	if OnUnknownPodcast != nil {
+		for feedURL := range unknownFeeds {
+			OnUnknownPodcast(userID, feedURL)
+		}
+	}
 	return resp, nil
 }
 
-func applyRecord(ctx context.Context, q db.Querier, userID int64, token int64, record *pb.Record) error {
+func applyRecord(ctx context.Context, q db.Querier, userID int64, token int64, record *pb.Record, onUnknownPodcast func(string)) error {
 	switch rec := record.Record.(type) {
 	case *pb.Record_Podcast:
-		return applyPodcastRecord(ctx, q, userID, token, rec.Podcast)
+		return applyPodcastRecord(ctx, q, userID, token, rec.Podcast, onUnknownPodcast)
 	case *pb.Record_Episode:
 		return applyEpisodeRecord(ctx, q, userID, token, rec.Episode)
 	case *pb.Record_Playlist:
@@ -101,7 +110,7 @@ func applyRecord(ctx context.Context, q db.Querier, userID int64, token int64, r
 
 // applyPodcastRecord upserts a subscription. Absent wrapper fields keep the
 // stored values (partial update).
-func applyPodcastRecord(ctx context.Context, q db.Querier, userID int64, token int64, rec *pb.SyncUserPodcast) error {
+func applyPodcastRecord(ctx context.Context, q db.Querier, userID int64, token int64, rec *pb.SyncUserPodcast, onUnknownPodcast func(string)) error {
 	if rec.Uuid == "" {
 		return nil
 	}
@@ -148,11 +157,22 @@ func applyPodcastRecord(ctx context.Context, q db.Querier, userID int64, token i
 		params.SyncedTitle = title
 	}
 	if feedURL := rec.GetFeedUrl().GetValue(); feedURL != "" {
-		params.SyncedFeedUrl = feedURL
+		canonicalFeedURL := crawler.CanonicalFeedURL(feedURL)
+		params.SyncedFeedUrl = canonicalFeedURL
 		// Unknown in the catalog: hand the URL to the ingestion hook so the
 		// crawl fills catalog/episodes/artwork (Slice 11, QA follow-up).
-		if _, catErr := q.GetPodcastByUUID(ctx, rec.Uuid); errors.Is(catErr, pgx.ErrNoRows) && OnUnknownPodcast != nil {
-			OnUnknownPodcast(feedURL)
+		if _, catErr := q.GetPodcastByUUID(ctx, rec.Uuid); catErr != nil {
+			if !errors.Is(catErr, pgx.ErrNoRows) {
+				return catErr
+			}
+			if _, feedErr := q.GetPodcastByFeedURL(ctx, canonicalFeedURL); feedErr != nil {
+				if !errors.Is(feedErr, pgx.ErrNoRows) {
+					return feedErr
+				}
+				if onUnknownPodcast != nil {
+					onUnknownPodcast(canonicalFeedURL)
+				}
+			}
 		}
 	}
 	if rec.AutoStartFrom != nil {

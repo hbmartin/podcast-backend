@@ -33,6 +33,7 @@ func (h Handlers) PostShareSend(w http.ResponseWriter, r *http.Request) {
 	// A show recommendation (Slice 15) carries a podcast and no episode;
 	// an episode share carries both. One of the two must be present.
 	if err := bindProto(r, req); err != nil || (req.EpisodeUuid == "" && req.PodcastUuid == "") ||
+		(req.EpisodeUuid != "" && req.PodcastUuid == "") ||
 		len(req.EpisodeUuid) > maxUuidFieldLen || len(req.PodcastUuid) > maxUuidFieldLen {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
 		return
@@ -244,5 +245,5 @@ func truncateRunes(s string, maxRunes int) string {
 		return s
 	}
 	runes := []rune(s)
-	return string(runes[:maxRunes])
+	return string(runes[:maxRunes]) // nosemgrep: go.byte-slice-in-truncation-helper -- slicing decoded runes, not bytes.
 }
