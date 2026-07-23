@@ -56,7 +56,9 @@ contributed transcripts back to clients is a future design).
   OPML import polling needs no server-side state. Feeds are fetched with
   conditional GETs and parsed with gofeed; subscribed feeds re-crawl hourly,
   idle ones daily (background jobs on an [asynq](https://github.com/hibiken/asynq)
-  Redis queue, swept every 5 minutes).
+  Redis queue, swept every 5 minutes). The feed client ignores
+  `HTTP(S)_PROXY` by design — a proxy would resolve and dial destinations
+  outside the SSRF guard — so feed traffic needs direct egress.
   - Limitation: a bare unknown podcast uuid arriving via sync cannot be
     reverse-resolved to a feed URL. The subscription still syncs across
     devices; catalog data fills in once the server learns the URL (search,
@@ -80,7 +82,7 @@ Configuration:
 | `AUTH_JWT_SECRET` | ≥32 bytes; signs access tokens (required) |
 | `WEB_PORT` | listen address, default `localhost:8000` |
 | `ENABLE_TASK_QUEUE` / `QUEUE_REDIS_ADDRESS` | enable background crawling (recommended) |
-| `AUTH_ACCESS_TOKEN_TTL` / `AUTH_REFRESH_TOKEN_TTL` | defaults `24h` / `8760h` |
+| `AUTH_ACCESS_TOKEN_TTL` / `AUTH_REFRESH_TOKEN_TTL` | defaults `1h` / `8760h` (access default dropped from `24h`; clients refresh ~24× more often) |
 | `ITUNES_BASE_URL` | iTunes Search API base, default `https://itunes.apple.com` |
 | `ALLOWED_ORIGIN`, `TLS_CERT_FILE`, `TLS_CERT_KEY_FILE` | CORS / TLS |
 | `PUBLIC_BASE_URL` | base for generated links (share URLs, discover sources); set it behind a reverse proxy so client-supplied `X-Forwarded-*` headers aren't trusted |

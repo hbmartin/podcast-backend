@@ -71,6 +71,12 @@ func (d *feedIngestionDispatcher) Submit(userID int64, feedURL string) {
 
 	now := time.Now()
 	d.mu.Lock()
+	// A URL already being ingested is a no-op, not new work; it must not
+	// consume the submitter's rate-limit budget.
+	if _, exists := d.inFlight[canonical]; exists {
+		d.mu.Unlock()
+		return
+	}
 	entry := d.users[userID]
 	if entry == nil {
 		entry = &userIngestionLimiter{
@@ -82,10 +88,6 @@ func (d *feedIngestionDispatcher) Submit(userID int64, feedURL string) {
 	if !entry.limiter.Allow() {
 		d.mu.Unlock()
 		slog.Warn("sync ingestion rate limit exceeded", "user_id", userID)
-		return
-	}
-	if _, exists := d.inFlight[canonical]; exists {
-		d.mu.Unlock()
 		return
 	}
 	d.inFlight[canonical] = struct{}{}
@@ -133,7 +135,7 @@ func (d *feedIngestionDispatcher) worker() {
 			jobCtx, cancel := context.WithTimeout(d.ctx, 2*time.Minute)
 			err := d.ingest(jobCtx, job.feedURL)
 			cancel()
-			if err != nil && !errors.Is(err, context.Canceled) {
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, crawler.ErrRefreshBackoff) {
 				slog.Warn("sync ingestion failed", "feed_url", job.feedURL, "error", err)
 			}
 			d.finish(job.feedURL)

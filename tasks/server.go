@@ -119,6 +119,11 @@ func (w *WorkerServer) HandleOpmlImportTask(ctx context.Context, t *asynq.Task) 
 
 	for _, feedURL := range payload.FeedURLs {
 		if _, err := w.crawler.EnsurePodcast(ctx, feedURL); err != nil {
+			// A feed inside its backoff window already has its failure
+			// recorded and a retry scheduled; re-warning here is noise.
+			if errors.Is(err, crawler.ErrRefreshBackoff) {
+				continue
+			}
 			// the failure is recorded on the podcast row; poll responses
 			// report it to the client
 			slog.Warn("OPML feed import failed", "feed_url", feedURL, "error", err)

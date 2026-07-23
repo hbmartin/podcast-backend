@@ -26,6 +26,17 @@ var CrawlsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help:      "Feed crawl attempts by outcome.",
 }, []string{"outcome"})
 
+// GroupFanoutDropped counts group-post notification fan-outs dropped because
+// the queue-less direct path hit its concurrency limit. A nonzero rate means
+// members silently missed new-post pushes; deploy a task queue or raise the
+// direct-path limit.
+var GroupFanoutDropped = promauto.NewCounter(prometheus.CounterOpts{
+	Namespace: "podcast_backend",
+	Subsystem: "push",
+	Name:      "group_fanout_dropped_total",
+	Help:      "Group post notification fan-outs dropped at the direct-path concurrency limit.",
+})
+
 // PushDeliveries counts APNs notification sends by outcome
 // (delivered | failed | unregistered).
 var PushDeliveries = promauto.NewCounterVec(prometheus.CounterOpts{

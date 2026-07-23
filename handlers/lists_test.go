@@ -160,6 +160,16 @@ func (m *socialMock) UpsertSocialListEntries(ctx context.Context, arg db.UpsertS
 	if err := json.Unmarshal(arg.Entries, &entries); err != nil {
 		return err
 	}
+	// Postgres rejects a single INSERT ... ON CONFLICT DO UPDATE that touches
+	// the same row twice; the mock must be as strict as the real batch.
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		uuid := entry["episode_uuid"].(string)
+		if _, dup := seen[uuid]; dup {
+			return errors.New("ON CONFLICT DO UPDATE command cannot affect row a second time")
+		}
+		seen[uuid] = struct{}{}
+	}
 	for _, entry := range entries {
 		if err := m.UpsertSocialListEntry(ctx, db.UpsertSocialListEntryParams{
 			ListID:       arg.ListID,
@@ -477,6 +487,33 @@ func TestSocialListCollabFlow(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 	_, stillThere := m.listMembers[list.Id][2]
 	assert.False(t, stillThere)
+}
+
+func TestSocialListCreateCollapsesDuplicateEpisodes(t *testing.T) {
+	m, router := joinedListsMock(t)
+
+	list := &pb.SharedList{}
+	code, _, err := makeProtoRequest(router, "/social/list/create", &pb.SharedListCreateRequest{
+		Title: "Dupes",
+		Entries: []*pb.SharedListEntry{
+			{EpisodeUuid: "ep-1", PodcastUuid: "pod-1", EpisodeTitle: "First Take"},
+			{EpisodeUuid: "ep-2", PodcastUuid: "pod-2", EpisodeTitle: "Keeper"},
+			{EpisodeUuid: "ep-1", PodcastUuid: "pod-1", EpisodeTitle: "Second Take"},
+		},
+	}, list)
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, int32(2), list.EntryCount)
+	entries := m.listEntries[list.Id]
+	require.Len(t, entries, 2)
+	byUuid := map[string]*mockListEntry{}
+	for _, entry := range entries {
+		byUuid[entry.episodeUuid] = entry
+	}
+	require.Contains(t, byUuid, "ep-1")
+	assert.Equal(t, "Second Take", byUuid["ep-1"].episodeTitle, "the last occurrence of a duplicate episode wins")
+	assert.Equal(t, int32(2), byUuid["ep-1"].position, "the surviving duplicate keeps its own request position")
 }
 
 func TestSocialListInviteResponseBlockLookupFailsClosed(t *testing.T) {

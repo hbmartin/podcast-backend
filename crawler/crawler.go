@@ -28,6 +28,11 @@ const (
 	maxFeedBodyBytes          = 20 << 20 // 20 MiB
 )
 
+// ErrRefreshBackoff reports that a previously failed feed is still inside its
+// retry-backoff window, so no fetch was attempted. Callers get the stored row
+// alongside this error and must not present it as a healthy podcast.
+var ErrRefreshBackoff = errors.New("feed refresh is backing off after a failure")
+
 // Crawler fetches feeds and ingests them into the catalog.
 type Crawler struct {
 	DB      db.Store
@@ -67,7 +72,7 @@ func (c *Crawler) EnsurePodcast(ctx context.Context, feedURL string) (db.Podcast
 		return podcast, nil
 	}
 	if podcast.RefreshStatus == "failed" && time.Now().Before(podcast.NextRefreshAt) {
-		return podcast, nil
+		return podcast, ErrRefreshBackoff
 	}
 
 	if err := c.Crawl(ctx, podcast); err != nil {

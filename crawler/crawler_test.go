@@ -247,9 +247,10 @@ func TestCrawlFailureRecordsAndBacksOff(t *testing.T) {
 	assert.True(t, podcast.NextRefreshAt.After(time.Now().Add(time.Hour)))
 
 	// Repeated sync updates must not turn a recorded backoff into an immediate
-	// outbound retry storm.
+	// outbound retry storm, and callers must be able to tell the suppressed
+	// retry apart from a healthy row.
 	retried, retryErr := c.EnsurePodcast(context.Background(), "https://example.com/down.xml")
-	assert.NoError(t, retryErr)
+	assert.ErrorIs(t, retryErr, ErrRefreshBackoff)
 	assert.Equal(t, podcast.Uuid, retried.Uuid)
 	assert.Equal(t, 1, fetcher.calls)
 }

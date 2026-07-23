@@ -313,6 +313,12 @@ func (h Handlers) searchByFeedURL(w http.ResponseWriter, r *http.Request, feedUR
 
 	podcast, err := h.Crawler.EnsurePodcast(ctx, feedURL)
 	if err != nil {
+		if errors.Is(err, crawler.ErrRefreshBackoff) {
+			// Known-bad feed inside its retry window: report the recorded
+			// failure without triggering another outbound fetch.
+			writeRefreshStatus(w, "error", "feed could not be loaded")
+			return
+		}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			// slow feed: let the client's poll/backoff loop retry while a
 			// background crawl finishes

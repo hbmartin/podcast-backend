@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/metrics"
 	"github.com/hbmartin/podcast-backend/moderation"
 	"github.com/hbmartin/podcast-backend/pcerrors"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
@@ -132,6 +133,7 @@ func (h Handlers) dispatchGroupPostFanout(payload tasks.GroupPostFanoutPayload) 
 	select {
 	case directGroupFanoutSem <- struct{}{}:
 	default:
+		metrics.GroupFanoutDropped.Inc()
 		slog.Warn("group post fanout dropped; concurrency limit reached", "post_id", payload.PostID)
 		return
 	}
