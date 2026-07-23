@@ -142,6 +142,7 @@ type History struct {
 	Url         string
 	Published   *time.Time
 	ModifiedAt  int64
+	IsDeleted   bool
 }
 
 type ModerationReport struct {
@@ -379,6 +380,7 @@ type SocialProfile struct {
 	HideFromDiscovery       bool
 	DigestSentAt            *time.Time
 	Curator                 bool
+	DigestClaimedAt         *time.Time
 }
 
 type SocialRelationship struct {

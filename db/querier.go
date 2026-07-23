@@ -62,7 +62,7 @@ type Querier interface {
 	InsertUpNextItem(ctx context.Context, arg InsertUpNextItemParams) error
 
 	UpsertHistoryItem(ctx context.Context, arg UpsertHistoryItemParams) error
-	DeleteHistoryItem(ctx context.Context, arg DeleteHistoryItemParams) error
+	TombstoneHistoryItem(ctx context.Context, arg TombstoneHistoryItemParams) error
 	DeleteHistoryBefore(ctx context.Context, arg DeleteHistoryBeforeParams) error
 	TrimHistory(ctx context.Context, arg TrimHistoryParams) error
 	GetHistory(ctx context.Context, arg GetHistoryParams) ([]History, error)
@@ -93,6 +93,7 @@ type Querier interface {
 	UpsertEpisode(ctx context.Context, arg UpsertEpisodeParams) error
 	GetEpisodesByPodcastID(ctx context.Context, arg GetEpisodesByPodcastIDParams) ([]Episode, error)
 	GetEpisodeByUUID(ctx context.Context, uuid string) (Episode, error)
+	GetEpisodesByUUIDs(ctx context.Context, uuids []string) ([]Episode, error)
 	GetEpisodesPublishedAfter(ctx context.Context, arg GetEpisodesPublishedAfterParams) ([]Episode, error)
 
 	UpsertPodcastRating(ctx context.Context, arg UpsertPodcastRatingParams) error
@@ -117,6 +118,7 @@ type Querier interface {
 	GetAttestKey(ctx context.Context, keyID string) (AttestKey, error)
 	AdvanceAttestCounter(ctx context.Context, arg AdvanceAttestCounterParams) (int64, error)
 
+	LockRateLimitBucket(ctx context.Context, lockKey string) error
 	InsertTranscriptContribution(ctx context.Context, arg InsertTranscriptContributionParams) error
 	CountRecentContributionsByAttribution(ctx context.Context, arg CountRecentContributionsByAttributionParams) (int64, error)
 	InsertTranscriptSighting(ctx context.Context, arg InsertTranscriptSightingParams) (int64, error)
@@ -135,6 +137,7 @@ type Querier interface {
 	DeleteSocialRelationship(ctx context.Context, arg DeleteSocialRelationshipParams) (int64, error)
 	IsBlockedEither(ctx context.Context, arg IsBlockedEitherParams) (bool, error)
 	InsertModerationReport(ctx context.Context, arg InsertModerationReportParams) error
+	CountRecentModerationReportsByReporter(ctx context.Context, arg CountRecentModerationReportsByReporterParams) (int64, error)
 	DeleteSocialProfile(ctx context.Context, userID int64) (int64, error)
 	TombstoneHandle(ctx context.Context, userID *int64) (int64, error)
 	DeleteRelationshipsForUser(ctx context.Context, userID int64) error
@@ -169,7 +172,7 @@ type Querier interface {
 	GetPushTargetsForUser(ctx context.Context, userID int64) ([]GetPushTargetsForUserRow, error)
 	SearchSocialProfiles(ctx context.Context, arg SearchSocialProfilesParams) ([]SearchSocialProfilesRow, error)
 	GetSocialSuggestions(ctx context.Context, arg GetSocialSuggestionsParams) ([]GetSocialSuggestionsRow, error)
-	GetDiscoverableProfileEmails(ctx context.Context) ([]GetDiscoverableProfileEmailsRow, error)
+	GetDiscoverableProfileEmails(ctx context.Context, userID int64) ([]GetDiscoverableProfileEmailsRow, error)
 	GetTrendingWithFriends(ctx context.Context, arg GetTrendingWithFriendsParams) ([]GetTrendingWithFriendsRow, error)
 	GetPodcastProof(ctx context.Context, arg GetPodcastProofParams) ([]string, error)
 	GetSocialList(ctx context.Context, id int64) (GetSocialListRow, error)
@@ -183,6 +186,7 @@ type Querier interface {
 	TouchSocialList(ctx context.Context, id int64) error
 	UpdateSocialList(ctx context.Context, arg UpdateSocialListParams) (int64, error)
 	UpsertSocialListEntry(ctx context.Context, arg UpsertSocialListEntryParams) error
+	UpsertSocialListEntries(ctx context.Context, arg UpsertSocialListEntriesParams) error
 	UpsertSocialListMember(ctx context.Context, arg UpsertSocialListMemberParams) error
 	CountCommentReplies(ctx context.Context, arg CountCommentRepliesParams) (int64, error)
 	CountEpisodeComments(ctx context.Context, arg CountEpisodeCommentsParams) (int64, error)
@@ -254,7 +258,7 @@ type Querier interface {
 	GetMilestonesForUser(ctx context.Context, userID int64) ([]GetMilestonesForUserRow, error)
 	GetFreshMilestones(ctx context.Context, userID int64) ([]GetFreshMilestonesRow, error)
 	DeleteMilestonesForUser(ctx context.Context, userID int64) error
-	GetDigestCandidates(ctx context.Context, limit int32) ([]int64, error)
+	ClaimDigestCandidates(ctx context.Context, limit int32) ([]int64, error)
 	SetDigestSent(ctx context.Context, userID int64) error
 	CountGraphHighlights(ctx context.Context, followerUserID int64) (int64, error)
 

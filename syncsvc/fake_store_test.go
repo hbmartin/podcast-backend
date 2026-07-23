@@ -15,17 +15,19 @@ import (
 type fakeStore struct {
 	db.Store
 
-	user        db.User
-	podcasts    map[string]db.UserPodcast
-	episodes    map[string]db.UserEpisode
-	folders     map[string]db.Folder
-	playlists   map[string]db.Playlist
-	bookmarks   map[string]db.Bookmark
-	devices     map[string]db.UpsertDeviceParams
-	upNext      []db.UpNextItem
-	history     map[string]db.History
-	settings    *db.UserSetting
-	catalogRows []db.GetSubscribedPodcastsWithCatalogRow
+	user         db.User
+	podcasts     map[string]db.UserPodcast
+	episodes     map[string]db.UserEpisode
+	folders      map[string]db.Folder
+	playlists    map[string]db.Playlist
+	bookmarks    map[string]db.Bookmark
+	devices      map[string]db.UpsertDeviceParams
+	upNext       []db.UpNextItem
+	history      map[string]db.History
+	settings     *db.UserSetting
+	catalogRows  []db.GetSubscribedPodcastsWithCatalogRow
+	catalogFeeds map[string]db.Podcast
+	inTx         bool
 }
 
 func (f *fakeStore) CountMilestonesForUser(ctx context.Context, userID int64) (int64, error) {
@@ -46,19 +48,33 @@ func (f *fakeStore) InsertMilestone(ctx context.Context, arg db.InsertMilestoneP
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		user:      db.User{ID: 1, Uuid: "user-uuid", Email: "a@b.co"},
-		podcasts:  map[string]db.UserPodcast{},
-		episodes:  map[string]db.UserEpisode{},
-		folders:   map[string]db.Folder{},
-		playlists: map[string]db.Playlist{},
-		bookmarks: map[string]db.Bookmark{},
-		devices:   map[string]db.UpsertDeviceParams{},
-		history:   map[string]db.History{},
+		user:         db.User{ID: 1, Uuid: "user-uuid", Email: "a@b.co"},
+		podcasts:     map[string]db.UserPodcast{},
+		episodes:     map[string]db.UserEpisode{},
+		folders:      map[string]db.Folder{},
+		playlists:    map[string]db.Playlist{},
+		bookmarks:    map[string]db.Bookmark{},
+		devices:      map[string]db.UpsertDeviceParams{},
+		history:      map[string]db.History{},
+		catalogFeeds: map[string]db.Podcast{},
 	}
 }
 
 func (f *fakeStore) InTx(ctx context.Context, fn func(db.Querier) error) error {
+	f.inTx = true
+	defer func() { f.inTx = false }()
 	return fn(f)
+}
+
+func (f *fakeStore) GetPodcastByUUID(ctx context.Context, uuid string) (db.Podcast, error) {
+	return db.Podcast{}, pgx.ErrNoRows
+}
+
+func (f *fakeStore) GetPodcastByFeedURL(ctx context.Context, feedURL string) (db.Podcast, error) {
+	if podcast, ok := f.catalogFeeds[feedURL]; ok {
+		return podcast, nil
+	}
+	return db.Podcast{}, pgx.ErrNoRows
 }
 
 func (f *fakeStore) GetUserForUpdate(ctx context.Context, id int64) (db.User, error) {
@@ -327,12 +343,24 @@ func (f *fakeStore) UpsertHistoryItem(ctx context.Context, arg db.UpsertHistoryI
 	if ok && arg.ModifiedAt <= existing.ModifiedAt {
 		return nil
 	}
-	f.history[arg.EpisodeUuid] = db.History(arg)
+	f.history[arg.EpisodeUuid] = db.History{
+		UserID: arg.UserID, EpisodeUuid: arg.EpisodeUuid,
+		PodcastUuid: arg.PodcastUuid, Title: arg.Title, Url: arg.Url,
+		Published: arg.Published, ModifiedAt: arg.ModifiedAt,
+	}
 	return nil
 }
 
-func (f *fakeStore) DeleteHistoryItem(ctx context.Context, arg db.DeleteHistoryItemParams) error {
-	delete(f.history, arg.EpisodeUuid)
+func (f *fakeStore) TombstoneHistoryItem(ctx context.Context, arg db.TombstoneHistoryItemParams) error {
+	existing := f.history[arg.EpisodeUuid]
+	if existing.ModifiedAt >= arg.ModifiedAt {
+		return nil
+	}
+	existing.UserID = arg.UserID
+	existing.EpisodeUuid = arg.EpisodeUuid
+	existing.ModifiedAt = arg.ModifiedAt
+	existing.IsDeleted = true
+	f.history[arg.EpisodeUuid] = existing
 	return nil
 }
 

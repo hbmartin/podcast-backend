@@ -79,10 +79,12 @@ func (m *socialMock) GetSocialSuggestions(ctx context.Context, arg db.GetSocialS
 	return rows, nil
 }
 
-func (m *socialMock) GetDiscoverableProfileEmails(ctx context.Context) ([]db.GetDiscoverableProfileEmailsRow, error) {
+func (m *socialMock) GetDiscoverableProfileEmails(ctx context.Context, viewerID int64) ([]db.GetDiscoverableProfileEmailsRow, error) {
 	var rows []db.GetDiscoverableProfileEmailsRow
 	for _, p := range m.profiles {
-		if p.HideFromDiscovery {
+		if p.HideFromDiscovery || p.UserID == viewerID ||
+			m.rels[[3]int64{viewerID, p.UserID, 0}] ||
+			m.rels[[3]int64{p.UserID, viewerID, 0}] {
 			continue
 		}
 		rows = append(rows, db.GetDiscoverableProfileEmailsRow{
@@ -183,6 +185,16 @@ func TestContactsMatchTransient(t *testing.T) {
 	profile := m.profiles[2]
 	profile.HideFromDiscovery = true
 	m.profiles[2] = profile
+	match = &pb.ContactsMatchResponse{}
+	makeProtoRequest(router, "/social/contacts/match", &pb.ContactsMatchRequest{
+		Hashes: []*pb.ContactHash{{Kind: pb.ContactHashKind_CONTACT_HASH_KIND_EMAIL, Hash: emailHash}},
+	}, match)
+	assert.Empty(t, match.Profiles)
+
+	// Block filtering happens in the candidate query, with no per-match query.
+	profile.HideFromDiscovery = false
+	m.profiles[2] = profile
+	m.rels[[3]int64{2, 1, 0}] = true
 	match = &pb.ContactsMatchResponse{}
 	makeProtoRequest(router, "/social/contacts/match", &pb.ContactsMatchRequest{
 		Hashes: []*pb.ContactHash{{Kind: pb.ContactHashKind_CONTACT_HASH_KIND_EMAIL, Hash: emailHash}},

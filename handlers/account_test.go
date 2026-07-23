@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,6 +134,11 @@ func TestRegisterValidation(t *testing.T) {
 		&pb.RegisterRequest{Email: "a@b.co", Password: "tiny"}, nil)
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, pcerrors.PasswordInvalid, decodeErrorEnvelope(t, raw))
+
+	code, raw, _ = makeProtoRequest(router, "/user/register",
+		&pb.RegisterRequest{Email: "a@b.co", Password: strings.Repeat("x", maxPasswordBytes+1)}, nil)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, pcerrors.PasswordInvalid, decodeErrorEnvelope(t, raw))
 }
 
 func TestTokenRefreshGrant(t *testing.T) {
@@ -144,7 +150,8 @@ func TestTokenRefreshGrant(t *testing.T) {
 			ID: 1, UserID: 42, TokenHash: hash, Scope: "mobile",
 			ExpiresAt: time.Now().Add(time.Hour),
 		},
-		GetUserByIDResult: db.User{ID: 42, Uuid: testUserUUID, Email: "mail@test.com"},
+		GetUserByIDResult:        db.User{ID: 42, Uuid: testUserUUID, Email: "mail@test.com"},
+		RevokeRefreshTokenResult: 1,
 	}
 	router := setup(mock)
 
@@ -161,6 +168,7 @@ func TestTokenRefreshGrant(t *testing.T) {
 	assert.Equal(t, hash, mock.RevokedTokenHash, "old token must be revoked")
 	assert.Equal(t, auth.HashRefreshToken(resp.RefreshToken), mock.CreateRefreshTokenParams.TokenHash)
 	assert.Greater(t, resp.ExpiresIn, int32(0))
+	assert.Equal(t, 1, mock.InTxCalls)
 }
 
 func TestTokenInvalidGrant(t *testing.T) {
@@ -232,6 +240,25 @@ func TestChangePasswordRevokesRefreshTokens(t *testing.T) {
 	assert.True(t, auth.CheckPassword(mock.UpdateUserPasswordParams.PasswordHash, "new-password"))
 }
 
+func TestChangePasswordRejectsBcryptOverflow(t *testing.T) {
+	user := testUser(t, "old-password")
+	mock := &QuerierMock{GetUserByUUIDResult: user}
+	router := setup(mock)
+
+	resp := &pb.UserChangeResponse{}
+	code, _, err := makeProtoRequest(router, "/user/change_password",
+		&pb.UserChangePasswordRequest{
+			OldPassword: "old-password",
+			NewPassword: strings.Repeat("x", maxPasswordBytes+1),
+		}, resp)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, code)
+	assert.False(t, resp.Success.GetValue())
+	assert.Equal(t, pcerrors.PasswordInvalid, resp.MessageId)
+	assert.Nil(t, mock.UpdateUserPasswordParams)
+}
+
 func TestDeleteAccount(t *testing.T) {
 	user := testUser(t, "secret-pass")
 	mock := &QuerierMock{GetUserByUUIDResult: user, SoftDeleteUserResult: 1, RevokeAllRefreshTokensResult: 1}
@@ -244,4 +271,5 @@ func TestDeleteAccount(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 	assert.True(t, resp.Success.GetValue())
 	assert.Equal(t, user.ID, mock.SoftDeletedUserID)
+	assert.Equal(t, 1, mock.InTxCalls, "all account erasure mutations share one transaction")
 }

@@ -51,6 +51,11 @@ func (e *Engine) UpdateSettings(ctx context.Context, userID int64, req *pb.Named
 			if err := q.UpsertUserSettings(ctx, db.UpsertUserSettingsParams{UserID: userID, Settings: raw, ModifiedAt: token}); err != nil {
 				return err
 			}
+			if err := q.SetUserSyncLastModified(ctx, db.SetUserSyncLastModifiedParams{
+				ID: userID, SyncLastModified: token,
+			}); err != nil {
+				return err
+			}
 		}
 
 		resp = BuildNamedSettingsResponse(stored)

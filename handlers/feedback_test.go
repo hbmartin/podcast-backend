@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hbmartin/podcast-backend/db"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
@@ -101,5 +102,28 @@ func TestFeedbackValidationAndTruncation(t *testing.T) {
 	if assert.Len(t, m.inserted, 1) {
 		assert.Len(t, m.inserted[0].Message, maxFeedbackMessage)
 		assert.Len(t, m.inserted[0].Logs, maxFeedbackLogs)
+	}
+}
+
+func TestTruncatePreservesUTF8AtByteBoundary(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		max  int
+		want string
+	}{
+		{name: "two-byte", text: "abé", max: 3, want: "ab"},
+		{name: "three-byte", text: "ab€", max: 4, want: "ab"},
+		{name: "four-byte", text: "ab🙂", max: 5, want: "ab"},
+		{name: "complete-rune", text: "ab🙂", max: 6, want: "ab🙂"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncate(tt.text, tt.max)
+			assert.Equal(t, tt.want, got)
+			assert.LessOrEqual(t, len(got), tt.max)
+			assert.True(t, utf8.ValidString(got))
+		})
 	}
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -381,6 +382,19 @@ func TestCommentGateAndSubmit(t *testing.T) {
 	assert.Len(t, replies.Comments, 1)
 }
 
+func TestCommentReplyBlockLookupFailsClosed(t *testing.T) {
+	m, router := joinedCommentsMock(t)
+	parentID := otherComment(m, "another person's comment", nil)
+	m.blockErr = assert.AnError
+
+	code, _, _ := makeProtoRequest(router, "/social/comment/submit",
+		&pb.CommentSubmitRequest{EpisodeUuid: commentedEpisodeUUID, Text: "reply", ParentId: parentID},
+		&pb.SocialComment{})
+
+	assert.Equal(t, http.StatusInternalServerError, code)
+	assert.Len(t, m.comments, 1, "the reply must not be inserted when authorization state is unavailable")
+}
+
 func TestCommentQuoteContract(t *testing.T) {
 	_, router := joinedCommentsMock(t)
 
@@ -413,6 +427,16 @@ func TestCommentQuoteContract(t *testing.T) {
 	code, _, _ = makeProtoRequest(router, "/social/comment/submit",
 		&pb.CommentSubmitRequest{EpisodeUuid: commentedEpisodeUUID, Text: "fine", TimestampSeconds: &ts, Quote: "bad\x00quote"}, &pb.SocialComment{})
 	assert.Equal(t, http.StatusUnprocessableEntity, code)
+
+	// Moderation work is bounded to the exact value that can be stored.
+	bounded := &pb.SocialComment{}
+	code, _, _ = makeProtoRequest(router, "/social/comment/submit",
+		&pb.CommentSubmitRequest{
+			EpisodeUuid: commentedEpisodeUUID, Text: "bounded", TimestampSeconds: &ts,
+			Quote: strings.Repeat("a", quoteMaxLength) + "\x00discarded",
+		}, bounded)
+	assert.Equal(t, http.StatusOK, code)
+	assert.Equal(t, strings.Repeat("a", quoteMaxLength), bounded.Quote)
 }
 
 func TestCommentEditGraceWindow(t *testing.T) {

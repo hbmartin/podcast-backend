@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"html/template"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +20,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+const moderationReportsPerDay = 20
+
+var errModerationReportRateLimited = errors.New("moderation report rate limit exceeded")
 
 // Social identity + moderation endpoints (pocket-casts-ios docs/Social.md,
 // docs/SocialModeration.md, ADR-0005/0006/0007). All bodies are protobuf
@@ -584,7 +590,10 @@ func (h Handlers) setRelationship(w http.ResponseWriter, r *http.Request, kind i
 // single triage queue (source community_flag), worked manually at launch.
 func (h Handlers) PostSocialReport(w http.ResponseWriter, r *http.Request) {
 	req := &pb.ReportRequest{}
-	if err := bindProto(r, req); err != nil || !uuidPattern.MatchString(req.TargetUserId) {
+	if err := bindProto(r, req); err != nil ||
+		!uuidPattern.MatchString(req.TargetUserId) ||
+		req.Reason < pb.ReportReason_REPORT_REASON_SPAM ||
+		req.Reason > pb.ReportReason_REPORT_REASON_OTHER {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
 		return
 	}
@@ -617,21 +626,46 @@ func (h Handlers) PostSocialReport(w http.ResponseWriter, r *http.Request) {
 		targetType = "user"
 	}
 
-	err = h.Queries.InsertModerationReport(r.Context(), db.InsertModerationReportParams{
-		TargetUserID:   target.ID,
-		ReporterUserID: &user.ID,
-		Source:         "community_flag",
-		Reason:         int16(req.Reason),
-		Context:        context,
-		TargetType:     targetType,
-		ContentRef:     req.ContentRef,
+	err = h.withModerationReportQuota(r.Context(), user.ID, func(q db.Querier) error {
+		return q.InsertModerationReport(r.Context(), db.InsertModerationReportParams{
+			TargetUserID:   target.ID,
+			ReporterUserID: &user.ID,
+			Source:         "community_flag",
+			Reason:         int16(req.Reason),
+			Context:        context,
+			TargetType:     targetType,
+			ContentRef:     req.ContentRef,
+		})
 	})
+	if errors.Is(err, errModerationReportRateLimited) {
+		pcerrors.Write(w, http.StatusTooManyRequests, pcerrors.RateLimited, "report rate limit exceeded")
+		return
+	}
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 
 	writeProto(w, http.StatusOK, &pb.SocialAck{Success: true})
+}
+
+func (h Handlers) withModerationReportQuota(ctx context.Context, userID int64, insert func(db.Querier) error) error {
+	return h.Queries.InTx(ctx, func(q db.Querier) error {
+		if err := q.LockRateLimitBucket(ctx, "moderation-report:"+strconv.FormatInt(userID, 10)); err != nil {
+			return err
+		}
+		count, err := q.CountRecentModerationReportsByReporter(ctx, db.CountRecentModerationReportsByReporterParams{
+			ReporterUserID: &userID,
+			CreatedAt:      time.Now().Add(-24 * time.Hour),
+		})
+		if err != nil {
+			return err
+		}
+		if count >= moderationReportsPerDay {
+			return errModerationReportRateLimited
+		}
+		return insert(q)
+	})
 }
 
 // PostSocialErase handles POST /social/erase: GDPR erasure of the social
@@ -664,85 +698,92 @@ func (h Handlers) PostSocialErase(w http.ResponseWriter, r *http.Request) {
 // Also invoked from account deletion (PostDeleteAccount).
 func (h Handlers) socialErase(r *http.Request, userID int64) error {
 	return h.Queries.InTx(r.Context(), func(q db.Querier) error {
-		if _, err := q.DeleteSocialProfile(r.Context(), userID); err != nil {
-			return err
-		}
-		if _, err := q.TombstoneHandle(r.Context(), &userID); err != nil {
-			return err
-		}
-		if err := q.DeleteReviewsForUser(r.Context(), userID); err != nil {
-			return err
-		}
-		if err := q.DeleteSharedItemsForUser(r.Context(), userID); err != nil {
-			return err
-		}
-		if err := q.DeleteFollowsForUser(r.Context(), userID); err != nil {
-			return err
-		}
-		// Comments tombstone rather than delete (ADR-0010): text and
-		// authorship wiped, tree positions kept so replies survive.
-		if err := q.TombstoneCommentsForUser(r.Context(), &userID); err != nil {
-			return err
-		}
-		// Shared lists die with their owner (ADR-0011); a collaborator's
-		// entries survive with attribution wiped.
-		if err := q.DeleteSocialListsForOwner(r.Context(), userID); err != nil {
-			return err
-		}
-		if err := q.DeleteSocialListMembershipsForUser(r.Context(), userID); err != nil {
-			return err
-		}
-		if err := q.ClearSocialListAttributionForUser(r.Context(), &userID); err != nil {
-			return err
-		}
-		// Group posts tombstone like comments; private groups die with
-		// their owner; a public hub passes to the longest-tenured member,
-		// or dies when none remains (ADR-0012 succession).
-		if err := q.TombstoneGroupPostsForUser(r.Context(), &userID); err != nil {
-			return err
-		}
-		publicGroups, err := q.GetOwnedPublicGroupIDs(r.Context(), userID)
-		if err != nil {
-			return err
-		}
-		for _, groupID := range publicGroups {
-			successor, err := q.FindGroupSuccessor(r.Context(), db.FindGroupSuccessorParams{
-				GroupID: groupID, UserID: userID,
-			})
-			if err != nil {
-				if !errors.Is(err, pgx.ErrNoRows) {
-					return err
-				}
-				if err := q.DeleteSocialGroupByID(r.Context(), groupID); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := q.TransferGroupOwner(r.Context(), db.TransferGroupOwnerParams{
-				ID: groupID, OwnerUserID: successor,
-			}); err != nil {
-				return err
-			}
-			if err := q.PromoteGroupMemberToOwner(r.Context(), db.PromoteGroupMemberToOwnerParams{
-				GroupID: groupID, UserID: successor,
-			}); err != nil {
-				return err
-			}
-		}
-		if err := q.DeleteOwnedPrivateGroups(r.Context(), userID); err != nil {
-			return err
-		}
-		if err := q.DeleteGroupMembershipsForUser(r.Context(), userID); err != nil {
-			return err
-		}
-		if err := q.ClearGroupInviteAttributionForUser(r.Context(), &userID); err != nil {
-			return err
-		}
-		if err := q.DeleteMilestonesForUser(r.Context(), userID); err != nil {
-			return err
-		}
-		return q.DeleteRelationshipsForUser(r.Context(), userID)
+		return socialEraseWithQuerier(r.Context(), q, userID)
 	})
+}
+
+// socialEraseWithQuerier performs social erasure on the caller's transaction.
+// Keeping transaction ownership outside this helper lets account deletion
+// compose social and account-level cleanup atomically.
+func socialEraseWithQuerier(ctx context.Context, q db.Querier, userID int64) error {
+	if _, err := q.DeleteSocialProfile(ctx, userID); err != nil {
+		return err
+	}
+	if _, err := q.TombstoneHandle(ctx, &userID); err != nil {
+		return err
+	}
+	if err := q.DeleteReviewsForUser(ctx, userID); err != nil {
+		return err
+	}
+	if err := q.DeleteSharedItemsForUser(ctx, userID); err != nil {
+		return err
+	}
+	if err := q.DeleteFollowsForUser(ctx, userID); err != nil {
+		return err
+	}
+	// Comments tombstone rather than delete (ADR-0010): text and
+	// authorship wiped, tree positions kept so replies survive.
+	if err := q.TombstoneCommentsForUser(ctx, &userID); err != nil {
+		return err
+	}
+	// Shared lists die with their owner (ADR-0011); a collaborator's
+	// entries survive with attribution wiped.
+	if err := q.DeleteSocialListsForOwner(ctx, userID); err != nil {
+		return err
+	}
+	if err := q.DeleteSocialListMembershipsForUser(ctx, userID); err != nil {
+		return err
+	}
+	if err := q.ClearSocialListAttributionForUser(ctx, &userID); err != nil {
+		return err
+	}
+	// Group posts tombstone like comments; private groups die with
+	// their owner; a public hub passes to the longest-tenured member,
+	// or dies when none remains (ADR-0012 succession).
+	if err := q.TombstoneGroupPostsForUser(ctx, &userID); err != nil {
+		return err
+	}
+	publicGroups, err := q.GetOwnedPublicGroupIDs(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, groupID := range publicGroups {
+		successor, err := q.FindGroupSuccessor(ctx, db.FindGroupSuccessorParams{
+			GroupID: groupID, UserID: userID,
+		})
+		if err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if err := q.DeleteSocialGroupByID(ctx, groupID); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := q.TransferGroupOwner(ctx, db.TransferGroupOwnerParams{
+			ID: groupID, OwnerUserID: successor,
+		}); err != nil {
+			return err
+		}
+		if err := q.PromoteGroupMemberToOwner(ctx, db.PromoteGroupMemberToOwnerParams{
+			GroupID: groupID, UserID: successor,
+		}); err != nil {
+			return err
+		}
+	}
+	if err := q.DeleteOwnedPrivateGroups(ctx, userID); err != nil {
+		return err
+	}
+	if err := q.DeleteGroupMembershipsForUser(ctx, userID); err != nil {
+		return err
+	}
+	if err := q.ClearGroupInviteAttributionForUser(ctx, &userID); err != nil {
+		return err
+	}
+	if err := q.DeleteMilestonesForUser(ctx, userID); err != nil {
+		return err
+	}
+	return q.DeleteRelationshipsForUser(ctx, userID)
 }
 
 // visibilityToStored maps a wire SocialVisibility onto the stored raw value,

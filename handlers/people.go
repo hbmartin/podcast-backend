@@ -148,7 +148,7 @@ func (h Handlers) PostContactsMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	candidates, err := h.Queries.GetDiscoverableProfileEmails(r.Context())
+	candidates, err := h.Queries.GetDiscoverableProfileEmails(r.Context(), user.ID)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -157,17 +157,8 @@ func (h Handlers) PostContactsMatch(w http.ResponseWriter, r *http.Request) {
 	salt := h.contactsSalt()
 	resp := &pb.ContactsMatchResponse{}
 	for _, candidate := range candidates {
-		if candidate.UserID == user.ID {
-			continue
-		}
 		sum := sha256.Sum256([]byte(salt + strings.ToLower(strings.TrimSpace(candidate.Email))))
 		if !wanted[hex.EncodeToString(sum[:])] {
-			continue
-		}
-		blocked, err := h.Queries.IsBlockedEither(r.Context(), db.IsBlockedEitherParams{
-			UserID: user.ID, TargetUserID: candidate.UserID,
-		})
-		if err == nil && blocked {
 			continue
 		}
 		resp.Profiles = append(resp.Profiles, &pb.ProfileSummary{

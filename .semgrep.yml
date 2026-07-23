@@ -1,0 +1,91 @@
+rules:
+  - id: go.insecure-tls-verification
+    languages: [go]
+    severity: ERROR
+    message: TLS verification must not be disabled; trust an explicit CA or pinned certificate.
+    patterns:
+      - pattern-either:
+          - pattern: 'tls.Config{..., InsecureSkipVerify: true, ...}'
+          - pattern: '$CONFIG.InsecureSkipVerify = true'
+
+  - id: go.unguarded-default-http
+    languages: [go]
+    severity: ERROR
+    message: Use a purpose-built client with redirect, DNS, timeout, and response-size controls.
+    pattern-either:
+      - pattern: 'http.Get(...)'
+      - pattern: 'http.DefaultClient.Do(...)'
+
+  - id: go.fail-open-block-check
+    languages: [go]
+    severity: ERROR
+    message: Relationship lookup errors must be handled before an authorization decision.
+    patterns:
+      - pattern-inside: |
+          $BLOCKED, $ERR := $QUERY.IsBlockedEither(...)
+          ...
+      - pattern: |
+          if $ERR == nil && $BLOCKED {
+            ...
+          }
+
+  - id: go.byte-slice-in-truncation-helper
+    languages: [go]
+    severity: ERROR
+    message: Direct byte slicing can split UTF-8; establish a rune boundary first.
+    patterns:
+      - pattern-inside: |
+          func $FUNC(...) string {
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: '(?i).*trunc.*'
+      - pattern: '$TEXT[:$LIMIT]'
+
+  - id: go.queue-or-network-inside-transaction
+    languages: [go]
+    severity: ERROR
+    message: Do not hold a database transaction across queue or network work.
+    patterns:
+      - pattern-inside: |
+          $STORE.InTx(..., func(...) error {
+            ...
+          })
+      - pattern-either:
+          - pattern: '$QUEUE.Enqueue(...)'
+          - pattern: '$QUEUE.EnqueuePodcastRefresh(...)'
+          - pattern: '$CRAWLER.EnsurePodcast(...)'
+          - pattern: '$CRAWLER.Crawl(...)'
+          - pattern: '$CLIENT.Do(...)'
+
+  - id: go.request-loop-unbounded-goroutine
+    languages: [go]
+    severity: ERROR
+    message: Request-controlled loops must use a bounded worker or semaphore instead of unbounded goroutines.
+    paths:
+      include: [handlers]
+    patterns:
+      - pattern-inside: |
+          for ... {
+            ...
+          }
+      - pattern: |
+          go func(...) {
+            ...
+          }(...)
+
+  - id: go.moderate-unbounded-quote
+    languages: [go]
+    severity: ERROR
+    message: Moderate the exact bounded quote value that will be stored.
+    pattern: 'moderation.CheckText($REQUEST.Quote)'
+
+  - id: go.raw-error-http-response
+    languages: [go]
+    severity: ERROR
+    message: Log underlying errors server-side and return a generic client message.
+    pattern-either:
+      - pattern: 'http.Error($W, $ERR.Error(), ...)'
+      - pattern: 'writeJSON($W, $STATUS, $ERR.Error())'
+      - pattern: 'pcerrors.Write($W, $STATUS, $CODE, $ERR.Error())'

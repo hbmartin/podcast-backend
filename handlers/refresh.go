@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -10,8 +11,6 @@ import (
 
 	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // jsonDateFormat matches the client's DateFormatHelper json format.
@@ -85,8 +84,13 @@ func (h Handlers) PostRefreshUserUpdate(w http.ResponseWriter, r *http.Request) 
 	h.persistPushState(r, req.Device, req.PushToken, req.PushOn, req.PushMessagesOn, uuids)
 
 	valid := make([]string, 0, len(uuids))
+	seenPodcasts := map[string]struct{}{}
 	for _, uuid := range uuids {
 		if uuidPattern.MatchString(uuid) {
+			if _, seen := seenPodcasts[uuid]; seen {
+				continue
+			}
+			seenPodcasts[uuid] = struct{}{}
 			valid = append(valid, uuid)
 		}
 	}
@@ -103,6 +107,34 @@ func (h Handlers) PostRefreshUserUpdate(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	cutoffs := map[string]db.Episode{}
+	cutoffUUIDs := make([]string, 0, len(lastEpisodes))
+	seenCutoffs := map[string]struct{}{}
+	for index, uuid := range lastEpisodes {
+		if index >= len(uuids) {
+			break
+		}
+		if _, exists := known[uuids[index]]; !exists {
+			continue
+		}
+		if uuidPattern.MatchString(uuid) {
+			if _, seen := seenCutoffs[uuid]; !seen {
+				seenCutoffs[uuid] = struct{}{}
+				cutoffUUIDs = append(cutoffUUIDs, uuid)
+			}
+		}
+	}
+	if len(cutoffUUIDs) > 0 {
+		episodes, err := h.Queries.GetEpisodesByUUIDs(r.Context(), cutoffUUIDs)
+		if err != nil {
+			writeError(w, r, err)
+			return
+		}
+		for _, episode := range episodes {
+			cutoffs[episode.Uuid] = episode
+		}
+	}
+
 	updates := map[string][]refreshEpisodeJSON{}
 	for i, uuid := range uuids {
 		podcast, ok := known[uuid]
@@ -115,7 +147,8 @@ func (h Handlers) PostRefreshUserUpdate(w http.ResponseWriter, r *http.Request) 
 			lastEpisode = lastEpisodes[i]
 		}
 
-		episodes, err := h.newEpisodesSince(r.Context(), podcast, lastEpisode)
+		cutoff, hasCutoff := cutoffs[lastEpisode]
+		episodes, err := h.newEpisodesSince(r.Context(), podcast, cutoff, hasCutoff)
 		if err != nil {
 			writeError(w, r, err)
 			return
@@ -128,29 +161,25 @@ func (h Handlers) PostRefreshUserUpdate(w http.ResponseWriter, r *http.Request) 
 	writeRefreshOK(w, map[string]any{"podcast_updates": updates})
 }
 
-// newEpisodesSince returns catalog episodes published after the episode
-// lastEpisodeUuid (all recent episodes when it is unknown or empty).
-func (h Handlers) newEpisodesSince(ctx context.Context, podcast db.Podcast, lastEpisodeUuid string) ([]refreshEpisodeJSON, error) {
+// newEpisodesSince returns catalog episodes published after a verified cutoff
+// from the same podcast (all recent episodes when it is absent or mismatched).
+func (h Handlers) newEpisodesSince(ctx context.Context, podcast db.Podcast, last db.Episode, hasCutoff bool) ([]refreshEpisodeJSON, error) {
 	const recentLimit = 20
 	const catchUpLimit = 100
 
 	var rows []db.Episode
 	var err error
 
-	if lastEpisodeUuid != "" && uuidPattern.MatchString(lastEpisodeUuid) {
-		if last, lookupErr := h.Queries.GetEpisodeByUUID(ctx, lastEpisodeUuid); lookupErr == nil && last.PublishedAt != nil {
-			rows, err = h.Queries.GetEpisodesPublishedAfter(ctx, db.GetEpisodesPublishedAfterParams{
-				PodcastID:   podcast.ID,
-				PublishedAt: last.PublishedAt,
-				Limit:       catchUpLimit,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return episodesToRefreshJSON(rows), nil
-		} else if lookupErr != nil && !errors.Is(lookupErr, pgx.ErrNoRows) {
-			return nil, lookupErr
+	if hasCutoff && last.PodcastID == podcast.ID && last.PublishedAt != nil {
+		rows, err = h.Queries.GetEpisodesPublishedAfter(ctx, db.GetEpisodesPublishedAfterParams{
+			PodcastID:   podcast.ID,
+			PublishedAt: last.PublishedAt,
+			Limit:       catchUpLimit,
+		})
+		if err != nil {
+			return nil, err
 		}
+		return episodesToRefreshJSON(rows), nil
 	}
 
 	rows, err = h.Queries.GetEpisodesByPodcastID(ctx, db.GetEpisodesByPodcastIDParams{PodcastID: podcast.ID, Limit: recentLimit})
@@ -188,7 +217,7 @@ func (h Handlers) PostPodcastsRefresh(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PodcastUuid string `json:"podcast_uuid"`
 	}
-	if err := bindJSON(r, &req); err != nil || req.PodcastUuid == "" {
+	if err := bindJSON(r, &req); err != nil || !uuidPattern.MatchString(req.PodcastUuid) {
 		writeRefreshStatus(w, "error", "podcast_uuid is required")
 		return
 	}
@@ -196,10 +225,12 @@ func (h Handlers) PostPodcastsRefresh(w http.ResponseWriter, r *http.Request) {
 	if h.Queue == nil {
 		podcast, err := h.Queries.GetPodcastByUUID(r.Context(), req.PodcastUuid)
 		if err != nil {
+			slog.Warn("Forced refresh lookup failed", "podcast_uuid", req.PodcastUuid, "error", err)
 			writeRefreshStatus(w, "error", "unknown podcast")
 			return
 		}
 		if err := h.Crawler.Crawl(r.Context(), podcast); err != nil {
+			slog.Warn("Forced refresh crawl failed", "podcast_uuid", req.PodcastUuid, "error", err)
 			writeRefreshStatus(w, "error", "crawl failed")
 			return
 		}
@@ -208,6 +239,7 @@ func (h Handlers) PostPodcastsRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Queue.EnqueuePodcastRefresh(r.Context(), req.PodcastUuid, ""); err != nil {
+		slog.Warn("Forced refresh enqueue failed", "podcast_uuid", req.PodcastUuid, "error", err)
 		writeRefreshStatus(w, "error", "unable to queue refresh")
 		return
 	}
@@ -240,6 +272,7 @@ func (h Handlers) PostPodcastsSearch(w http.ResponseWriter, r *http.Request) {
 
 	results, err := h.Search.Search(r.Context(), term, 20)
 	if err != nil {
+		slog.Warn("Podcast search failed", "error", err)
 		writeRefreshStatus(w, "error", "search unavailable")
 		return
 	}
@@ -257,7 +290,9 @@ func (h Handlers) PostPodcastsSearch(w http.ResponseWriter, r *http.Request) {
 		if podcast.RefreshStatus == "pending" && h.Queue != nil {
 			// fill the catalog in the background so the follow-up cache-host
 			// full-podcast call succeeds
-			_ = h.Queue.EnqueuePodcastRefresh(r.Context(), podcast.Uuid, podcast.FeedUrl)
+			if err := h.Queue.EnqueuePodcastRefresh(r.Context(), podcast.Uuid, podcast.FeedUrl); err != nil {
+				slog.Warn("Pending podcast enqueue failed", "podcast_uuid", podcast.Uuid, "error", err)
+			}
 		}
 
 		infos = append(infos, podcastInfoJSON{
@@ -282,11 +317,14 @@ func (h Handlers) searchByFeedURL(w http.ResponseWriter, r *http.Request, feedUR
 			// slow feed: let the client's poll/backoff loop retry while a
 			// background crawl finishes
 			if h.Queue != nil {
-				_ = h.Queue.EnqueuePodcastRefresh(r.Context(), "", feedURL)
+				if enqueueErr := h.Queue.EnqueuePodcastRefresh(r.Context(), "", feedURL); enqueueErr != nil {
+					slog.Warn("Feed URL refresh enqueue failed", "feed_url", feedURL, "error", enqueueErr)
+				}
 			}
 			writeRefreshStatus(w, "poll", "")
 			return
 		}
+		slog.Warn("Feed URL search crawl failed", "feed_url", feedURL, "error", err)
 		writeRefreshStatus(w, "error", "feed could not be loaded")
 		return
 	}
@@ -315,6 +353,7 @@ func (h Handlers) PostPodcastsShow(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Search.Lookup(r.Context(), req.ID)
 	if err != nil || result == nil {
+		slog.Warn("Podcast lookup failed", "collection_id", req.ID, "error", err)
 		writeRefreshStatus(w, "error", "podcast not found")
 		return
 	}
@@ -323,6 +362,7 @@ func (h Handlers) PostPodcastsShow(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	podcast, err := h.Crawler.EnsurePodcast(ctx, result.FeedURL)
 	if err != nil {
+		slog.Warn("Podcast lookup feed crawl failed", "collection_id", req.ID, "error", err)
 		writeRefreshStatus(w, "error", "feed could not be loaded")
 		return
 	}

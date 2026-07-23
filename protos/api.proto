@@ -1883,9 +1883,10 @@ message ProfileResponse {
   SocialProfile profile = 1;
 }
 
-// GET social/u/{handle} — optionally authenticated. The server applies per-field
+// POST /social/profile/public — optionally authenticated. The server applies per-field
 // visibility AND the viewer's block relationship (a blocked viewer reads as
-// not-found); only fields the viewer may see are populated. Powers pca.st/u/<handle>.
+// not-found); only fields the viewer may see are populated. The separate HTML
+// profile page is served by GET /u/{handle}.
 message PublicProfileRequest {
   string handle = 1;
 }

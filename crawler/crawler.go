@@ -1,9 +1,12 @@
 package crawler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +25,7 @@ const (
 	subscribedRefreshInterval = time.Hour
 	idleRefreshInterval       = 24 * time.Hour
 	maxEpisodesPerCrawl       = 5000
+	maxFeedBodyBytes          = 20 << 20 // 20 MiB
 )
 
 // Crawler fetches feeds and ingests them into the catalog.
@@ -60,6 +64,9 @@ func (c *Crawler) EnsurePodcast(ctx context.Context, feedURL string) (db.Podcast
 	}
 
 	if podcast.RefreshStatus == "ok" {
+		return podcast, nil
+	}
+	if podcast.RefreshStatus == "failed" && time.Now().Before(podcast.NextRefreshAt) {
 		return podcast, nil
 	}
 
@@ -101,7 +108,15 @@ func (c *Crawler) Crawl(ctx context.Context, podcast db.Podcast) error {
 	}
 	defer result.Body.Close()
 
-	feed, err := gofeed.NewParser().Parse(result.Body)
+	body, err := io.ReadAll(io.LimitReader(result.Body, maxFeedBodyBytes+1))
+	if err != nil {
+		return c.recordFailure(ctx, podcast, err)
+	}
+	if len(body) > maxFeedBodyBytes {
+		return c.recordFailure(ctx, podcast, fmt.Errorf("feed body exceeds %d bytes", maxFeedBodyBytes))
+	}
+
+	feed, err := gofeed.NewParser().Parse(bytes.NewReader(body))
 	if err != nil {
 		return c.recordFailure(ctx, podcast, err)
 	}

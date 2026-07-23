@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -153,6 +155,27 @@ func (m *socialMock) UpsertSocialListEntry(ctx context.Context, arg db.UpsertSoc
 	return nil
 }
 
+func (m *socialMock) UpsertSocialListEntries(ctx context.Context, arg db.UpsertSocialListEntriesParams) error {
+	var entries []map[string]any
+	if err := json.Unmarshal(arg.Entries, &entries); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := m.UpsertSocialListEntry(ctx, db.UpsertSocialListEntryParams{
+			ListID:       arg.ListID,
+			EpisodeUuid:  entry["episode_uuid"].(string),
+			PodcastUuid:  entry["podcast_uuid"].(string),
+			EpisodeTitle: entry["episode_title"].(string),
+			PodcastTitle: entry["podcast_title"].(string),
+			Position:     int32(entry["position"].(float64)),
+			AddedBy:      arg.AddedBy,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *socialMock) DeleteSocialListEntry(ctx context.Context, arg db.DeleteSocialListEntryParams) (int64, error) {
 	entries := m.listEntries[arg.ListID]
 	for i, e := range entries {
@@ -175,6 +198,9 @@ func (m *socialMock) MoveSocialListEntry(ctx context.Context, arg db.MoveSocialL
 }
 
 func (m *socialMock) GetSocialListMember(ctx context.Context, arg db.GetSocialListMemberParams) (int16, error) {
+	if m.memberErr != nil {
+		return 0, m.memberErr
+	}
 	m.ensureListState()
 	if role, ok := m.listMembers[arg.ListID][arg.UserID]; ok {
 		return role, nil
@@ -386,6 +412,14 @@ func TestSocialListCreateAndVisibility(t *testing.T) {
 		&pb.SharedListEntriesRequest{ListId: otherID}, &pb.SharedListEntriesResponse{})
 	assert.Equal(t, http.StatusOK, code)
 
+	// Authorization dependencies fail closed rather than turning an unknown
+	// block relationship into public access.
+	m.blockErr = errors.New("block lookup unavailable")
+	code, _, _ = makeProtoRequest(router, "/social/list/entries",
+		&pb.SharedListEntriesRequest{ListId: otherID}, &pb.SharedListEntriesResponse{})
+	assert.Equal(t, http.StatusInternalServerError, code)
+	m.blockErr = nil
+
 	m.lists[otherID].visibility = 3
 	code, _, _ = makeProtoRequest(router, "/social/list/entries",
 		&pb.SharedListEntriesRequest{ListId: otherID}, &pb.SharedListEntriesResponse{})
@@ -445,6 +479,19 @@ func TestSocialListCollabFlow(t *testing.T) {
 	assert.False(t, stillThere)
 }
 
+func TestSocialListInviteResponseBlockLookupFailsClosed(t *testing.T) {
+	m, router := joinedListsMock(t)
+	listID := plantListOwnedBy2(m, 0)
+	m.listMembers[listID][1] = listRoleInvited
+	m.blockErr = assert.AnError
+
+	code, _, _ := makeProtoRequest(router, "/social/list/invite/respond",
+		&pb.SharedListInviteRespondRequest{ListId: listID, Accept: true}, &pb.SocialAck{})
+
+	assert.Equal(t, http.StatusInternalServerError, code)
+	assert.Equal(t, listRoleInvited, m.listMembers[listID][1])
+}
+
 func TestSocialListSubscribeFlow(t *testing.T) {
 	m, router := joinedListsMock(t)
 	otherID := plantListOwnedBy2(m, 2) // public list owned by @friend
@@ -467,6 +514,14 @@ func TestSocialListSubscribeFlow(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
+
+	// A transient membership lookup failure is not equivalent to no row and
+	// must never overwrite or silently acknowledge membership state.
+	m.memberErr = errors.New("membership lookup unavailable")
+	code, _, _ = makeProtoRequest(router, "/social/list/subscribe",
+		&pb.SharedListSubscribeRequest{ListId: otherID, Subscribe: true}, ack)
+	assert.Equal(t, http.StatusInternalServerError, code)
+	m.memberErr = nil
 
 	// Unsubscribe removes the row; a private list can't be subscribed.
 	makeProtoRequest(router, "/social/list/subscribe",

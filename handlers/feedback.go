@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/pcerrors"
@@ -65,11 +66,15 @@ func (h Handlers) storeFeedback(w http.ResponseWriter, r *http.Request, userID *
 	w.WriteHeader(http.StatusOK)
 }
 
-// truncate limits a string to max bytes without splitting the report; feedback
-// text is safe to cut mid-rune for storage purposes.
+// truncate limits a string to max bytes while preserving valid UTF-8 for
+// PostgreSQL text columns.
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max]
+	end := max
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end] // nosemgrep: go.byte-slice-in-truncation-helper -- end is rewound to a UTF-8 rune boundary above.
 }

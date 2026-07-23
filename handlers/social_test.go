@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +18,63 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 )
+
+type moderationQuotaStore struct {
+	db.Store
+	mu      sync.Mutex
+	reports []time.Time
+}
+
+func (s *moderationQuotaStore) InTx(ctx context.Context, fn func(db.Querier) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return fn(s)
+}
+
+func (s *moderationQuotaStore) LockRateLimitBucket(context.Context, string) error { return nil }
+
+func (s *moderationQuotaStore) CountRecentModerationReportsByReporter(
+	_ context.Context,
+	arg db.CountRecentModerationReportsByReporterParams,
+) (int64, error) {
+	var count int64
+	for _, createdAt := range s.reports {
+		if createdAt.After(arg.CreatedAt) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (s *moderationQuotaStore) InsertModerationReport(context.Context, db.InsertModerationReportParams) error {
+	s.reports = append(s.reports, time.Now())
+	return nil
+}
+
+func TestModerationReportQuotaIsAtomicAndRollsOver(t *testing.T) {
+	store := &moderationQuotaStore{reports: []time.Time{time.Now().Add(-25 * time.Hour)}}
+	h := Handlers{Queries: store}
+	var accepted atomic.Int32
+	var wg sync.WaitGroup
+	for range 40 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := h.withModerationReportQuota(context.Background(), 7, func(q db.Querier) error {
+				accepted.Add(1)
+				return q.InsertModerationReport(context.Background(), db.InsertModerationReportParams{})
+			})
+			if err != nil && !errors.Is(err, errModerationReportRateLimited) {
+				t.Errorf("unexpected report quota error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, int32(moderationReportsPerDay), accepted.Load())
+	assert.Len(t, store.reports, moderationReportsPerDay+1,
+		"the report outside the rolling window must not consume current quota")
+}
 
 // socialMock is a stateful in-memory implementation of the social queries so
 // handler tests can walk the whole join → read → block → erase loop
@@ -29,6 +89,8 @@ type socialMock struct {
 	profiles  map[int64]db.SocialProfile
 	rels      map[[3]int64]bool // (user, target, kind)
 	reports   []db.InsertModerationReportParams
+	blockErr  error
+	memberErr error
 
 	// Reviews + reactions state (methods in reviews_test.go; lazily built by
 	// ensureReviewState). reviewKey doubles as (user, episode) for reactions.
@@ -186,6 +248,9 @@ func (m *socialMock) DeleteSocialRelationship(ctx context.Context, arg db.Delete
 }
 
 func (m *socialMock) IsBlockedEither(ctx context.Context, arg db.IsBlockedEitherParams) (bool, error) {
+	if m.blockErr != nil {
+		return false, m.blockErr
+	}
 	return m.rels[[3]int64{arg.UserID, arg.TargetUserID, int64(relationshipBlock)}] ||
 		m.rels[[3]int64{arg.TargetUserID, arg.UserID, int64(relationshipBlock)}], nil
 }
@@ -193,6 +258,17 @@ func (m *socialMock) IsBlockedEither(ctx context.Context, arg db.IsBlockedEither
 func (m *socialMock) InsertModerationReport(ctx context.Context, arg db.InsertModerationReportParams) error {
 	m.reports = append(m.reports, arg)
 	return nil
+}
+
+func (m *socialMock) LockRateLimitBucket(context.Context, string) error {
+	return nil
+}
+
+func (m *socialMock) CountRecentModerationReportsByReporter(
+	context.Context,
+	db.CountRecentModerationReportsByReporterParams,
+) (int64, error) {
+	return int64(len(m.reports)), nil
 }
 
 func (m *socialMock) DeleteSocialProfile(ctx context.Context, userID int64) (int64, error) {
@@ -551,6 +627,27 @@ func TestReport(t *testing.T) {
 	assert.Equal(t, "community_flag", report.Source)
 	assert.Equal(t, int16(pb.ReportReason_REPORT_REASON_HARASSMENT), report.Reason)
 	assert.Len(t, report.Context, maxReportContextLen)
+
+	for _, reason := range []pb.ReportReason{
+		pb.ReportReason_REPORT_REASON_UNSPECIFIED,
+		pb.ReportReason(7),
+		pb.ReportReason(1 << 20),
+	} {
+		code, _, _ = makeProtoRequest(router, "/social/report", &pb.ReportRequest{
+			TargetUserId: otherUserUUID,
+			Reason:       reason,
+		}, &pb.SocialAck{})
+		assert.Equal(t, http.StatusBadRequest, code)
+	}
+
+	for len(m.reports) < moderationReportsPerDay {
+		m.reports = append(m.reports, report)
+	}
+	code, _, _ = makeProtoRequest(router, "/social/report", &pb.ReportRequest{
+		TargetUserId: otherUserUUID,
+		Reason:       pb.ReportReason_REPORT_REASON_SPAM,
+	}, &pb.SocialAck{})
+	assert.Equal(t, http.StatusTooManyRequests, code)
 }
 
 func TestEraseTombstonesHandle(t *testing.T) {

@@ -126,11 +126,13 @@ type fixtureFetcher struct {
 	file        string
 	notModified bool
 	err         error
+	calls       int
 	gotETag     string
 	gotLastMod  string
 }
 
 func (f *fixtureFetcher) Fetch(ctx context.Context, url string, etag string, lastModified string) (*FetchResult, error) {
+	f.calls++
 	f.gotETag = etag
 	f.gotLastMod = lastModified
 	if f.err != nil {
@@ -232,7 +234,8 @@ func TestCrawlNotModifiedOnlyReschedules(t *testing.T) {
 
 func TestCrawlFailureRecordsAndBacksOff(t *testing.T) {
 	store := newCatalogFake()
-	c := &Crawler{DB: store, Fetcher: &fixtureFetcher{err: errors.New("connection refused")}}
+	fetcher := &fixtureFetcher{err: errors.New("connection refused")}
+	c := &Crawler{DB: store, Fetcher: fetcher}
 
 	_, err := c.EnsurePodcast(context.Background(), "https://example.com/down.xml")
 	assert.Error(t, err)
@@ -242,6 +245,40 @@ func TestCrawlFailureRecordsAndBacksOff(t *testing.T) {
 	assert.Equal(t, "failed", podcast.RefreshStatus)
 	assert.Contains(t, podcast.RefreshError, "connection refused")
 	assert.True(t, podcast.NextRefreshAt.After(time.Now().Add(time.Hour)))
+
+	// Repeated sync updates must not turn a recorded backoff into an immediate
+	// outbound retry storm.
+	retried, retryErr := c.EnsurePodcast(context.Background(), "https://example.com/down.xml")
+	assert.NoError(t, retryErr)
+	assert.Equal(t, podcast.Uuid, retried.Uuid)
+	assert.Equal(t, 1, fetcher.calls)
+}
+
+type fixedBodyFetcher struct {
+	body io.ReadCloser
+}
+
+func (f *fixedBodyFetcher) Fetch(context.Context, string, string, string) (*FetchResult, error) {
+	return &FetchResult{Body: f.body}, nil
+}
+
+func TestCrawlRejectsOversizedFeedBody(t *testing.T) {
+	store := newCatalogFake()
+	body := io.NopCloser(io.LimitReader(zeroReader{}, maxFeedBodyBytes+1))
+	c := &Crawler{DB: store, Fetcher: &fixedBodyFetcher{body: body}}
+
+	_, err := c.EnsurePodcast(context.Background(), "https://example.com/oversized.xml")
+
+	assert.ErrorContains(t, err, "feed body exceeds")
+	podcast := store.podcasts[PodcastUUID("https://example.com/oversized.xml")]
+	assert.Equal(t, "failed", podcast.RefreshStatus)
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
 }
 
 func TestSubscribedRefreshCadence(t *testing.T) {

@@ -72,10 +72,12 @@ type QuerierMock struct {
 	TombstoneHandleResult     int64
 	TombstoneHandleError      error
 	DeleteRelationshipsError  error
+	InTxCalls                 int
 }
 
 // InTx runs fn against the mock itself, mimicking a transaction.
 func (m *QuerierMock) InTx(ctx context.Context, fn func(db.Querier) error) error {
+	m.InTxCalls++
 	return fn(m)
 }
 

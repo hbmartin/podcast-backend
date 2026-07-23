@@ -57,7 +57,13 @@ func (e *Engine) SyncHistory(ctx context.Context, userID int64, req *pb.HistoryS
 					if change.Episode == "" {
 						continue
 					}
-					if err := q.DeleteHistoryItem(ctx, db.DeleteHistoryItemParams{UserID: userID, EpisodeUuid: change.Episode}); err != nil {
+					modifiedAt := change.ModifiedAt
+					if modifiedAt == 0 {
+						modifiedAt = NextToken(serverModified)
+					}
+					if err := q.TombstoneHistoryItem(ctx, db.TombstoneHistoryItemParams{
+						UserID: userID, EpisodeUuid: change.Episode, ModifiedAt: modifiedAt,
+					}); err != nil {
 						return err
 					}
 
@@ -90,8 +96,12 @@ func (e *Engine) SyncHistory(ctx context.Context, userID int64, req *pb.HistoryS
 
 		resp = &pb.HistoryResponse{ServerModified: serverModified, LastCleared: lastCleared}
 		for _, row := range rows {
+			action := int32(historyActionAdd)
+			if row.IsDeleted {
+				action = historyActionDelete
+			}
 			resp.Changes = append(resp.Changes, &pb.HistoryChange{
-				Action:     historyActionAdd,
+				Action:     action,
 				Episode:    row.EpisodeUuid,
 				Podcast:    row.PodcastUuid,
 				Title:      row.Title,

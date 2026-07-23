@@ -21,9 +21,12 @@ const maxProtoBody = 4 << 20
 func bindProto(r *http.Request, m proto.Message) error {
 	const op errs.Op = "handlers/bindProto"
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxProtoBody))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxProtoBody+1))
 	if err != nil {
 		return errs.E(op, errs.Invalid, err)
+	}
+	if len(body) > maxProtoBody {
+		return errs.E(op, errs.Invalid, errs.Code("body_too_large"))
 	}
 
 	if err := proto.Unmarshal(body, m); err != nil {
