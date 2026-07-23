@@ -24,6 +24,12 @@ type recordingDialer struct {
 	addresses []string
 }
 
+type stubRoundTripper struct{}
+
+func (stubRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("test transport must not be used")
+}
+
 func (d *recordingDialer) DialContext(_ context.Context, _, address string) (net.Conn, error) {
 	d.addresses = append(d.addresses, address)
 	return nil, errors.New("test dial stopped")
@@ -82,6 +88,22 @@ func TestFeedRedirectsAreRevalidated(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoError(t, fetcher.Client.CheckRedirect(public, []*http.Request{{}}))
 	assert.Error(t, fetcher.Client.CheckRedirect(public, make([]*http.Request, 10)))
+}
+
+func TestNewHTTPFetcherHandlesNonHTTPDefaultTransport(t *testing.T) {
+	original := http.DefaultTransport
+	http.DefaultTransport = stubRoundTripper{}
+	t.Cleanup(func() { http.DefaultTransport = original })
+
+	assert.NotPanics(t, func() {
+		fetcher := NewHTTPFetcher()
+		transport, ok := fetcher.Client.Transport.(*http.Transport)
+		if assert.True(t, ok) {
+			assert.Nil(t, transport.Proxy)
+			assert.NotNil(t, transport.DialContext)
+			assert.True(t, transport.ForceAttemptHTTP2)
+		}
+	})
 }
 
 func TestSafeFeedDialRejectsAlternateLoopbackNotation(t *testing.T) {

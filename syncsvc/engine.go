@@ -159,18 +159,20 @@ func applyPodcastRecord(ctx context.Context, q db.Querier, userID int64, token i
 	if feedURL := rec.GetFeedUrl().GetValue(); feedURL != "" {
 		canonicalFeedURL := crawler.CanonicalFeedURL(feedURL)
 		params.SyncedFeedUrl = canonicalFeedURL
-		// Unknown in the catalog: hand the URL to the ingestion hook so the
-		// crawl fills catalog/episodes/artwork (Slice 11, QA follow-up).
-		if _, catErr := q.GetPodcastByUUID(ctx, rec.Uuid); catErr != nil {
-			if !errors.Is(catErr, pgx.ErrNoRows) {
-				return catErr
-			}
-			if _, feedErr := q.GetPodcastByFeedURL(ctx, canonicalFeedURL); feedErr != nil {
-				if !errors.Is(feedErr, pgx.ErrNoRows) {
-					return feedErr
+		if params.Subscribed && !params.IsDeleted {
+			// Unknown in the catalog: hand the URL to the ingestion hook so the
+			// crawl fills catalog/episodes/artwork (Slice 11, QA follow-up).
+			if _, catErr := q.GetPodcastByUUID(ctx, rec.Uuid); catErr != nil {
+				if !errors.Is(catErr, pgx.ErrNoRows) {
+					return catErr
 				}
-				if onUnknownPodcast != nil {
-					onUnknownPodcast(canonicalFeedURL)
+				if _, feedErr := q.GetPodcastByFeedURL(ctx, canonicalFeedURL); feedErr != nil {
+					if !errors.Is(feedErr, pgx.ErrNoRows) {
+						return feedErr
+					}
+					if onUnknownPodcast != nil {
+						onUnknownPodcast(canonicalFeedURL)
+					}
 				}
 			}
 		}

@@ -15,19 +15,20 @@ import (
 type fakeStore struct {
 	db.Store
 
-	user         db.User
-	podcasts     map[string]db.UserPodcast
-	episodes     map[string]db.UserEpisode
-	folders      map[string]db.Folder
-	playlists    map[string]db.Playlist
-	bookmarks    map[string]db.Bookmark
-	devices      map[string]db.UpsertDeviceParams
-	upNext       []db.UpNextItem
-	history      map[string]db.History
-	settings     *db.UserSetting
-	catalogRows  []db.GetSubscribedPodcastsWithCatalogRow
-	catalogFeeds map[string]db.Podcast
-	inTx         bool
+	user               db.User
+	podcasts           map[string]db.UserPodcast
+	episodes           map[string]db.UserEpisode
+	folders            map[string]db.Folder
+	playlists          map[string]db.Playlist
+	bookmarks          map[string]db.Bookmark
+	devices            map[string]db.UpsertDeviceParams
+	upNext             []db.UpNextItem
+	history            map[string]db.History
+	settings           *db.UserSetting
+	catalogRows        []db.GetSubscribedPodcastsWithCatalogRow
+	catalogFeeds       map[string]db.Podcast
+	catalogUUIDLookups int
+	inTx               bool
 }
 
 func (f *fakeStore) CountMilestonesForUser(ctx context.Context, userID int64) (int64, error) {
@@ -67,6 +68,7 @@ func (f *fakeStore) InTx(ctx context.Context, fn func(db.Querier) error) error {
 }
 
 func (f *fakeStore) GetPodcastByUUID(ctx context.Context, uuid string) (db.Podcast, error) {
+	f.catalogUUIDLookups++
 	return db.Podcast{}, pgx.ErrNoRows
 }
 
@@ -130,6 +132,8 @@ func (f *fakeStore) UpsertUserPodcast(ctx context.Context, arg db.UpsertUserPodc
 		DateAdded:         arg.DateAdded,
 		Settings:          arg.Settings,
 		ModifiedAt:        arg.ModifiedAt,
+		SyncedTitle:       arg.SyncedTitle,
+		SyncedFeedUrl:     arg.SyncedFeedUrl,
 		NotifyEnabled:     row.NotifyEnabled,
 	}
 	return nil

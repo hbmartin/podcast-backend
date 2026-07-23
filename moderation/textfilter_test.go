@@ -17,6 +17,17 @@ func TestCheckTextRejectsSpoofingFormatRunes(t *testing.T) {
 	}
 }
 
+func TestCheckTextRejectsInvisibleOperatorRunes(t *testing.T) {
+	original := Blocklist
+	Blocklist = []string{"blockedterm"}
+	t.Cleanup(func() { Blocklist = original })
+
+	for r := '\u2061'; r <= '\u2064'; r++ {
+		assert.ErrorIs(t, CheckText("blocked"+string(r)+"term"), ErrBadRunes)
+	}
+	assert.ErrorIs(t, CheckText("blockedterm"), ErrBlocked)
+}
+
 func TestCheckTextAllowsLegitimateJoiners(t *testing.T) {
 	assert.NoError(t, CheckText("क्\u200dष"))
 	assert.NoError(t, CheckText("می\u200cروم"))

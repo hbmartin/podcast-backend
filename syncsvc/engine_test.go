@@ -94,6 +94,44 @@ func TestApplyUpdateDispatchesUnknownFeedsAfterCommitAndDeduplicates(t *testing.
 		"a feed already ingested under its canonical catalog UUID must not be enqueued again")
 }
 
+func TestApplyUpdateSkipsUnknownFeedLookupForInactiveRecords(t *testing.T) {
+	originalHook := OnUnknownPodcast
+	t.Cleanup(func() { OnUnknownPodcast = originalHook })
+
+	tests := []struct {
+		name       string
+		subscribed *wrapperspb.BoolValue
+		isDeleted  *wrapperspb.BoolValue
+	}{
+		{name: "unsubscribed", subscribed: wrapperspb.Bool(false)},
+		{name: "deleted", isDeleted: wrapperspb.Bool(true)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeStore()
+			engine := &Engine{DB: store}
+			var dispatched []string
+			OnUnknownPodcast = func(_ int64, feedURL string) {
+				dispatched = append(dispatched, feedURL)
+			}
+
+			_, err := engine.ApplyUpdate(context.Background(), 1, &pb.SyncUpdateRequest{
+				Records: []*pb.Record{{Record: &pb.Record_Podcast{Podcast: &pb.SyncUserPodcast{
+					Uuid:       "inactive-podcast",
+					Subscribed: tt.subscribed,
+					IsDeleted:  tt.isDeleted,
+					FeedUrl:    wrapperspb.String("https://example.com/inactive.xml"),
+				}}}},
+			})
+
+			assert.NoError(t, err)
+			assert.Zero(t, store.catalogUUIDLookups)
+			assert.Empty(t, dispatched)
+			assert.Equal(t, "https://example.com/inactive.xml", store.podcasts["inactive-podcast"].SyncedFeedUrl)
+		})
+	}
+}
+
 func TestApplyUpdateIncrementalReadback(t *testing.T) {
 	store := newFakeStore()
 	engine := &Engine{DB: store}
