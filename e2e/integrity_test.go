@@ -50,15 +50,17 @@ func TestDigestClaimsAreOrderedAndReplicaSafe(t *testing.T) {
 	blocker, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer blocker.Rollback(ctx)
-	rows, err := blocker.Query(ctx, `
+	_, err = blocker.Exec(ctx, `
 		SELECT user_id FROM social_profiles
 		WHERE handle NOT IN ($1, $2)
 		FOR UPDATE`, handleA, handleB)
 	require.NoError(t, err)
-	for rows.Next() {
-	}
-	require.NoError(t, rows.Err())
-	rows.Close()
+
+	// The blocker transaction stays open for the rest of the test. If
+	// ClaimDigestCandidates ever stopped using SKIP LOCKED it would wait on
+	// these locks forever, so bound every claim to fail fast instead.
+	claimCtx, cancelClaims := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelClaims()
 
 	// Make A the NULL watermark and B the older non-NULL watermark. NULL must
 	// be claimed first; only the two fixture rows are updated.
@@ -71,7 +73,7 @@ func TestDigestClaimsAreOrderedAndReplicaSafe(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, "SELECT user_id FROM social_profiles WHERE handle = $1", handleA).Scan(&idA))
 	require.NoError(t, pool.QueryRow(ctx, "SELECT user_id FROM social_profiles WHERE handle = $1", handleB).Scan(&idB))
 
-	claimed, err := store.ClaimDigestCandidates(ctx, 2)
+	claimed, err := store.ClaimDigestCandidates(claimCtx, 2)
 	require.NoError(t, err)
 	assert.Equal(t, []int64{idA, idB}, claimed)
 
@@ -88,7 +90,7 @@ func TestDigestClaimsAreOrderedAndReplicaSafe(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			ids, claimErr := store.ClaimDigestCandidates(ctx, 2)
+			ids, claimErr := store.ClaimDigestCandidates(claimCtx, 2)
 			results <- ids
 			errs <- claimErr
 		}()
