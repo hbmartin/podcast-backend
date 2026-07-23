@@ -65,10 +65,14 @@ cobertura: ## Run the tests of the project and export a cobertura coverage xml
 	$(GOHOME)gocov-xml < profile.json > coverage.xml
 
 ## Codegen:
-PROTOC_VERSION=7.35.0
+PROTOC_VERSION=35.0
 
 proto: ## Regenerate Go protobuf code from protos/api.proto (requires protoc $(PROTOC_VERSION))
-	@protoc --version | grep -q " $(PROTOC_VERSION)$$" || { echo "protoc $(PROTOC_VERSION) required, found: $$(protoc --version)"; exit 1; }
+	@actual="$$(protoc --version 2>/dev/null || true)"; \
+		[ "$$actual" = "libprotoc $(PROTOC_VERSION)" ] || { \
+			echo "protoc $(PROTOC_VERSION) required, found: $${actual:-not installed}"; \
+			exit 1; \
+		}
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 	PATH="$$PATH:$(GOHOME)" protoc -I protos --go_out=. --go_opt=module=github.com/hbmartin/podcast-backend protos/api.proto
 
