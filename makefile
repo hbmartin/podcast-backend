@@ -65,7 +65,10 @@ cobertura: ## Run the tests of the project and export a cobertura coverage xml
 	$(GOHOME)gocov-xml < profile.json > coverage.xml
 
 ## Codegen:
-proto: ## Regenerate Go protobuf code from protos/api.proto
+PROTOC_VERSION=7.35.0
+
+proto: ## Regenerate Go protobuf code from protos/api.proto (requires protoc $(PROTOC_VERSION))
+	@protoc --version | grep -q " $(PROTOC_VERSION)$$" || { echo "protoc $(PROTOC_VERSION) required, found: $$(protoc --version)"; exit 1; }
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 	PATH="$$PATH:$(GOHOME)" protoc -I protos --go_out=. --go_opt=module=github.com/hbmartin/podcast-backend protos/api.proto
 
@@ -89,7 +92,7 @@ vet-go: ## Use go vet on your project
 semgrep: ## Run repository-specific security and correctness rules
 	semgrep --config .semgrep.yml --error .
 
-gosec: ## Run Go security analysis (tool version is pinned for reproducibility)
+gosec: ## Check for disabled TLS verification (gosec G402 only; broader rules live in .semgrep.yml)
 	$(GOCMD) run github.com/securego/gosec/v2/cmd/gosec@v2.28.0 -exclude-generated -include=G402 ./...
 
 govulncheck: ## Check reachable Go dependencies for known vulnerabilities

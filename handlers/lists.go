@@ -55,19 +55,28 @@ func (h Handlers) PostSocialListCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Initial snapshot (materialize-to-share): validate and bound every entry
 	// before opening the transaction, then insert the batch with the list.
+	// Duplicate episodes collapse to their last occurrence — the batch upsert
+	// cannot touch the same (list_id, episode_uuid) row twice.
 	initialEntries := make([]map[string]any, 0, len(req.Entries))
+	entryIndexByUuid := make(map[string]int, len(req.Entries))
 	for index, entry := range req.Entries {
 		if entry.EpisodeUuid == "" || len(entry.EpisodeUuid) > maxUuidFieldLen ||
 			len(entry.PodcastUuid) > maxUuidFieldLen {
 			continue
 		}
-		initialEntries = append(initialEntries, map[string]any{
+		row := map[string]any{
 			"episode_uuid":  entry.EpisodeUuid,
 			"podcast_uuid":  entry.PodcastUuid,
 			"episode_title": truncateRunes(entry.EpisodeTitle, maxTitleLen),
 			"podcast_title": truncateRunes(entry.PodcastTitle, maxTitleLen),
 			"position":      int32(index),
-		})
+		}
+		if at, seen := entryIndexByUuid[entry.EpisodeUuid]; seen {
+			initialEntries[at] = row
+			continue
+		}
+		entryIndexByUuid[entry.EpisodeUuid] = len(initialEntries)
+		initialEntries = append(initialEntries, row)
 	}
 	entriesJSON, err := json.Marshal(initialEntries)
 	if err != nil {

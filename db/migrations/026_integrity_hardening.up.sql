@@ -1,4 +1,10 @@
 -- Forward-only integrity hardening collected from PR feedback triage.
+--
+-- Index and constraint creation here is intentionally not CONCURRENT (the
+-- migration runner is transactional), so each ALTER/CREATE INDEX briefly
+-- write-locks its table. Run against a staging copy first and deploy in a
+-- maintenance window; the DO blocks below fail fast with a descriptive
+-- error instead of leaving a partially applied invariant.
 
 CREATE INDEX feedback_user_idx ON feedback (user_id);
 
@@ -8,7 +14,9 @@ CREATE UNIQUE INDEX users_active_email_unique
     WHERE deleted_at IS NULL;
 
 -- Normalize the stored spelling before replacing the ineffective
--- case-insensitive CITEXT regex with a text regex.
+-- case-insensitive CITEXT regex with a text regex. Lowercasing cannot
+-- collide: handle is a CITEXT primary key, so spellings differing only in
+-- case are already the same key.
 UPDATE social_profiles SET handle = lower(handle::text);
 UPDATE social_handles SET handle = lower(handle::text);
 ALTER TABLE social_handles DROP CONSTRAINT social_handles_handle_check;

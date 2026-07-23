@@ -260,6 +260,27 @@ func TestPodcastsSearchByText(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestPodcastsSearchByURLReportsBackoffAsError(t *testing.T) {
+	m := newRefreshMock()
+	feedURL := crawler.CanonicalFeedURL("https://example.com/broken.xml")
+	m.podcasts["broken-uuid"] = db.Podcast{
+		ID: 9, Uuid: "broken-uuid", FeedUrl: feedURL,
+		RefreshStatus: "failed", NextRefreshAt: time.Now().Add(time.Hour),
+	}
+	// The nil Fetcher would panic on any outbound fetch: the backoff window
+	// must be answered from the stored row alone, and as an error rather
+	// than an empty success payload.
+	router := refreshRouter(m, nil)
+
+	code, resp, _, err := makeRequest[refreshEnvelope](router, "POST", "/podcasts/search",
+		map[string]string{"q": "https://example.com/broken.xml"})
+
+	assert.NoError(t, err)
+	assert.Equal(t, 200, code)
+	assert.Equal(t, "error", resp.Status)
+	assert.Equal(t, "feed could not be loaded", resp.Message)
+}
+
 func TestImportOpmlChunkAndPoll(t *testing.T) {
 	m := newRefreshMock()
 	seedCatalog(m)

@@ -58,6 +58,34 @@ func TestFeedIngestionDispatcherDeduplicatesAndRateLimits(t *testing.T) {
 	assert.Eventually(t, func() bool { return calls.Load() > 1 }, time.Second, 10*time.Millisecond)
 }
 
+func TestFeedIngestionDispatcherDuplicateDoesNotConsumeQuota(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	release := make(chan struct{})
+	defer close(release)
+	dispatcher := newFeedIngestionDispatcher(ctx, 1, 64, false, func(context.Context, string) error {
+		<-release
+		return nil
+	})
+
+	// The first submission spends one token; replaying the in-flight URL,
+	// however often, must not spend any more of the burst budget.
+	dispatcher.Submit(7, "https://example.com/dup.xml")
+	for range unknownFeedsPerUserPerHour * 2 {
+		dispatcher.Submit(7, "https://example.com/dup.xml")
+	}
+	for i := range unknownFeedsPerUserPerHour - 1 {
+		dispatcher.Submit(7, fmt.Sprintf("https://example.com/fresh-%d.xml", i))
+	}
+
+	dispatcher.mu.Lock()
+	pending := len(dispatcher.inFlight)
+	dispatcher.mu.Unlock()
+	assert.Equal(t, unknownFeedsPerUserPerHour, pending,
+		"every fresh URL after the duplicates must still fit in the burst budget")
+}
+
 func TestHealthProbeClientVerifiesConfiguredCertificateAndRejectsRedirects(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/redirect" {
