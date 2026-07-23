@@ -83,7 +83,19 @@ var blockedFeedNetworks = []netip.Prefix{
 func NewHTTPFetcher(allowPrivateNetworks ...bool) *HTTPFetcher {
 	allowPrivate := len(allowPrivateNetworks) > 0 && allowPrivateNetworks[0]
 	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		// Preserve the useful defaults from net/http even when an embedding
+		// process has replaced the package-level RoundTripper with another type.
+		base = &http.Transport{
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: time.Second,
+		}
+	}
+	transport := base.Clone()
 	// A proxy would resolve and dial the destination outside this process,
 	// bypassing the address checks below.
 	transport.Proxy = nil

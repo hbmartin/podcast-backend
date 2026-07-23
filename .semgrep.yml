@@ -75,6 +75,29 @@ rules:
             ...
           }(...)
 
+  - id: go.sync-unknown-feed-lookup-requires-active-subscription
+    languages: [go]
+    severity: ERROR
+    message: Unknown-feed catalog lookups must be gated on an active, non-deleted subscription.
+    patterns:
+      - pattern-either:
+          - pattern: $Q.GetPodcastByUUID(...)
+          - pattern: $Q.GetPodcastByFeedURL(...)
+      - pattern-inside: |
+          func applyPodcastRecord(...) error {
+            ...
+          }
+      - pattern-not-inside: |
+          if $PARAMS.Subscribed && !$PARAMS.IsDeleted {
+            ...
+          }
+
+  - id: go.e2e-unscoped-digest-lease-update
+    languages: [go]
+    severity: ERROR
+    message: E2E setup must not overwrite every social profile's digest lease.
+    pattern: $DB.Exec($CTX, "UPDATE social_profiles SET digest_claimed_at = now()")
+
   - id: go.moderate-unbounded-quote
     languages: [go]
     severity: ERROR

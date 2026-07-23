@@ -164,7 +164,10 @@ func (m *socialMock) UpsertSocialListEntries(ctx context.Context, arg db.UpsertS
 	// the same row twice; the mock must be as strict as the real batch.
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		uuid := entry["episode_uuid"].(string)
+		uuid, ok := entry["episode_uuid"].(string)
+		if !ok {
+			return errors.New("invalid episode_uuid in social list entry batch")
+		}
 		if _, dup := seen[uuid]; dup {
 			return errors.New("ON CONFLICT DO UPDATE command cannot affect row a second time")
 		}

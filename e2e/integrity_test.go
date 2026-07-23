@@ -44,10 +44,24 @@ func TestDigestClaimsAreOrderedAndReplicaSafe(t *testing.T) {
 	defer pool.Close()
 	store := db.NewStore(pool)
 
-	// Isolate the candidates, then make A the NULL watermark and B the older
-	// non-NULL watermark. NULL must be claimed first.
-	_, err = pool.Exec(ctx, "UPDATE social_profiles SET digest_claimed_at = now()")
+	// Lock unrelated profiles in a separate transaction. ClaimDigestCandidates
+	// uses FOR UPDATE SKIP LOCKED, so the production query sees only this test's
+	// fixtures without changing another account's digest lease or watermark.
+	blocker, err := pool.Begin(ctx)
 	require.NoError(t, err)
+	defer blocker.Rollback(ctx)
+	rows, err := blocker.Query(ctx, `
+		SELECT user_id FROM social_profiles
+		WHERE handle NOT IN ($1, $2)
+		FOR UPDATE`, handleA, handleB)
+	require.NoError(t, err)
+	for rows.Next() {
+	}
+	require.NoError(t, rows.Err())
+	rows.Close()
+
+	// Make A the NULL watermark and B the older non-NULL watermark. NULL must
+	// be claimed first; only the two fixture rows are updated.
 	_, err = pool.Exec(ctx, `
 		UPDATE social_profiles SET digest_claimed_at = NULL,
 			digest_sent_at = CASE WHEN handle = $1 THEN NULL ELSE now() - interval '7 days' END

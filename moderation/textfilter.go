@@ -94,7 +94,7 @@ func isDangerousFormatRune(r rune) bool {
 		'\u200b',           // zero-width space
 		'\u200e', '\u200f', // directional marks
 		'\u202a', '\u202b', '\u202c', '\u202d', '\u202e', // bidi embeddings/overrides
-		'\u2060',                               // word joiner
+		'\u2060', '\u2061', '\u2062', '\u2063', '\u2064', // invisible format characters
 		'\u2066', '\u2067', '\u2068', '\u2069', // bidi isolates
 		'\ufeff',                     // zero-width no-break space / BOM
 		'\ufff9', '\ufffa', '\ufffb': // interlinear annotation controls

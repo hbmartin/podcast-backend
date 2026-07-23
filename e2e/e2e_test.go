@@ -21,6 +21,7 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,6 +45,7 @@ import (
 var (
 	baseURL    string
 	feedServer *httptest.Server
+	e2eBinary  string
 
 	// push fixtures: a fake APNs endpoint recording deliveries, and a toggle
 	// that makes the fixture feed publish one extra (newer) episode
@@ -133,20 +135,15 @@ func TestMain(m *testing.M) {
 		fmt.Println("build failed:", err)
 		os.Exit(1)
 	}
+	e2eBinary = binary
 
 	port := "127.0.0.1:8091"
 	baseURL = "http://" + port
 
 	server := exec.Command(binary)
 	server.Dir = ".." // migrations are read from db/migrations relative to cwd
-	server.Env = append(os.Environ(),
-		"ENV=e2e",
+	server.Env = e2eServerEnvironment(connString, port,
 		"ALLOW_PRIVATE_FEED_URLS=true",
-		"WEB_PORT="+port,
-		"DB_CONNECTION_STRING="+connString,
-		"AUTH_JWT_SECRET=e2e-secret-e2e-secret-e2e-secret-32",
-		"ENABLE_TASK_QUEUE=false",
-		"ENABLE_SWAGGER=false",
 		// keep the auth rate limiter on its enabled code path without ever
 		// tripping during the suite's rapid-fire logins
 		"RATE_LIMIT_AUTH=1000",
@@ -174,6 +171,56 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	server.Process.Kill()
 	os.Exit(code)
+}
+
+func e2eServerEnvironment(connString, port string, extra ...string) []string {
+	managed := map[string]struct{}{
+		"ENV": {}, "ALLOW_PRIVATE_FEED_URLS": {}, "WEB_PORT": {},
+		"DB_CONNECTION_STRING": {}, "AUTH_JWT_SECRET": {},
+		"ENABLE_TASK_QUEUE": {}, "ENABLE_SWAGGER": {}, "RATE_LIMIT_AUTH": {},
+		"APNS_KEY_FILE": {}, "APNS_KEY_ID": {}, "APNS_TEAM_ID": {},
+		"APNS_TOPIC": {}, "APNS_ENDPOINT": {},
+	}
+	env := make([]string, 0, len(os.Environ())+len(extra)+6)
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if _, overridden := managed[key]; !overridden {
+			env = append(env, entry)
+		}
+	}
+	env = append(env,
+		"ENV=e2e",
+		"WEB_PORT="+port,
+		"DB_CONNECTION_STRING="+connString,
+		"AUTH_JWT_SECRET=e2e-secret-e2e-secret-e2e-secret-32",
+		"ENABLE_TASK_QUEUE=false",
+		"ENABLE_SWAGGER=false",
+	)
+	return append(env, extra...)
+}
+
+func startDefaultFeedPolicyServer(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().String()
+	require.NoError(t, listener.Close())
+
+	server := exec.Command(e2eBinary)
+	server.Dir = ".."
+	server.Env = e2eServerEnvironment(os.Getenv("E2E_DB_CONNECTION_STRING"), port)
+	var logs bytes.Buffer
+	server.Stdout, server.Stderr = &logs, &logs
+	require.NoError(t, server.Start())
+	t.Cleanup(func() {
+		_ = server.Process.Kill()
+		_ = server.Wait()
+	})
+
+	url := "http://" + port
+	require.True(t, waitForHealth(url+"/health"), logs.String())
+	return url
 }
 
 // artworkPNG renders a solid dark-red 10x10 cover image.
@@ -538,6 +585,30 @@ func TestAuthFailures(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
 	assert.Equal(t, "login_password_incorrect", envelope.ErrorMessageID)
+}
+
+func TestPrivateFeedDestinationsRejectedByDefault(t *testing.T) {
+	var fixtureHits atomic.Int32
+	privateFeed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fixtureHits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer privateFeed.Close()
+
+	serverURL := startDefaultFeedPolicyServer(t)
+	body, err := json.Marshal(map[string]string{"q": privateFeed.URL + "/feed.xml"})
+	require.NoError(t, err)
+	resp, err := http.Post(serverURL+"/podcasts/search", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	var result struct {
+		Status string `json:"status"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "error", result.Status)
+	assert.Zero(t, fixtureHits.Load(), "private feed must be rejected before any network request")
 }
 
 func nowProto() *timestamppb.Timestamp {
