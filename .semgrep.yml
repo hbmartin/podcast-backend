@@ -91,6 +91,10 @@ rules:
           if $PARAMS.Subscribed && !$PARAMS.IsDeleted {
             ...
           }
+      - pattern-not-inside: |
+          if !$PARAMS.IsDeleted && $PARAMS.Subscribed {
+            ...
+          }
 
   - id: go.e2e-unscoped-digest-lease-update
     languages: [go]
