@@ -35,7 +35,8 @@ func TestLogMiddleware(t *testing.T) {
 	assert.Contains(t, buffer.String(), "msg=WebRequest")
 	assert.Contains(t, buffer.String(), "proto=HTTP/1.1")
 	assert.Contains(t, buffer.String(), "method=GET")
-	assert.Contains(t, buffer.String(), "url=/test")
+	assert.Contains(t, buffer.String(), "route=unmatched")
+	assert.NotContains(t, buffer.String(), "url=")
 	assert.Contains(t, buffer.String(), "duration=")
 	assert.Contains(t, buffer.String(), "status=200")
 }

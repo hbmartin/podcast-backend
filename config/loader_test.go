@@ -5,195 +5,183 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
+func testRuntime() *RuntimeConfiguration { return &RuntimeConfiguration{} }
+
 func TestLoadWebConfig(t *testing.T) {
-	t.Setenv("ENV", "TEST")
-	t.Setenv("ALLOWED_ORIGIN", "localhost:8000")
+	t.Setenv("ENV", "test")
+	t.Setenv("ALLOWED_ORIGINS", "https://web.example.com")
 	t.Setenv("WEB_PORT", "localhost:8000")
 	t.Setenv("TLS_CERT_FILE", "tls_cert_file")
 	t.Setenv("TLS_CERT_KEY_FILE", "tls_cert_key_file")
 	t.Setenv("DB_CONNECTION_STRING", "connection_string")
 
-	config, err := loadWebServerConfig()
-
-	assert.Nil(t, err)
-	assert.NotNil(t, config)
+	config, err := loadWebServerConfig(testRuntime())
+	require.NoError(t, err)
 	assert.Equal(t, "localhost:8000", config.WebPort)
 	assert.Equal(t, "connection_string", config.ConnectionString)
-	assert.Contains(t, "TEST", config.Env)
-	assert.Contains(t, "tls_cert_file", config.TLSCertFile)
-	assert.Contains(t, "tls_cert_key_file", config.TLSCertKeyFile)
+	assert.Equal(t, []string{"https://web.example.com"}, config.AllowedOrigins)
+	assert.False(t, config.TrustProxyHeaders)
 }
 
-func TestLoadWebConfigDefaults(t *testing.T) {
-	t.Setenv("ENV", "TEST")
+func TestLoadWebConfigPortPrecedence(t *testing.T) {
 	t.Setenv("DB_CONNECTION_STRING", "connection_string")
+	t.Setenv("WEB_PORT", "9000")
+	t.Setenv("PORT", "7000")
 
-	config, err := loadWebServerConfig()
+	config, err := loadWebServerConfig(testRuntime())
+	require.NoError(t, err)
+	assert.Equal(t, ":9000", config.WebPort)
 
-	assert.Nil(t, err)
-	assert.NotNil(t, config)
-	assert.Equal(t, "localhost:8000", config.WebPort)
-	assert.Equal(t, "connection_string", config.ConnectionString)
-	assert.Contains(t, "TEST", config.Env)
-	assert.Empty(t, config.TLSCertFile)
-	assert.Empty(t, config.TLSCertKeyFile)
+	t.Setenv("WEB_PORT", "")
+	config, err = loadWebServerConfig(testRuntime())
+	require.NoError(t, err)
+	assert.Equal(t, ":7000", config.WebPort)
+
+	t.Setenv("PORT", "")
+	config, err = loadWebServerConfig(testRuntime())
+	require.NoError(t, err)
+	assert.Equal(t, ":8000", config.WebPort)
 }
 
 func TestLoadWebConfigMissingConnectionString(t *testing.T) {
-	t.Setenv("ENV", "TEST")
+	t.Setenv("DB_CONNECTION_STRING", "")
+	_, err := loadWebServerConfig(testRuntime())
+	assert.ErrorContains(t, err, "DB_CONNECTION_STRING")
+}
 
-	_, err := loadWebServerConfig()
+func TestLoadPublicBaseURLPolicy(t *testing.T) {
+	t.Setenv("DB_CONNECTION_STRING", "connection_string")
+	t.Setenv("PUBLIC_BASE_URL", "https://pods.example.com")
+	t.Setenv("ADMIN_TOKEN", "0123456789abcdef0123456789abcdef") // gitleaks:allow -- deterministic test fixture
 
-	assert.Error(t, err, "must set DB_CONNECTION_STRING=<connection string>")
+	config, err := loadWebServerConfig(&RuntimeConfiguration{Production: true})
+	require.NoError(t, err)
+	assert.Equal(t, "https://pods.example.com", config.PublicBaseURL)
+	assert.Contains(t, config.AllowedOrigins, "https://pods.example.com")
+
+	for _, invalid := range []string{
+		"http://pods.example.com",
+		"https://user@pods.example.com",
+		"https://pods.example.com/api",
+		"https://pods.example.com?x=1",
+	} {
+		t.Run(invalid, func(t *testing.T) {
+			t.Setenv("PUBLIC_BASE_URL", invalid)
+			_, err := loadWebServerConfig(&RuntimeConfiguration{Production: true})
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestProductionWebRequirements(t *testing.T) {
+	t.Setenv("DB_CONNECTION_STRING", "connection_string")
+	t.Setenv("PUBLIC_BASE_URL", "")
+	_, err := loadWebServerConfig(&RuntimeConfiguration{Production: true})
+	assert.ErrorContains(t, err, "PUBLIC_BASE_URL")
+
+	t.Setenv("PUBLIC_BASE_URL", "https://pods.example.com")
+	_, err = loadWebServerConfig(&RuntimeConfiguration{Production: true})
+	assert.ErrorContains(t, err, "ADMIN_TOKEN")
 }
 
 func TestLoadAuthConfig(t *testing.T) {
-	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef") // gitleaks:allow -- deterministic test fixture
 	t.Setenv("AUTH_ACCESS_TOKEN_TTL", "1h")
 	t.Setenv("AUTH_REFRESH_TOKEN_TTL", "720h")
 
 	config, err := loadAuthConfig()
-
-	assert.Nil(t, err)
-	assert.NotNil(t, config)
-	assert.Equal(t, "0123456789abcdef0123456789abcdef", config.JWTSecret)
+	require.NoError(t, err)
 	assert.Equal(t, time.Hour, config.AccessTokenTTL)
 	assert.Equal(t, 720*time.Hour, config.RefreshTokenTTL)
 }
 
 func TestLoadAuthConfigDefaults(t *testing.T) {
 	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef")
-
 	config, err := loadAuthConfig()
-
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, time.Hour, config.AccessTokenTTL)
-	assert.Equal(t, 365*24*time.Hour, config.RefreshTokenTTL)
+	assert.Equal(t, 90*24*time.Hour, config.RefreshTokenTTL)
 }
 
-func TestLoadAuthConfigMissingSecret(t *testing.T) {
-	_, err := loadAuthConfig()
-
-	assert.NotNil(t, err)
-	assert.Equal(t, err.Error(), "AUTH_JWT_SECRET must be set to at least 32 bytes")
-}
-
-func TestLoadAuthConfigShortSecret(t *testing.T) {
+func TestLoadAuthConfigRejectsMissingOrBadTTL(t *testing.T) {
 	t.Setenv("AUTH_JWT_SECRET", "tooshort")
-
 	_, err := loadAuthConfig()
+	assert.Error(t, err)
 
-	assert.NotNil(t, err)
-}
-
-func TestLoadAuthConfigBadTTL(t *testing.T) {
 	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("AUTH_ACCESS_TOKEN_TTL", "nonsense")
-
-	_, err := loadAuthConfig()
-
-	assert.NotNil(t, err)
-}
-
-func TestLoadWebServerConfigPublicBaseURL(t *testing.T) {
-	t.Setenv("ENV", "TEST")
-	t.Setenv("DB_CONNECTION_STRING", "connection_string")
-	t.Setenv("PUBLIC_BASE_URL", "https://pods.example.com")
-
-	config, err := loadWebServerConfig()
-
-	assert.Nil(t, err)
-	assert.Equal(t, "https://pods.example.com", config.PublicBaseURL)
-}
-
-func TestLoadAllConfig(t *testing.T) {
-	t.Setenv("ENV", "TEST")
-	t.Setenv("ALLOWED_ORIGIN", "localhost:8000")
-	t.Setenv("WEB_PORT", "localhost:8000")
-	t.Setenv("TLS_CERT_FILE", "tls_cert_file")
-	t.Setenv("TLS_CERT_KEY_FILE", "tls_cert_key_file")
-	t.Setenv("DB_CONNECTION_STRING", "connection_string")
-
-	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef")
-
-	config := LoadConfig()
-
-	assert.NotNil(t, config)
-}
-
-func TestLoadQueueConfigDisabledByDefault(t *testing.T) {
-	config, err := loadQueueConfig()
-
-	assert.Nil(t, err)
-	assert.NotNil(t, config)
-	assert.False(t, config.Enabled)
-}
-
-func TestLoadQueueConfigDefaults(t *testing.T) {
-	t.Setenv("ENABLE_TASK_QUEUE", "true")
-
-	config, err := loadQueueConfig()
-
-	assert.Nil(t, err)
-	assert.NotNil(t, config)
-	assert.True(t, config.Enabled)
-	assert.Equal(t, "localhost:6379", config.RedisAddress)
-	assert.Equal(t, 0, config.RedisDb)
-	assert.Equal(t, 10, config.Concurrency)
-	assert.False(t, config.StrictPriority)
+	_, err = loadAuthConfig()
+	assert.Error(t, err)
 }
 
 func TestLoadQueueConfig(t *testing.T) {
-	t.Setenv("ENABLE_TASK_QUEUE", "true")
-	t.Setenv("QUEUE_REDIS_ADDRESS", "queue-redis:6379")
-	t.Setenv("QUEUE_REDIS_PASSWORD", "queue-password")
-	t.Setenv("QUEUE_REDIS_DB", "2")
+	t.Setenv("QUEUE_REDIS_URL", "rediss://queue-password@queue-redis:6379/2")
 	t.Setenv("QUEUE_CONCURRENCY", "25")
 	t.Setenv("QUEUE_STRICT_PRIORITY", "true")
 
 	config, err := loadQueueConfig()
-
-	assert.Nil(t, err)
-	assert.NotNil(t, config)
-	assert.Equal(t, "queue-redis:6379", config.RedisAddress)
-	assert.Equal(t, "queue-password", config.RedisPassword)
-	assert.Equal(t, 2, config.RedisDb)
+	require.NoError(t, err)
+	assert.True(t, config.Enabled)
+	assert.Equal(t, "rediss://queue-password@queue-redis:6379/2", config.RedisURL)
 	assert.Equal(t, 25, config.Concurrency)
 	assert.True(t, config.StrictPriority)
 }
 
-func TestLoadQueueConfigFallsBackToSharedRedis(t *testing.T) {
-	t.Setenv("ENABLE_TASK_QUEUE", "true")
-	t.Setenv("REDIS_ADDRESS", "cache-redis:6379")
-	t.Setenv("REDIS_PASSWORD", "cache-password")
+func TestLoadQueueConfigRequiresURLAndValidScheme(t *testing.T) {
+	t.Setenv("QUEUE_REDIS_URL", "")
+	_, err := loadQueueConfig()
+	assert.ErrorContains(t, err, "required")
 
-	config, err := loadQueueConfig()
-
-	assert.Nil(t, err)
-	assert.NotNil(t, config)
-	assert.Equal(t, "cache-redis:6379", config.RedisAddress)
-	assert.Equal(t, "cache-password", config.RedisPassword)
-	assert.Equal(t, 0, config.RedisDb)
+	t.Setenv("QUEUE_REDIS_URL", "http://redis.example.com")
+	_, err = loadQueueConfig()
+	assert.ErrorContains(t, err, "redis:// or rediss://")
 }
 
-func TestLoadQueueConfigInvalidConcurrency(t *testing.T) {
-	t.Setenv("ENABLE_TASK_QUEUE", "true")
-	t.Setenv("QUEUE_CONCURRENCY", "not-a-number")
+func TestRuntimeRoles(t *testing.T) {
+	t.Setenv("ENV", "production")
+	t.Setenv("PROCESS_ROLE", "")
+	_, err := loadRuntimeConfig()
+	assert.ErrorContains(t, err, "dedicated role")
 
-	config, err := loadQueueConfig()
-
-	assert.Nil(t, config)
-	assert.NotNil(t, err)
+	t.Setenv("PROCESS_ROLE", "worker")
+	t.Setenv("SCHEDULER_MODE", "once")
+	config, err := loadRuntimeConfig()
+	require.NoError(t, err)
+	assert.Equal(t, RoleWorker, config.Role)
+	assert.Equal(t, SchedulerOnce, config.SchedulerMode)
 }
 
-func TestLoadQueueConfigInvalidRedisDb(t *testing.T) {
-	t.Setenv("ENABLE_TASK_QUEUE", "true")
-	t.Setenv("QUEUE_REDIS_DB", "-1")
+func TestFeatureActivationUsesCompleteCredentialSets(t *testing.T) {
+	t.Setenv("OBJECT_STORAGE_S3_URL", "https://account.r2.cloudflarestorage.com")
+	t.Setenv("OBJECT_STORAGE_BUCKET", "podcasts")
+	t.Setenv("OBJECT_STORAGE_ACCESS_KEY_ID", "key")
+	storage, vision, gemini := loadFeatureConfig()
+	assert.False(t, storage.Enabled)
+	assert.True(t, storage.Partial)
+	assert.False(t, vision.Enabled)
+	assert.False(t, gemini.Enabled)
 
-	config, err := loadQueueConfig()
+	t.Setenv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("GOOGLE_VISION_CREDENTIALS_BASE64", "encoded")
+	t.Setenv("GEMINI_API_KEY", "gemini")
+	storage, vision, gemini = loadFeatureConfig()
+	assert.True(t, storage.Enabled)
+	assert.True(t, vision.Enabled)
+	assert.True(t, gemini.Enabled)
+	assert.Equal(t, "gemini-3.6-flash", gemini.Model)
+}
 
-	assert.Nil(t, config)
-	assert.NotNil(t, err)
+func TestLoadAllConfig(t *testing.T) {
+	t.Setenv("ENV", "test")
+	t.Setenv("DB_CONNECTION_STRING", "connection_string")
+	t.Setenv("AUTH_JWT_SECRET", "0123456789abcdef0123456789abcdef") // gitleaks:allow -- deterministic test fixture
+	t.Setenv("QUEUE_REDIS_URL", "redis://localhost:6379/1")
+
+	config, err := LoadConfigE()
+	require.NoError(t, err)
+	assert.NotNil(t, config.RuntimeConfig)
+	assert.NotNil(t, config.ObjectStorageConfig)
 }

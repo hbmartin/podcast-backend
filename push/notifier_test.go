@@ -39,8 +39,9 @@ func (m *storeMock) ClearPushToken(ctx context.Context, token string) error {
 }
 
 type sentPush struct {
-	token string
-	n     Notification
+	token       string
+	environment string
+	n           Notification
 }
 
 type senderMock struct {
@@ -48,11 +49,11 @@ type senderMock struct {
 	fail map[string]error
 }
 
-func (s *senderMock) Send(ctx context.Context, token string, n Notification) error {
+func (s *senderMock) Send(ctx context.Context, token, environment string, n Notification) error {
 	if err, ok := s.fail[token]; ok {
 		return err
 	}
-	s.sent = append(s.sent, sentPush{token: token, n: n})
+	s.sent = append(s.sent, sentPush{token: token, environment: environment, n: n})
 	return nil
 }
 
@@ -66,8 +67,8 @@ func newStoreMock() *storeMock {
 			"ep-4": {Uuid: "ep-4", Title: "Four"},
 		},
 		targets: []db.GetPushTargetsForPodcastRow{
-			{UserID: 1, DeviceID: "d1", PushToken: "TOKEN1"},
-			{UserID: 2, DeviceID: "d2", PushToken: "TOKEN2"},
+			{UserID: 1, DeviceID: "d1", PushToken: "TOKEN1", PushEnvironment: "sandbox"},
+			{UserID: 2, DeviceID: "d2", PushToken: "TOKEN2", PushEnvironment: "production"},
 		},
 	}
 }
@@ -80,8 +81,8 @@ func TestNotifierFansOut(t *testing.T) {
 	n.NotifyNewEpisodes(context.Background(), "pod-1", []string{"ep-1", "ep-2"})
 
 	assert.Len(t, sender.sent, 4, "2 episodes x 2 devices")
-	assert.Equal(t, sentPush{token: "TOKEN1", n: Notification{Title: "Test Show", Body: "One"}}, sender.sent[0])
-	assert.Equal(t, sentPush{token: "TOKEN2", n: Notification{Title: "Test Show", Body: "One"}}, sender.sent[1])
+	assert.Equal(t, sentPush{token: "TOKEN1", environment: "sandbox", n: Notification{Title: "Test Show", Body: "One"}}, sender.sent[0])
+	assert.Equal(t, sentPush{token: "TOKEN2", environment: "production", n: Notification{Title: "Test Show", Body: "One"}}, sender.sent[1])
 	assert.Equal(t, "Two", sender.sent[2].n.Body)
 	assert.Empty(t, store.cleared)
 }

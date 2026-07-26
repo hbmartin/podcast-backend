@@ -20,6 +20,9 @@ type Querier interface {
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, tokenHash string) (int64, error)
 	RevokeAllRefreshTokens(ctx context.Context, userID int64) (int64, error)
+	RevokeRefreshTokenFamily(ctx context.Context, familyID string) (int64, error)
+	CreatePasswordResetCode(ctx context.Context, arg CreatePasswordResetCodeParams) (PasswordResetCode, error)
+	ConsumePasswordResetCode(ctx context.Context, codeHash string) (int64, error)
 
 	GetUserForUpdate(ctx context.Context, id int64) (User, error)
 	SetUserSyncLastModified(ctx context.Context, arg SetUserSyncLastModifiedParams) error
@@ -82,6 +85,15 @@ type Querier interface {
 
 	GetPodcastByID(ctx context.Context, id int64) (Podcast, error)
 	UpdatePodcastColors(ctx context.Context, arg UpdatePodcastColorsParams) error
+	GetSocialAvatarByUserID(ctx context.Context, userID int64) (SocialAvatar, error)
+	GetSocialAvatarByCapabilityHash(ctx context.Context, capabilityHash string) (SocialAvatar, error)
+	UpsertSocialAvatar(ctx context.Context, arg UpsertSocialAvatarParams) (SocialAvatar, error)
+	SetSocialProfileAvatarURL(ctx context.Context, arg SetSocialProfileAvatarURLParams) (int64, error)
+	DeleteSocialAvatar(ctx context.Context, userID int64) (string, error)
+	EnqueueObjectDelete(ctx context.Context, arg EnqueueObjectDeleteParams) error
+	ClaimObjectDeletes(ctx context.Context, limit int32) ([]ObjectDeleteOutbox, error)
+	CompleteObjectDelete(ctx context.Context, id int64) error
+	RetryObjectDelete(ctx context.Context, arg RetryObjectDeleteParams) error
 	TopPodcastsBySubscribers(ctx context.Context, limit int32) ([]TopPodcastsBySubscribersRow, error)
 	RecentPodcasts(ctx context.Context, limit int32) ([]Podcast, error)
 	DistinctCategories(ctx context.Context) ([]DistinctCategoriesRow, error)

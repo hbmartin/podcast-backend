@@ -1,9 +1,18 @@
 package handlers
 
 import (
+	"github.com/hbmartin/podcast-backend/metrics"
 	"github.com/hbmartin/podcast-backend/models"
 	"net/http"
 )
+
+// GetLiveness is deliberately process-only. Dependency outages belong in
+// readiness and must not trigger platform restart loops.
+func (h Handlers) GetLiveness(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("OK"))
+}
 
 // GetHealth godoc
 //
@@ -24,6 +33,15 @@ func (h Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := &models.HealthResult{Healthy: isDbHealthy, Dependencies: []models.HealthResultItem{dbHealth}}
+	if h.SchemaPing != nil {
+		schemaHealth := models.HealthResultItem{Name: "Schema", Healthy: true}
+		if err := h.SchemaPing(r.Context()); err != nil {
+			schemaHealth.Healthy = false
+			schemaHealth.Error = err.Error()
+			result.Healthy = false
+		}
+		result.Dependencies = append(result.Dependencies, schemaHealth)
+	}
 
 	// the queue's Redis is only checked when the queue is configured
 	if h.QueuePing != nil {
@@ -39,6 +57,9 @@ func (h Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	if !result.Healthy {
 		status = http.StatusInternalServerError
+		metrics.ReadinessChecks.WithLabelValues("failed").Inc()
+	} else {
+		metrics.ReadinessChecks.WithLabelValues("ok").Inc()
 	}
 
 	writeJSON(w, status, result)
@@ -49,5 +70,5 @@ func (h Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 func (h Handlers) GetHealthHTML(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	_, _ = w.Write([]byte("<!doctype html><meta name=\"viewport\" content=\"width=device-width\"><title>Podcast backend</title><main><h1>Podcast backend</h1><p>Process is running.</p></main>"))
 }

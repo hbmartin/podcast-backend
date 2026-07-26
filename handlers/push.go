@@ -13,7 +13,7 @@ import (
 // already the AND of the global and per-podcast toggles at send time, so it
 // is authoritative here). Registration must never fail the refresh response,
 // so errors are logged and swallowed; anonymous requests are a no-op.
-func (h Handlers) persistPushState(r *http.Request, deviceID, pushToken, pushOn, pushMessagesOn string, podcastUuids []string) {
+func (h Handlers) persistPushState(r *http.Request, deviceID, pushToken, pushOn, pushEnvironment, pushMessagesOn string, podcastUuids []string) {
 	if pushOn == "" && pushToken == "" {
 		return // no push fields: an older or third-party client
 	}
@@ -29,11 +29,16 @@ func (h Handlers) persistPushState(r *http.Request, deviceID, pushToken, pushOn,
 		return
 	}
 
+	if pushEnvironment != "sandbox" && pushEnvironment != "production" {
+		pushEnvironment = "production"
+	}
+
 	if err := h.Queries.UpsertDevicePush(r.Context(), db.UpsertDevicePushParams{
-		UserID:    user.ID,
-		DeviceID:  deviceID,
-		PushToken: pushToken,
-		PushOn:    pushOn == "true",
+		UserID:          user.ID,
+		DeviceID:        deviceID,
+		PushToken:       pushToken,
+		PushOn:          pushOn == "true",
+		PushEnvironment: pushEnvironment,
 	}); err != nil {
 		slog.Warn("push registration: unable to store device state", "error", err)
 		return

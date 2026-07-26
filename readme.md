@@ -15,25 +15,25 @@ everywhere else.
 
 | Area | Endpoints |
 |---|---|
-| Account & auth | `user/login`, `user/register`, `user/token` (refresh_token grant with rotation), `user/forgot_password`, `user/change_email`, `user/change_password`, `user/delete_account` |
+| Account & auth | `user/login`, `user/register`, `user/token` (device-bound refresh-token families), `user/token/revoke`, `user/reset_password`, `user/change_email`, `user/change_password`, `user/delete_account` |
 | Sync | `user/sync/update` (incremental record sync with per-field last-writer-wins), `user/last_sync_at`, `user/podcast/list`, `user/podcast/episodes`, `user/playlist/list`, `user/bookmark/list`, `starred/list` |
 | Queue/history/settings | `up_next/sync`, `history/sync` (newest-100 cap), `user/named_settings/update` (per-key modifiedAt merge) |
 | Real-time playback | `sync/update_episode`, `sync/update_episode_star` |
 | Refresh host | `user/update`, `podcasts/refresh`, `podcasts/show`, `podcasts/search` (feed URLs crawl synchronously; text search proxies the iTunes Search API), `import/opml`, `import/export_feed_urls`, `/health.html` |
 | Cache host | `mobile/podcast/full/{uuid}` (ETag/304), `mobile/show_notes/full/{uuid}` (show notes, episode art, Podcasting 2.0 transcripts + chapters URL), `mobile/episode/url/{p}/{e}`, `mobile/podcast/findbyepisode/{p}/{e}`, `mobile/podcast/episode/search`, `episode/search`, `search/combined`, `podcast/rating/{uuid}` |
 | Search host | `autocomplete/search` |
-| Artwork | `discover/images/{size}/{uuid}.jpg` (redirect to feed art), `discover/images/metadata/{uuid}.json` (lazily computed cover colors) |
+| Artwork | Feed artwork plus the finite `discover/images/artwork/{light|dark}/{280|960}/{1..8}.png` default-artwork set |
 | Ratings & stats | `user/podcast_rating/add`/`show`/`list`, `user/stats/summary` |
 | Discover | `discover/ios/content_v2.json`/`content_v3.json` with catalog-backed sources (trending/popular/recent/categories) |
-| Sharing | `share/list` (+ `GET /l/{code}` resolution), shared `podcast/{uuid}` and `episode/{uuid}` link lookups |
-| Push notifications | APNs new-episode alerts: token registration rides on `user/update` (`push_token`/`push_on`/`push_messages_on`), delivery fires from feed crawls (set `APNS_*`) |
-| App security (App Attest) | `attest/challenge`, `attest/enroll` (Apple DeviceCheck App Attest enrollment), and per-request assertion verification (`X-Attest-Key-Id`/`X-Attest-Assertion`) on the transcript endpoints and feedback, with monotonic-counter replay defense |
-| Transcript contributions | `transcripts/contribute` (crowdsourced generated-transcript upload — gzipped protobuf, VTT + fingerprint validation) and `transcripts/sighting` (publisher-transcript report; the server fetches the content itself) |
+| Sharing | Bearer+App-Attest `share/list`, public resolution, podcast/episode HTML, Open Graph metadata, and AASA |
+| Push notifications | APNs new-episode alerts with the sandbox/production environment stored per device token |
+| App security (App Attest) | `attest/challenge`, `attest/enroll`, and canonical method/path/query/body assertions across protected native routes, with monotonic-counter replay defense |
+| Product APIs | Durable podcast refresh jobs, capabilities, AI/local folder suggestions, episode and related-podcast recommendations, and social avatar lifecycle |
+| Transcript corpus | Idempotent contributions, publisher sightings, immutable candidates/artifacts/releases, manifest-driven reads, and audited admin promotion/rollback |
 
-Not implemented (yet): user file uploads, TV device auth, Sonos,
-recommendations, supporter bundles, server-served generated (AI) transcripts
-(the crowdsourced *contribution* upload above is implemented; serving
-contributed transcripts back to clients is a future design).
+Intentionally unsupported: user file hosting, TV device auth, Sonos exchange,
+subscriptions/IAP, supporter bundles, promotions, paid recommendations, and web
+audio playback.
 
 ## Architecture
 
@@ -80,38 +80,38 @@ Configuration:
 |---|---|
 | `DB_CONNECTION_STRING` | Postgres URL, e.g. `postgres://user:pass@host:5432/podcasts?sslmode=disable` (required) |
 | `AUTH_JWT_SECRET` | ≥32 bytes; signs access tokens (required) |
-| `WEB_PORT` | listen address, default `localhost:8000` |
-| `ENABLE_TASK_QUEUE` / `QUEUE_REDIS_ADDRESS` | enable background crawling (recommended) |
-| `AUTH_ACCESS_TOKEN_TTL` / `AUTH_REFRESH_TOKEN_TTL` | defaults `1h` / `8760h` (access default dropped from `24h`; clients refresh ~24× more often) |
+| `PROCESS_ROLE` / `SCHEDULER_MODE` | `web`, `worker`, `refresh-scheduler`, `digest-scheduler`, or local-only `all`; schedulers use `loop` or `once` |
+| `WEB_PORT` / `PORT` | listen-address precedence; defaults to `:8000` |
+| `QUEUE_REDIS_URL` | required `redis://` or TLS `rediss://` URL for queues, rate limits, sessions, and coordination |
+| `AUTH_ACCESS_TOKEN_TTL` / `AUTH_REFRESH_TOKEN_TTL` | defaults `1h` / `2160h` (90-day sliding refresh lifetime) |
 | `ITUNES_BASE_URL` | iTunes Search API base, default `https://itunes.apple.com` |
-| `ALLOWED_ORIGIN`, `TLS_CERT_FILE`, `TLS_CERT_KEY_FILE` | CORS / TLS |
-| `PUBLIC_BASE_URL` | base for generated links (share URLs, discover sources); set it behind a reverse proxy so client-supplied `X-Forwarded-*` headers aren't trusted |
-| `RATE_LIMIT_AUTH` | per-IP requests/minute on the credential endpoints (login, register, forgot password, token), default `10`, `0` disables |
-| `SHARING_CREDENTIAL` | optional; when set, `share/list` requests must carry the client's legacy SHA-1 signature |
-| `APNS_KEY_FILE`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | set all four to enable APNs push (`.p8` auth key path, key id, team id, app bundle id) |
-| `APNS_ENDPOINT` | APNs host override, e.g. `https://api.sandbox.push.apple.com` for development builds |
+| `PUBLIC_BASE_URL` | custom root HTTPS origin used for links and host enforcement; required in production |
+| `ALLOWED_ORIGINS` / `TRUST_PROXY_HEADERS` | explicit CORS origins and provider proxy-header trust; CORS defaults to same-origin |
+| `METRICS_TOKEN` / `ADMIN_TOKEN` | protected operations tokens; production requires `ADMIN_TOKEN` |
+| `APNS_KEY_BASE64`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | complete set enables APNs; one key serves the device token's recorded sandbox or production environment |
 | `APP_ATTEST_TEAM_ID` | Apple Developer team id; setting it enables App Attest (challenge/enroll/verify). Unset ⇒ App Attest off, endpoints accept unattested requests |
 | `APP_ATTEST_BUNDLE_ID` | app bundle id for the App Attest App ID (`TEAMID.BUNDLEID`), default `au.com.shiftyjelly.podcasts` |
 | `APP_ATTEST_ALLOW_DEV` | `true` also accepts the development-environment attestation (`appattestdevelop`); production/TestFlight attest under production regardless. Default `false` |
-| `APP_ATTEST_MODE` | enforcement on the transcript endpoints: `off`/`log-only`/`required`, default `log-only` (verify when present, accept unattested — keeps Simulator/dev builds working) |
-| `APP_ATTEST_FEEDBACK_MODE` | enforcement on the feedback endpoints, default `log-only` (dual-accept while the installed base adopts) |
+| `APP_ATTEST_MODE` | `log-only` or `required`; templates start at `log-only` |
+| `OBJECT_STORAGE_S3_URL`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY_ID`, `OBJECT_STORAGE_SECRET_ACCESS_KEY` | complete set enables the private transcript/avatar object store |
+| `GOOGLE_VISION_CREDENTIALS_BASE64` | with object storage, enables avatar upload and nudity/racy SafeSearch filtering |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | enables folder suggestions; the model defaults to the pinned application value |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | set to enable OpenTelemetry tracing (OTLP/HTTP export; standard `OTEL_*` vars respected, service name defaults to `podcast-backend`) |
 
-Operations: `GET /health` reports each dependency (Postgres, and the queue's
-Redis when enabled); `GET /metrics` serves Prometheus metrics (HTTP latency
-by route, crawl and push-delivery outcomes) — it is unauthenticated, so keep
-it reachable only from your scrape network / behind the firewall;
+Operations: public `GET /livez` is process-only liveness and `/health.html` is a
+minimal status page. `GET /readyz`, legacy `/health`, and `/metrics` require
+`Authorization: Bearer $METRICS_TOKEN`; they return 404 when no token is set.
 `podcast-backend -health` is a self-contained container health probe and is
-wired as the image's `HEALTHCHECK`. Tracing samples 100% by default — set
+wired as the image's role-aware `HEALTHCHECK`. Tracing samples 100% by default — set
 `OTEL_TRACES_SAMPLER`/`OTEL_TRACES_SAMPLER_ARG` (e.g. `traceidratio` / `0.1`)
 for high-traffic deployments.
 
 ### Pointing the iOS client at this server
 
-In your `pocket-casts-ios` fork, set the first-party base URLs in
-`Modules/Sources/PocketCastsServer/Public/Sharing/Structs/ServerConstants.swift`
-(`main()`, `api()`, `cache()`, and the `search` host) to this server's base
-URL. Host roles are path-routed, so one URL serves them all.
+Inject the custom root origin through the iOS xcconfig/Info.plist. The client
+persists that build origin on first launch and blocks networking after a build
+origin change until reinstall; host roles are path-routed through the one
+origin. See [Deployment and protocol](docs/DeploymentAndProtocol.md).
 
 ## Development
 

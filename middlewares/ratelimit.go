@@ -87,7 +87,11 @@ func (rl *RateLimiter) allow(ip string) bool {
 }
 
 func (rl *RateLimiter) clientIP(r *http.Request) string {
-	if rl.trustProxy {
+	return ClientIP(r, rl.trustProxy)
+}
+
+func ClientIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			// leftmost address is the originating client
 			if i := strings.IndexByte(xff, ','); i >= 0 {

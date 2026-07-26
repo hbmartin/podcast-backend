@@ -118,6 +118,42 @@ func (q *Queries) ClaimHandle(ctx context.Context, arg ClaimHandleParams) error 
 	return err
 }
 
+const claimObjectDeletes = `-- name: ClaimObjectDeletes :many
+SELECT id, object_key, reason, attempts, available_at, completed_at, created_at FROM object_delete_outbox
+WHERE completed_at IS NULL AND available_at <= now()
+ORDER BY id
+LIMIT $1
+FOR UPDATE SKIP LOCKED
+`
+
+func (q *Queries) ClaimObjectDeletes(ctx context.Context, limit int32) ([]ObjectDeleteOutbox, error) {
+	rows, err := q.db.Query(ctx, claimObjectDeletes, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ObjectDeleteOutbox
+	for rows.Next() {
+		var i ObjectDeleteOutbox
+		if err := rows.Scan(
+			&i.ID,
+			&i.ObjectKey,
+			&i.Reason,
+			&i.Attempts,
+			&i.AvailableAt,
+			&i.CompletedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const clearGroupInviteAttributionForUser = `-- name: ClearGroupInviteAttributionForUser :exec
 UPDATE social_group_members SET invited_by = NULL WHERE invited_by = $1
 `
@@ -156,6 +192,15 @@ func (q *Queries) ClearSocialListAttributionForUser(ctx context.Context, addedBy
 	return err
 }
 
+const completeObjectDelete = `-- name: CompleteObjectDelete :exec
+UPDATE object_delete_outbox SET completed_at = now() WHERE id = $1
+`
+
+func (q *Queries) CompleteObjectDelete(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, completeObjectDelete, id)
+	return err
+}
+
 const consumeChallenge = `-- name: ConsumeChallenge :one
 DELETE FROM attest_challenges
 WHERE challenge = $1 AND expires_at > now()
@@ -169,6 +214,20 @@ func (q *Queries) ConsumeChallenge(ctx context.Context, challenge []byte) ([]byt
 	var challenge_2 []byte
 	err := row.Scan(&challenge_2)
 	return challenge_2, err
+}
+
+const consumePasswordResetCode = `-- name: ConsumePasswordResetCode :one
+UPDATE password_reset_codes
+SET consumed_at = now()
+WHERE code_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+RETURNING user_id
+`
+
+func (q *Queries) ConsumePasswordResetCode(ctx context.Context, codeHash string) (int64, error) {
+	row := q.db.QueryRow(ctx, consumePasswordResetCode, codeHash)
+	var user_id int64
+	err := row.Scan(&user_id)
+	return user_id, err
 }
 
 const countCommentReplies = `-- name: CountCommentReplies :one
@@ -540,6 +599,32 @@ func (q *Queries) CountUnreadInboxReplies(ctx context.Context, arg CountUnreadIn
 	return count, err
 }
 
+const createPasswordResetCode = `-- name: CreatePasswordResetCode :one
+INSERT INTO password_reset_codes (user_id, code_hash, expires_at)
+VALUES ($1, $2, $3)
+RETURNING id, user_id, code_hash, expires_at, consumed_at, created_at
+`
+
+type CreatePasswordResetCodeParams struct {
+	UserID    int64
+	CodeHash  string
+	ExpiresAt time.Time
+}
+
+func (q *Queries) CreatePasswordResetCode(ctx context.Context, arg CreatePasswordResetCodeParams) (PasswordResetCode, error) {
+	row := q.db.QueryRow(ctx, createPasswordResetCode, arg.UserID, arg.CodeHash, arg.ExpiresAt)
+	var i PasswordResetCode
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CodeHash,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createPodcastPending = `-- name: CreatePodcastPending :one
 INSERT INTO podcasts (uuid, feed_url)
 VALUES ($1, $2)
@@ -589,16 +674,19 @@ func (q *Queries) CreatePodcastPending(ctx context.Context, arg CreatePodcastPen
 }
 
 const createRefreshToken = `-- name: CreateRefreshToken :one
-INSERT INTO refresh_tokens (user_id, token_hash, scope, expires_at)
-VALUES ($1, $2, $3, $4)
-RETURNING id, user_id, token_hash, scope, created_at, expires_at, revoked_at
+INSERT INTO refresh_tokens (user_id, token_hash, scope, expires_at, family_id, device_id, rotated_from_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, user_id, token_hash, scope, created_at, expires_at, revoked_at, family_id, device_id, rotated_from_id, last_used_at
 `
 
 type CreateRefreshTokenParams struct {
-	UserID    int64
-	TokenHash string
-	Scope     string
-	ExpiresAt time.Time
+	UserID        int64
+	TokenHash     string
+	Scope         string
+	ExpiresAt     time.Time
+	FamilyID      string
+	DeviceID      string
+	RotatedFromID *int64
 }
 
 func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (RefreshToken, error) {
@@ -607,6 +695,9 @@ func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshToken
 		arg.TokenHash,
 		arg.Scope,
 		arg.ExpiresAt,
+		arg.FamilyID,
+		arg.DeviceID,
+		arg.RotatedFromID,
 	)
 	var i RefreshToken
 	err := row.Scan(
@@ -617,6 +708,10 @@ func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshToken
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.FamilyID,
+		&i.DeviceID,
+		&i.RotatedFromID,
+		&i.LastUsedAt,
 	)
 	return i, err
 }
@@ -727,7 +822,7 @@ func (q *Queries) CreateSocialList(ctx context.Context, arg CreateSocialListPara
 const createSocialProfile = `-- name: CreateSocialProfile :one
 INSERT INTO social_profiles (user_id, handle, display_name, terms_version)
 VALUES ($1, $2, $3, $4)
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator, digest_claimed_at
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator, digest_claimed_at, avatar_url
 `
 
 type CreateSocialProfileParams struct {
@@ -768,6 +863,7 @@ func (q *Queries) CreateSocialProfile(ctx context.Context, arg CreateSocialProfi
 		&i.DigestSentAt,
 		&i.Curator,
 		&i.DigestClaimedAt,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
@@ -992,6 +1088,19 @@ DELETE FROM shared_items WHERE sender_user_id = $1 OR recipient_user_id = $1
 func (q *Queries) DeleteSharedItemsForUser(ctx context.Context, senderUserID int64) error {
 	_, err := q.db.Exec(ctx, deleteSharedItemsForUser, senderUserID)
 	return err
+}
+
+const deleteSocialAvatar = `-- name: DeleteSocialAvatar :one
+UPDATE social_avatars SET deleted_at = now()
+WHERE user_id = $1 AND deleted_at IS NULL
+RETURNING object_key
+`
+
+func (q *Queries) DeleteSocialAvatar(ctx context.Context, userID int64) (string, error) {
+	row := q.db.QueryRow(ctx, deleteSocialAvatar, userID)
+	var object_key string
+	err := row.Scan(&object_key)
+	return object_key, err
 }
 
 const deleteSocialGroup = `-- name: DeleteSocialGroup :execrows
@@ -1258,6 +1367,22 @@ func (q *Queries) EditGroupPost(ctx context.Context, arg EditGroupPostParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const enqueueObjectDelete = `-- name: EnqueueObjectDelete :exec
+INSERT INTO object_delete_outbox (object_key, reason)
+VALUES ($1, $2)
+ON CONFLICT (object_key) DO NOTHING
+`
+
+type EnqueueObjectDeleteParams struct {
+	ObjectKey string
+	Reason    string
+}
+
+func (q *Queries) EnqueueObjectDelete(ctx context.Context, arg EnqueueObjectDeleteParams) error {
+	_, err := q.db.Exec(ctx, enqueueObjectDelete, arg.ObjectKey, arg.Reason)
+	return err
 }
 
 const findGroupSuccessor = `-- name: FindGroupSuccessor :one
@@ -1646,7 +1771,7 @@ func (q *Queries) GetCurators(ctx context.Context, arg GetCuratorsParams) ([]Get
 }
 
 const getDevice = `-- name: GetDevice :one
-SELECT user_id, device_id, device_type, times_started_at, time_silence_removal, time_variable_speed, time_intro_skipping, time_skipping, time_listened, updated_at, created_at, push_token, push_on FROM devices WHERE user_id = $1 AND device_id = $2
+SELECT user_id, device_id, device_type, times_started_at, time_silence_removal, time_variable_speed, time_intro_skipping, time_skipping, time_listened, updated_at, created_at, push_token, push_on, push_environment FROM devices WHERE user_id = $1 AND device_id = $2
 `
 
 type GetDeviceParams struct {
@@ -1671,6 +1796,7 @@ func (q *Queries) GetDevice(ctx context.Context, arg GetDeviceParams) (Device, e
 		&i.CreatedAt,
 		&i.PushToken,
 		&i.PushOn,
+		&i.PushEnvironment,
 	)
 	return i, err
 }
@@ -4014,7 +4140,7 @@ func (q *Queries) GetPublicTopPodcasts(ctx context.Context, arg GetPublicTopPodc
 }
 
 const getPushTargetsForPodcast = `-- name: GetPushTargetsForPodcast :many
-SELECT d.user_id, d.device_id, d.push_token
+SELECT d.user_id, d.device_id, d.push_token, d.push_environment
 FROM devices d
 JOIN user_podcasts up ON up.user_id = d.user_id
 WHERE up.podcast_uuid = $1
@@ -4025,9 +4151,10 @@ WHERE up.podcast_uuid = $1
 `
 
 type GetPushTargetsForPodcastRow struct {
-	UserID    int64
-	DeviceID  string
-	PushToken string
+	UserID          int64
+	DeviceID        string
+	PushToken       string
+	PushEnvironment string
 }
 
 func (q *Queries) GetPushTargetsForPodcast(ctx context.Context, podcastUuid string) ([]GetPushTargetsForPodcastRow, error) {
@@ -4039,7 +4166,12 @@ func (q *Queries) GetPushTargetsForPodcast(ctx context.Context, podcastUuid stri
 	var items []GetPushTargetsForPodcastRow
 	for rows.Next() {
 		var i GetPushTargetsForPodcastRow
-		if err := rows.Scan(&i.UserID, &i.DeviceID, &i.PushToken); err != nil {
+		if err := rows.Scan(
+			&i.UserID,
+			&i.DeviceID,
+			&i.PushToken,
+			&i.PushEnvironment,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -4051,15 +4183,16 @@ func (q *Queries) GetPushTargetsForPodcast(ctx context.Context, podcastUuid stri
 }
 
 const getPushTargetsForUser = `-- name: GetPushTargetsForUser :many
-SELECT d.user_id, d.device_id, d.push_token
+SELECT d.user_id, d.device_id, d.push_token, d.push_environment
 FROM devices d
 WHERE d.user_id = $1 AND d.push_on AND d.push_token <> ''
 `
 
 type GetPushTargetsForUserRow struct {
-	UserID    int64
-	DeviceID  string
-	PushToken string
+	UserID          int64
+	DeviceID        string
+	PushToken       string
+	PushEnvironment string
 }
 
 // Slice 8: social push targets — every push-enabled device of one user.
@@ -4072,7 +4205,12 @@ func (q *Queries) GetPushTargetsForUser(ctx context.Context, userID int64) ([]Ge
 	var items []GetPushTargetsForUserRow
 	for rows.Next() {
 		var i GetPushTargetsForUserRow
-		if err := rows.Scan(&i.UserID, &i.DeviceID, &i.PushToken); err != nil {
+		if err := rows.Scan(
+			&i.UserID,
+			&i.DeviceID,
+			&i.PushToken,
+			&i.PushEnvironment,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -4084,8 +4222,8 @@ func (q *Queries) GetPushTargetsForUser(ctx context.Context, userID int64) ([]Ge
 }
 
 const getRefreshTokenByHash = `-- name: GetRefreshTokenByHash :one
-SELECT id, user_id, token_hash, scope, created_at, expires_at, revoked_at FROM refresh_tokens
-WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+SELECT id, user_id, token_hash, scope, created_at, expires_at, revoked_at, family_id, device_id, rotated_from_id, last_used_at FROM refresh_tokens
+WHERE token_hash = $1
 FOR UPDATE
 `
 
@@ -4100,6 +4238,10 @@ func (q *Queries) GetRefreshTokenByHash(ctx context.Context, tokenHash string) (
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.FamilyID,
+		&i.DeviceID,
+		&i.RotatedFromID,
+		&i.LastUsedAt,
 	)
 	return i, err
 }
@@ -4118,6 +4260,44 @@ func (q *Queries) GetSharedListByCode(ctx context.Context, code string) (SharedL
 		&i.Description,
 		&i.PodcastUuids,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getSocialAvatarByCapabilityHash = `-- name: GetSocialAvatarByCapabilityHash :one
+SELECT user_id, capability_hash, version, object_key, content_hash, created_at, deleted_at FROM social_avatars WHERE capability_hash = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) GetSocialAvatarByCapabilityHash(ctx context.Context, capabilityHash string) (SocialAvatar, error) {
+	row := q.db.QueryRow(ctx, getSocialAvatarByCapabilityHash, capabilityHash)
+	var i SocialAvatar
+	err := row.Scan(
+		&i.UserID,
+		&i.CapabilityHash,
+		&i.Version,
+		&i.ObjectKey,
+		&i.ContentHash,
+		&i.CreatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getSocialAvatarByUserID = `-- name: GetSocialAvatarByUserID :one
+SELECT user_id, capability_hash, version, object_key, content_hash, created_at, deleted_at FROM social_avatars WHERE user_id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) GetSocialAvatarByUserID(ctx context.Context, userID int64) (SocialAvatar, error) {
+	row := q.db.QueryRow(ctx, getSocialAvatarByUserID, userID)
+	var i SocialAvatar
+	err := row.Scan(
+		&i.UserID,
+		&i.CapabilityHash,
+		&i.Version,
+		&i.ObjectKey,
+		&i.ContentHash,
+		&i.CreatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -4447,7 +4627,7 @@ func (q *Queries) GetSocialListsForUser(ctx context.Context, ownerUserID int64) 
 }
 
 const getSocialProfileByHandle = `-- name: GetSocialProfileByHandle :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator, digest_claimed_at FROM social_profiles WHERE handle = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator, digest_claimed_at, avatar_url FROM social_profiles WHERE handle = $1
 `
 
 // Tombstoned/erased handles have no profile row, so this only finds live ones.
@@ -4476,12 +4656,13 @@ func (q *Queries) GetSocialProfileByHandle(ctx context.Context, handle string) (
 		&i.DigestSentAt,
 		&i.Curator,
 		&i.DigestClaimedAt,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
 
 const getSocialProfileByUserID = `-- name: GetSocialProfileByUserID :one
-SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator, digest_claimed_at FROM social_profiles WHERE user_id = $1
+SELECT user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator, digest_claimed_at, avatar_url FROM social_profiles WHERE user_id = $1
 `
 
 func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (SocialProfile, error) {
@@ -4509,6 +4690,7 @@ func (q *Queries) GetSocialProfileByUserID(ctx context.Context, userID int64) (S
 		&i.DigestSentAt,
 		&i.Curator,
 		&i.DigestClaimedAt,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
@@ -5894,6 +6076,22 @@ func (q *Queries) ResolveEpisodeAlias(ctx context.Context, deviceUuid string) (s
 	return catalog_uuid, err
 }
 
+const retryObjectDelete = `-- name: RetryObjectDelete :exec
+UPDATE object_delete_outbox
+SET attempts = attempts + 1, available_at = now() + ($2::bigint * interval '1 second')
+WHERE id = $1
+`
+
+type RetryObjectDeleteParams struct {
+	ID      int64
+	Column2 int64
+}
+
+func (q *Queries) RetryObjectDelete(ctx context.Context, arg RetryObjectDeleteParams) error {
+	_, err := q.db.Exec(ctx, retryObjectDelete, arg.ID, arg.Column2)
+	return err
+}
+
 const reverseEpisodeAliases = `-- name: ReverseEpisodeAliases :many
 SELECT device_uuid FROM episode_aliases WHERE catalog_uuid = $1 LIMIT 5
 `
@@ -5938,6 +6136,19 @@ WHERE token_hash = $1 AND revoked_at IS NULL
 
 func (q *Queries) RevokeRefreshToken(ctx context.Context, tokenHash string) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeRefreshToken, tokenHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const revokeRefreshTokenFamily = `-- name: RevokeRefreshTokenFamily :execrows
+UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now())
+WHERE family_id = $1
+`
+
+func (q *Queries) RevokeRefreshTokenFamily(ctx context.Context, familyID string) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeRefreshTokenFamily, familyID)
 	if err != nil {
 		return 0, err
 	}
@@ -6251,6 +6462,23 @@ UPDATE social_profiles SET replies_seen_at = now() WHERE user_id = $1
 func (q *Queries) SetRepliesSeen(ctx context.Context, userID int64) error {
 	_, err := q.db.Exec(ctx, setRepliesSeen, userID)
 	return err
+}
+
+const setSocialProfileAvatarURL = `-- name: SetSocialProfileAvatarURL :execrows
+UPDATE social_profiles SET avatar_url = $2, updated_at = now() WHERE user_id = $1
+`
+
+type SetSocialProfileAvatarURLParams struct {
+	UserID    int64
+	AvatarUrl string
+}
+
+func (q *Queries) SetSocialProfileAvatarURL(ctx context.Context, arg SetSocialProfileAvatarURLParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setSocialProfileAvatarURL, arg.UserID, arg.AvatarUrl)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setUserHistoryCleared = `-- name: SetUserHistoryCleared :exec
@@ -6812,7 +7040,7 @@ UPDATE social_profiles SET
     hide_from_discovery = $13,
     updated_at = now()
 WHERE user_id = $1
-RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator, digest_claimed_at
+RETURNING user_id, handle, display_name, bio, terms_version, avatar_visibility, bio_visibility, followed_shows_visibility, top_podcasts_visibility, stats_visibility, history_visibility, presence_visibility, created_at, updated_at, require_follow_approval, replies_seen_at, social_push_disabled, hide_from_discovery, digest_sent_at, curator, digest_claimed_at, avatar_url
 `
 
 type UpdateSocialProfileParams struct {
@@ -6871,6 +7099,7 @@ func (q *Queries) UpdateSocialProfile(ctx context.Context, arg UpdateSocialProfi
 		&i.DigestSentAt,
 		&i.Curator,
 		&i.DigestClaimedAt,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
@@ -7004,19 +7233,21 @@ func (q *Queries) UpsertDevice(ctx context.Context, arg UpsertDeviceParams) erro
 }
 
 const upsertDevicePush = `-- name: UpsertDevicePush :exec
-INSERT INTO devices (user_id, device_id, push_token, push_on, updated_at)
-VALUES ($1, $2, $3, $4, now())
+INSERT INTO devices (user_id, device_id, push_token, push_on, push_environment, updated_at)
+VALUES ($1, $2, $3, $4, $5, now())
 ON CONFLICT (user_id, device_id) DO UPDATE SET
     push_token = CASE WHEN EXCLUDED.push_token <> '' THEN EXCLUDED.push_token ELSE devices.push_token END,
     push_on = EXCLUDED.push_on,
+    push_environment = EXCLUDED.push_environment,
     updated_at = now()
 `
 
 type UpsertDevicePushParams struct {
-	UserID    int64
-	DeviceID  string
-	PushToken string
-	PushOn    bool
+	UserID          int64
+	DeviceID        string
+	PushToken       string
+	PushOn          bool
+	PushEnvironment string
 }
 
 // The client omits push_token unless it holds one, so an empty incoming
@@ -7027,6 +7258,7 @@ func (q *Queries) UpsertDevicePush(ctx context.Context, arg UpsertDevicePushPara
 		arg.DeviceID,
 		arg.PushToken,
 		arg.PushOn,
+		arg.PushEnvironment,
 	)
 	return err
 }
@@ -7413,6 +7645,48 @@ func (q *Queries) UpsertPodcastReview(ctx context.Context, arg UpsertPodcastRevi
 		&i.Text,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertSocialAvatar = `-- name: UpsertSocialAvatar :one
+INSERT INTO social_avatars (user_id, capability_hash, version, object_key, content_hash)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (user_id) DO UPDATE SET
+    capability_hash = EXCLUDED.capability_hash,
+    version = EXCLUDED.version,
+    object_key = EXCLUDED.object_key,
+    content_hash = EXCLUDED.content_hash,
+    created_at = now(),
+    deleted_at = NULL
+RETURNING user_id, capability_hash, version, object_key, content_hash, created_at, deleted_at
+`
+
+type UpsertSocialAvatarParams struct {
+	UserID         int64
+	CapabilityHash string
+	Version        string
+	ObjectKey      string
+	ContentHash    string
+}
+
+func (q *Queries) UpsertSocialAvatar(ctx context.Context, arg UpsertSocialAvatarParams) (SocialAvatar, error) {
+	row := q.db.QueryRow(ctx, upsertSocialAvatar,
+		arg.UserID,
+		arg.CapabilityHash,
+		arg.Version,
+		arg.ObjectKey,
+		arg.ContentHash,
+	)
+	var i SocialAvatar
+	err := row.Scan(
+		&i.UserID,
+		&i.CapabilityHash,
+		&i.Version,
+		&i.ObjectKey,
+		&i.ContentHash,
+		&i.CreatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }

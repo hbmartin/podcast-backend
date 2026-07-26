@@ -38,12 +38,15 @@ message UserLoginResponse {
   string token = 1;
   string uuid = 2;
   string email = 3;
+  string refresh_token = 1001;
+  int32 expires_in = 1002;
 }
 
 message RegisterRequest {
   string email = 1;
   string password = 2;
   string scope = 3;
+  string device = 1001;
 }
 
 message RegisterResponse {
@@ -52,6 +55,8 @@ message RegisterResponse {
   string token = 3;
   string uuid = 4;
   repeated string errors = 5;
+  string refresh_token = 1001;
+  int32 expires_in = 1002;
 }
 
 message UserTokenRequest {
@@ -60,6 +65,7 @@ message UserTokenRequest {
   string refresh_token = 3;
   string scope = 4;
   string device_code = 5;
+  string device = 1001;
 }
 
 message TokenLoginResponse {
@@ -993,6 +999,12 @@ message TranscriptContributionRequest {
   google.protobuf.Timestamp created_at = 11;
 }
 
+message TranscriptContributionResponse {
+  string candidate_id = 1;
+  string sha256 = 2;
+  string attachment_token = 3;
+}
+
 // Body of POST transcripts/sighting. Same encoding rules as
 // TranscriptContributionRequest. The server fetches the transcript content
 // itself; the client never uploads publisher transcript bytes.
@@ -1719,6 +1731,8 @@ message UserResetPasswordRequest {
   string reset_password_token = 1;
   string password = 2;
   string scope = 3;
+  string email = 4;
+  string device = 1001;
 }
 
 message UserRevokeRequest {
@@ -1800,7 +1814,7 @@ enum ReportReason {
   REPORT_REASON_OTHER = 6;
 }
 
-// Result of the mandatory CSAM/nudity scan on an uploaded avatar. This is the
+// Result of the mandatory nudity/racy SafeSearch scan on an uploaded avatar. This is the
 // response only — the upload request body is raw image bytes (octet-stream),
 // not a protobuf message.
 enum AvatarUploadStatus {

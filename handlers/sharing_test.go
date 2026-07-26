@@ -3,8 +3,6 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -57,14 +55,13 @@ func (m *sharingMock) GetSharedListByCode(ctx context.Context, code string) (db.
 
 func sharingRouter(m *sharingMock, credential string) *http.ServeMux {
 	cfg := &config.AuthConfiguration{
-		JWTSecret:         testAuthConfig.JWTSecret,
-		AccessTokenTTL:    testAuthConfig.AccessTokenTTL,
-		RefreshTokenTTL:   testAuthConfig.RefreshTokenTTL,
-		SharingCredential: credential,
+		JWTSecret:       testAuthConfig.JWTSecret,
+		AccessTokenTTL:  testAuthConfig.AccessTokenTTL,
+		RefreshTokenTTL: testAuthConfig.RefreshTokenTTL,
 	}
-	handlers := Handlers{Queries: m, Config: cfg}
+	handlers := Handlers{Queries: m, Config: cfg, Redis: newTestRedis()}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /share/list", handlers.PostShareList)
+	mux.Handle("POST /share/list", mockAuthMiddleware(http.HandlerFunc(handlers.PostShareList)))
 	mux.HandleFunc("GET /l/{code}", handlers.GetSharedList)
 	mux.HandleFunc("POST /podcast/{uuid}", handlers.PostSharePodcast)
 	mux.HandleFunc("POST /episode/{uuid}", handlers.PostShareEpisode)
@@ -126,14 +123,13 @@ func postJSONHelper(t *testing.T, router *http.ServeMux, path string, body any, 
 	return rr.Code
 }
 
-func TestShareListSignature(t *testing.T) {
+func TestShareListLegacySignatureIsIgnored(t *testing.T) {
 	m := newSharingMock()
 	router := sharingRouter(m, "secret-credential")
 
 	datetime := "20240601120000"
-	sum := sha1.Sum([]byte(datetime + "secret-credential"))
 
-	// valid signature accepted
+	// The obsolete h/datetime fields no longer participate in authorization.
 	var created struct {
 		Status string `json:"status"`
 	}
@@ -141,19 +137,20 @@ func TestShareListSignature(t *testing.T) {
 		"title":    "Signed",
 		"podcasts": []map[string]string{{"uuid": testPodcastUUID}},
 		"datetime": datetime,
-		"h":        hex.EncodeToString(sum[:]),
+		"h":        "anything",
 	}, &created)
 	assert.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "ok", created.Status)
 
-	// bad signature rejected
+	// A legacy-looking malformed signature is also ignored; route middleware
+	// owns Bearer + App Attest authentication in production.
 	status = postJSONHelper(t, router, "/share/list", map[string]any{
 		"title":    "Forged",
 		"podcasts": []map[string]string{{"uuid": testPodcastUUID}},
 		"datetime": datetime,
 		"h":        "deadbeef",
 	}, nil)
-	assert.Equal(t, http.StatusUnauthorized, status)
+	assert.Equal(t, http.StatusOK, status)
 }
 
 func TestShareListRejectsEmpty(t *testing.T) {

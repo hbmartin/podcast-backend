@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -58,6 +60,10 @@ var errTranscriptRateLimited = errors.New("transcript attribution rate limit exc
 // (docs/TranscriptContributions.md §3, §4). The attest middleware has already
 // verified any assertion and capped the compressed body.
 func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Request) {
+	if !h.CorpusEnabled || h.ObjectStore == nil {
+		http.NotFound(w, r)
+		return
+	}
 	req := &pb.TranscriptContributionRequest{}
 	if err := bindProtoGzip(r, req); err != nil {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
@@ -98,10 +104,13 @@ func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Reques
 		reject(w, "size")
 		return
 	}
-	fp, err := gunzipCapped(req.Fingerprint, maxFingerprint)
-	if err != nil || !json.Valid(fp) || len(bytes.TrimSpace(fp)) < 2 {
-		reject(w, "fingerprint")
-		return
+	var fp []byte
+	if len(req.Fingerprint) > 0 {
+		fp, err = gunzipCapped(req.Fingerprint, maxFingerprint)
+		if err != nil || !json.Valid(fp) || len(bytes.TrimSpace(fp)) < 2 {
+			reject(w, "fingerprint")
+			return
+		}
 	}
 
 	attribution, attributionID := attribution(r)
@@ -112,25 +121,50 @@ func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Reques
 		createdAt = &t
 	}
 
-	params := db.InsertTranscriptContributionParams{
-		EpisodeUuid:            req.EpisodeUuid,
-		PodcastUuid:            req.PodcastUuid,
-		VttBlob:                req.Vtt,
-		FingerprintBlob:        req.Fingerprint,
-		Engine:                 req.Engine,
-		ModelID:                req.ModelId,
-		Language:               req.Language,
-		Diarized:               req.Diarized,
-		AppVersion:             req.AppVersion,
-		EpisodeDurationSeconds: req.EpisodeDurationSeconds,
-		CreatedAt:              createdAt,
-		Attribution:            attribution,
-		AttributionID:          attributionID,
+	language, err := normalizeCorpusLanguage(req.Language)
+	if err != nil {
+		reject(w, "language")
+		return
 	}
-	err = h.withTranscriptQuota(r.Context(), "contribution", attribution, attributionID, contributionDailyLimit, func(q db.Querier) error {
-		return q.InsertTranscriptContribution(r.Context(), params)
+	transcriptHash := sha256.Sum256(vtt)
+	transcriptHashString := hex.EncodeToString(transcriptHash[:])
+	transcriptKey := "corpus/transcripts/" + transcriptHashString + ".vtt"
+	if err := h.ObjectStore.Put(r.Context(), transcriptKey, vtt, "text/vtt"); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+	artifacts := []db.CorpusArtifactInput{{Kind: "transcript", ObjectKey: transcriptKey, ContentHash: transcriptHashString, MediaType: "text/vtt", Format: "vtt", ByteLength: int64(len(vtt)), Language: language, Source: "contribution"}}
+	if len(fp) > 0 {
+		fingerprintHash := sha256.Sum256(fp)
+		fingerprintHashString := hex.EncodeToString(fingerprintHash[:])
+		fingerprintKey := "corpus/fingerprints/" + fingerprintHashString + ".json"
+		if err := h.ObjectStore.Put(r.Context(), fingerprintKey, fp, "application/json"); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		artifacts = append(artifacts, db.CorpusArtifactInput{Kind: "fingerprint", ObjectKey: fingerprintKey, ContentHash: fingerprintHashString, MediaType: "application/json", Format: "fingerprint-compact-v2", ByteLength: int64(len(fp)), Language: language, Source: "contribution"})
+	}
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	attachmentToken := base64.RawURLEncoding.EncodeToString(tokenBytes)
+	tokenHash := sha256.Sum256([]byte(attachmentToken))
+	repository, ok := h.Queries.(contributionCorpusStore)
+	if !ok {
+		w.WriteHeader(http.StatusNotImplemented)
+		return
+	}
+	result, err := repository.CreateContributionCandidate(r.Context(), db.CreateContributionCandidateParams{
+		EpisodeUuid: req.EpisodeUuid, PodcastUuid: req.PodcastUuid, Language: language, ContentHash: transcriptHashString,
+		Attribution: attribution, AttributionID: attributionID, VTTBlob: req.Vtt, FingerprintBlob: req.Fingerprint,
+		Engine: req.Engine, ModelID: req.ModelId, AppVersion: req.AppVersion, Diarized: req.Diarized,
+		EpisodeDurationSeconds: req.EpisodeDurationSeconds, CreatedAt: createdAt,
+		AttachmentTokenHash: hex.EncodeToString(tokenHash[:]), Artifacts: artifacts,
+		QuotaLimit: contributionDailyLimit, QuotaSince: time.Now().Add(-rateLimitWindow),
 	})
-	if errors.Is(err, errTranscriptRateLimited) {
+	if errors.Is(err, db.ErrCorpusQuota) {
 		writeTranscriptRateLimit(w)
 		return
 	}
@@ -140,12 +174,16 @@ func (h Handlers) PostTranscriptContribute(w http.ResponseWriter, r *http.Reques
 	}
 
 	metrics.TranscriptContributions.WithLabelValues(normalizeEngineLabel(req.Engine)).Inc()
-	w.WriteHeader(http.StatusOK)
+	writeProto(w, http.StatusOK, &pb.TranscriptContributionResponse{CandidateId: result.CandidateID, Sha256: transcriptHashString, AttachmentToken: attachmentToken})
 }
 
 // PostTranscriptSighting records a report of a publisher-provided transcript and
 // schedules a server-side fetch of its content (docs/TranscriptContributions.md §3).
 func (h Handlers) PostTranscriptSighting(w http.ResponseWriter, r *http.Request) {
+	if !h.CorpusEnabled || h.ObjectStore == nil {
+		http.NotFound(w, r)
+		return
+	}
 	req := &pb.TranscriptSightingRequest{}
 	if err := bindProtoGzip(r, req); err != nil {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "invalid request")
@@ -218,7 +256,9 @@ func (h Handlers) scheduleSightingFetch(sightingID int64) {
 		defer func() { <-directFetchSem }()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		_ = transcripts.FetchAndStore(ctx, store, sightingID)
+		if err := transcripts.FetchAndStore(ctx, store, sightingID); err == nil {
+			_ = transcripts.PromoteFetchedSighting(ctx, store, h.ObjectStore, sightingID)
+		}
 	}()
 }
 

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/hbmartin/podcast-backend/artwork"
-	"github.com/hbmartin/podcast-backend/attest"
 	"github.com/hbmartin/podcast-backend/auth"
+	"github.com/hbmartin/podcast-backend/avatars"
 	"github.com/hbmartin/podcast-backend/config"
 	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
@@ -15,6 +15,7 @@ import (
 	"github.com/hbmartin/podcast-backend/itunes"
 	"github.com/hbmartin/podcast-backend/middlewares"
 	"github.com/hbmartin/podcast-backend/models"
+	"github.com/hbmartin/podcast-backend/objectstore"
 	"github.com/hbmartin/podcast-backend/tasks"
 	"log/slog"
 	"net/http"
@@ -23,32 +24,52 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/redis/go-redis/v9"
 )
 
 // SocialPushFunc delivers one social push event (Slice 8): the wiring in
 // main.go bridges it to the task queue or a direct notifier goroutine.
 type SocialPushFunc func(targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string)
 
+type AppAttestVerifier interface {
+	VerifyAttestation(challenge, attestationCBOR, keyID []byte) (pubKey, receipt []byte, environment string, err error)
+	VerifyAssertion(pubKeySEC1, assertionCBOR, clientData []byte) (counter uint32, err error)
+}
+
 type Handlers struct {
 	Queries db.Store
 	Queue   *tasks.QueueClient
+	Redis   *redis.Client
 	Config  *config.AuthConfiguration
 	Crawler *crawler.Crawler
 	Search  itunes.Searcher
 	Images  artwork.ImageFetcher
 	// PublicBaseURL, when set, overrides request-derived base URLs in
 	// generated links (see baseURL).
-	PublicBaseURL string
+	PublicBaseURL     string
+	TrustProxyHeaders bool
+	ServerVersion     string
+	AppAttestMode     string
+	AvatarEnabled     bool
+	FoldersEnabled    bool
+	CorpusEnabled     bool
+	FolderSuggester   FolderSuggester
+	ObjectStore       objectstore.Store
+	AvatarScanner     avatars.Scanner
+	AdminToken        string
+	AssociatedAppID   string
 	// QueuePing, when set, is consulted by /health to report the task
 	// queue's Redis as a dependency.
 	QueuePing func(ctx context.Context) error
+	// SchemaPing verifies that this binary's expected migration is active.
+	SchemaPing func(ctx context.Context) error
 	// AttestVerifier verifies App Attest material; nil when App Attest is not
 	// configured (endpoints then behave as ModeOff regardless of route mode).
 	// SocialPush is a late-bound holder: routes capture Handlers by value
 	// before the notifier exists, so the pointer is set at construction and
 	// the function assigned once push is wired (nil-safe no-op otherwise).
 	SocialPush     *SocialPushFunc
-	AttestVerifier *attest.Verifier
+	AttestVerifier AppAttestVerifier
 }
 
 func New(store db.Store) Handlers {

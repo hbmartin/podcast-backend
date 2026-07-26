@@ -89,7 +89,12 @@ func (h Handlers) AttestVerify(mode attest.Mode, maxBody int64, endpoint string,
 			deny("invalid_key", pcerrors.InvalidAttestation, http.StatusUnauthorized)
 			return
 		}
-		counter, verr := h.AttestVerifier.VerifyAssertion(key.PublicKey, assertion, body)
+		clientData, canonicalErr := attest.CanonicalRequest(r, body)
+		if canonicalErr != nil {
+			pcerrors.Write(w, http.StatusBadRequest, pcerrors.AccessDenied, "noncanonical request target")
+			return
+		}
+		counter, verr := h.AttestVerifier.VerifyAssertion(key.PublicKey, assertion, clientData)
 		if verr != nil {
 			if errors.Is(verr, attest.ErrInvalidAttestation) {
 				deny("bad_signature", pcerrors.InvalidAttestation, http.StatusUnauthorized)

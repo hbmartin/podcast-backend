@@ -28,8 +28,7 @@ var errModerationReportRateLimited = errors.New("moderation report rate limit ex
 // Social identity + moderation endpoints (pocket-casts-ios docs/Social.md,
 // docs/SocialModeration.md, ADR-0005/0006/0007). All bodies are protobuf
 // (application/octet-stream). The iOS client decodes a SocialAck proto body
-// from the moderation endpoints — a bare 200 is not enough. Avatars are
-// deferred: avatar_url is always empty in this slice.
+// from the moderation endpoints — a bare 200 is not enough.
 
 // handlePattern is the shared charset rule (ADR-0005); the server is
 // authoritative and the DB CHECK constraint backstops it.
@@ -353,7 +352,9 @@ func (h Handlers) buildPublicProfile(r *http.Request, rawHandle string) (*pb.Pub
 	if visible(profile.BioVisibility) {
 		resp.Bio = profile.Bio
 	}
-	// avatar_url stays empty: avatars are deferred from this slice.
+	if visible(profile.AvatarVisibility) {
+		resp.AvatarUrl = profile.AvatarUrl
+	}
 
 	if visible(profile.FollowedShowsVisibility) {
 		rows, err := h.Queries.GetPublicFollowedShows(r.Context(), db.GetPublicFollowedShowsParams{
@@ -706,6 +707,13 @@ func (h Handlers) socialErase(r *http.Request, userID int64) error {
 // Keeping transaction ownership outside this helper lets account deletion
 // compose social and account-level cleanup atomically.
 func socialEraseWithQuerier(ctx context.Context, q db.Querier, userID int64) error {
+	if objectKey, err := q.DeleteSocialAvatar(ctx, userID); err == nil {
+		if err := q.EnqueueObjectDelete(ctx, db.EnqueueObjectDeleteParams{ObjectKey: objectKey, Reason: "social_erasure"}); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
 	if _, err := q.DeleteSocialProfile(ctx, userID); err != nil {
 		return err
 	}
@@ -804,6 +812,7 @@ func profileToProto(row db.SocialProfile, userUuid string) *pb.SocialProfile {
 		Handle:                  row.Handle,
 		DisplayName:             row.DisplayName,
 		Bio:                     row.Bio,
+		AvatarUrl:               row.AvatarUrl,
 		CreatedAt:               timestamppb.New(row.CreatedAt),
 		TermsVersion:            row.TermsVersion,
 		AvatarVisibility:        pb.SocialVisibility(row.AvatarVisibility),

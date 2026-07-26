@@ -1,0 +1,137 @@
+# yaml-language-server: $schema=https://json.schemastore.org/render.json
+# The digest is deliberately non-deployable until the first promotion workflow
+# replaces it with a verified GHCR digest.
+envVarGroups:
+  - name: podcast-common
+    envVars:
+      - key: ENV
+        value: production
+      - key: TRUST_PROXY_HEADERS
+        value: "true"
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: AUTH_JWT_SECRET
+        generateValue: true
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: METRICS_TOKEN
+        generateValue: true
+      - key: APP_ATTEST_MODE
+        value: log-only
+      - key: APP_ATTEST_ALLOW_DEV
+        value: "true"
+      - key: APP_ATTEST_TEAM_ID
+        sync: false
+
+services:
+  - type: web
+    name: podcast-web
+    runtime: image
+    image:
+      url: ghcr.io/hbmartin/podcast-backend@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    plan: starter
+    region: oregon
+    healthCheckPath: /livez
+    envVars:
+      - fromGroup: podcast-common
+      - key: PROCESS_ROLE
+        value: web
+      - key: SCHEDULER_MODE
+        value: loop
+      - key: DB_CONNECTION_STRING
+        fromDatabase:
+          name: podcast-postgres
+          property: connectionString
+      - key: QUEUE_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: podcast-redis
+          property: connectionString
+
+  - type: worker
+    name: podcast-worker
+    runtime: image
+    image:
+      url: ghcr.io/hbmartin/podcast-backend@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    plan: starter
+    region: oregon
+    envVars:
+      - fromGroup: podcast-common
+      - key: PROCESS_ROLE
+        value: worker
+      - key: SCHEDULER_MODE
+        value: loop
+      - key: DB_CONNECTION_STRING
+        fromDatabase:
+          name: podcast-postgres
+          property: connectionString
+      - key: QUEUE_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: podcast-redis
+          property: connectionString
+
+  - type: cron
+    name: podcast-refresh-scheduler
+    runtime: image
+    image:
+      url: ghcr.io/hbmartin/podcast-backend@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    plan: starter
+    region: oregon
+    schedule: "*/5 * * * *"
+    envVars:
+      - fromGroup: podcast-common
+      - key: PROCESS_ROLE
+        value: refresh-scheduler
+      - key: SCHEDULER_MODE
+        value: once
+      - key: DB_CONNECTION_STRING
+        fromDatabase:
+          name: podcast-postgres
+          property: connectionString
+      - key: QUEUE_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: podcast-redis
+          property: connectionString
+
+  - type: cron
+    name: podcast-digest-scheduler
+    runtime: image
+    image:
+      url: ghcr.io/hbmartin/podcast-backend@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    plan: starter
+    region: oregon
+    schedule: "0 17 * * 0"
+    envVars:
+      - fromGroup: podcast-common
+      - key: PROCESS_ROLE
+        value: digest-scheduler
+      - key: SCHEDULER_MODE
+        value: once
+      - key: DB_CONNECTION_STRING
+        fromDatabase:
+          name: podcast-postgres
+          property: connectionString
+      - key: QUEUE_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: podcast-redis
+          property: connectionString
+
+  - type: keyvalue
+    name: podcast-redis
+    plan: starter
+    region: oregon
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+    persistenceMode: journal-snapshot
+
+databases:
+  - name: podcast-postgres
+    plan: basic-256mb
+    region: oregon
+    databaseName: podcasts
+    user: podcasts
+    diskSizeGB: 5
+    ipAllowList: []

@@ -1,23 +1,33 @@
 package tasks
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/hbmartin/podcast-backend/config"
 	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/errs"
+	"github.com/hbmartin/podcast-backend/objectstore"
 	"github.com/hbmartin/podcast-backend/push"
 	"github.com/hbmartin/podcast-backend/transcripts"
+	"golang.org/x/text/language"
 )
 
 // WorkerServer is the daemon that consumes tasks from the Redis queue and
@@ -27,15 +37,17 @@ type WorkerServer struct {
 	db       db.Store
 	crawler  *crawler.Crawler
 	notifier *push.Notifier
+	redis    *redis.Client
+	objects  objectstore.Store
 }
 
-func NewWorkerServer(cfg *config.Configuration, store db.Store, feedCrawler *crawler.Crawler, notifier *push.Notifier) *WorkerServer {
+func NewWorkerServer(cfg *config.Configuration, store db.Store, feedCrawler *crawler.Crawler, notifier *push.Notifier) (*WorkerServer, error) {
+	redisOpt, err := asynq.ParseRedisURI(cfg.QueueConfig.RedisURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse queue Redis URL: %w", err)
+	}
 	srv := asynq.NewServer(
-		asynq.RedisClientOpt{
-			Addr:     cfg.QueueConfig.RedisAddress,
-			Password: cfg.QueueConfig.RedisPassword,
-			DB:       cfg.QueueConfig.RedisDb,
-		},
+		redisOpt,
 		asynq.Config{
 			Concurrency: cfg.QueueConfig.Concurrency,
 			Queues: map[string]int{
@@ -47,7 +59,20 @@ func NewWorkerServer(cfg *config.Configuration, store db.Store, feedCrawler *cra
 			Logger:         &slogAdapter{logger: slog.Default()},
 		},
 	)
-	return &WorkerServer{srv: srv, db: store, crawler: feedCrawler, notifier: notifier}
+	goRedisOpt, err := redis.ParseURL(cfg.QueueConfig.RedisURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse queue Redis URL: %w", err)
+	}
+	worker := &WorkerServer{srv: srv, db: store, crawler: feedCrawler, notifier: notifier, redis: redis.NewClient(goRedisOpt)}
+	if cfg.ObjectStorageConfig.Enabled {
+		worker.objects, err = objectstore.NewS3Store(context.Background(), cfg.ObjectStorageConfig.EndpointURL,
+			cfg.ObjectStorageConfig.Bucket, cfg.ObjectStorageConfig.AccessKeyID,
+			cfg.ObjectStorageConfig.SecretAccessKey, cfg.ObjectStorageConfig.Region)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return worker, nil
 }
 
 // Start registers the task handlers and runs the worker until Shutdown is
@@ -62,13 +87,121 @@ func (w *WorkerServer) Start() error {
 	mux.HandleFunc(TypeSocialPush, w.HandleSocialPushTask)
 	mux.HandleFunc(TypeSightingFetch, w.HandleSightingFetchTask)
 	mux.HandleFunc(TypeGroupPostFanout, w.HandleGroupPostFanoutTask)
+	mux.HandleFunc(TypeObjectCleanup, w.HandleObjectCleanupTask)
+	mux.HandleFunc(TypeCorpusLegacyImport, w.HandleCorpusLegacyImportTask)
 
 	return w.srv.Run(mux)
+}
+
+func (w *WorkerServer) HandleObjectCleanupTask(ctx context.Context, _ *asynq.Task) error {
+	if w.objects == nil {
+		return nil
+	}
+	items, err := w.db.ClaimObjectDeletes(ctx, 100)
+	if err != nil {
+		return errs.E("tasks/WorkerServer.HandleObjectCleanupTask", errs.Database, err)
+	}
+	for _, item := range items {
+		if err := w.objects.Delete(ctx, item.ObjectKey); err != nil {
+			delay := int64(30 * (1 << minInt32(item.Attempts, 8)))
+			_ = w.db.RetryObjectDelete(ctx, db.RetryObjectDeleteParams{ID: item.ID, Column2: delay})
+			continue
+		}
+		if err := w.db.CompleteObjectDelete(ctx, item.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func minInt32(value, maximum int32) int32 {
+	if value < maximum {
+		return value
+	}
+	return maximum
+}
+
+type legacyCorpusStore interface {
+	ListLegacyCorpusRows(context.Context, int64, int32) ([]db.LegacyCorpusRow, error)
+	ImportLegacyCorpusCandidate(context.Context, db.ImportLegacyCorpusCandidateParams) (string, error)
+}
+
+func (w *WorkerServer) HandleCorpusLegacyImportTask(ctx context.Context, _ *asynq.Task) error {
+	if w.objects == nil {
+		return nil
+	}
+	repository, ok := w.db.(legacyCorpusStore)
+	if !ok {
+		return nil
+	}
+	var afterID int64
+	for {
+		rows, err := repository.ListLegacyCorpusRows(ctx, afterID, 100)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		for _, row := range rows {
+			afterID = row.ID
+			vtt, err := gunzipLegacy(row.VTTBlob, 2<<20)
+			if err != nil {
+				return fmt.Errorf("legacy contribution %d transcript: %w", row.ID, err)
+			}
+			hash := sha256.Sum256(vtt)
+			hashString := hex.EncodeToString(hash[:])
+			key := "corpus/transcripts/" + hashString + ".vtt"
+			if err := w.objects.Put(ctx, key, vtt, "text/vtt"); err != nil {
+				return err
+			}
+			languageValue := "und"
+			if value := strings.TrimSpace(row.Language); value != "" {
+				if tag, parseErr := language.Parse(value); parseErr == nil {
+					languageValue = tag.String()
+				}
+			}
+			artifacts := []db.CorpusArtifactInput{{Kind: "transcript", ObjectKey: key, ContentHash: hashString, MediaType: "text/vtt", Format: "vtt", ByteLength: int64(len(vtt)), Language: languageValue, Source: "legacy"}}
+			if len(row.FingerprintBlob) > 0 {
+				fingerprint, err := gunzipLegacy(row.FingerprintBlob, 512<<10)
+				if err != nil {
+					return fmt.Errorf("legacy contribution %d fingerprint: %w", row.ID, err)
+				}
+				fpHash := sha256.Sum256(fingerprint)
+				fpHashString := hex.EncodeToString(fpHash[:])
+				fpKey := "corpus/fingerprints/" + fpHashString + ".json"
+				if err := w.objects.Put(ctx, fpKey, fingerprint, "application/json"); err != nil {
+					return err
+				}
+				artifacts = append(artifacts, db.CorpusArtifactInput{Kind: "fingerprint", ObjectKey: fpKey, ContentHash: fpHashString, MediaType: "application/json", Format: "fingerprint-compact-v2", ByteLength: int64(len(fingerprint)), Language: languageValue, Source: "legacy"})
+			}
+			if _, err := repository.ImportLegacyCorpusCandidate(ctx, db.ImportLegacyCorpusCandidateParams{Row: row, Language: languageValue, ContentHash: hashString, Artifacts: artifacts}); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func gunzipLegacy(data []byte, limit int64) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("decompressed artifact too large")
+	}
+	return body, nil
 }
 
 // Shutdown gracefully stops the worker, waiting for in-flight tasks to finish.
 func (w *WorkerServer) Shutdown() {
 	w.srv.Shutdown()
+	_ = w.redis.Close()
 }
 
 // HandlePodcastRefreshTask fetches and refreshes a single podcast feed.
@@ -78,6 +211,14 @@ func (w *WorkerServer) HandlePodcastRefreshTask(ctx context.Context, t *asynq.Ta
 	var payload PodcastRefreshPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		return errs.E(op, errs.Internal, fmt.Errorf("%w: %v", asynq.SkipRetry, err))
+	}
+	if payload.JobID != "" {
+		_ = w.redis.Set(ctx, "refresh-job:"+payload.JobID, "running", 15*time.Minute).Err()
+		defer func() {
+			completeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = w.redis.Set(completeCtx, "refresh-job:"+payload.JobID, "completed", 15*time.Minute).Err()
+		}()
 	}
 
 	slog.Info("Executing Podcast Refresh", "uuid", payload.PodcastUUID, "feed_url", payload.FeedURL)
@@ -309,5 +450,5 @@ func (w *WorkerServer) HandleSightingFetchTask(ctx context.Context, t *asynq.Tas
 		}
 		return errs.E(op, err)
 	}
-	return nil
+	return transcripts.PromoteFetchedSighting(ctx, w.db, w.objects, payload.SightingID)
 }
