@@ -21,10 +21,11 @@ and readiness, then repoint every role together.
 
 Images publish publicly at `ghcr.io/hbmartin/podcast-backend` for amd64 and
 arm64 with immutable calendar and full-commit tags, provenance, SPDX SBOM, and
-keyless Cosign signing. Promotion verifies all supply-chain evidence and pins
-provider services by digest. The Railway template itself must be repinned by a
-human in the template editor. Rollback redeploys an earlier digest and never
-runs down-migrations.
+keyless Cosign signing. Promotion verifies all supply-chain evidence (Cosign
+signature plus GitHub provenance and SPDX SBOM attestations) and pins provider
+services by digest. The Railway template itself must be repinned by a human in
+the template editor. Rollback re-verifies the same evidence, redeploys an
+earlier digest, and never runs down-migrations.
 
 Current provider costs must be checked immediately before deployment using the
 official [Railway pricing](https://docs.railway.com/pricing/plans) and [Render

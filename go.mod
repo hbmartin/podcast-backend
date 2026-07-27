@@ -3,7 +3,6 @@ module github.com/hbmartin/podcast-backend
 go 1.25.12
 
 require (
-	cloud.google.com/go/vision v1.2.0
 	cloud.google.com/go/vision/v2 v2.9.5
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/aws/aws-sdk-go-v2 v1.43.0

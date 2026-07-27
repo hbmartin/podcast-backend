@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/hbmartin/podcast-backend/attest"
+	"github.com/hbmartin/podcast-backend/middlewares"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -38,12 +37,14 @@ func writeRateLimited(w http.ResponseWriter, retry time.Duration) {
 	w.WriteHeader(http.StatusTooManyRequests)
 }
 
-func installationID(r *http.Request) string {
+// installationID returns the identity used for distributed rate-limit keys.
+// Attested requests are keyed by the App Attest key id, which the client
+// cannot forge. Without attestation, client-supplied installation headers are
+// attacker-controlled (rotating them would bypass the limit), so fall back to
+// the client IP instead.
+func (h Handlers) installationID(r *http.Request) string {
 	if keyID, ok := r.Context().Value(attestKeyIDCtx).(string); ok && keyID != "" {
 		return keyID
 	}
-	if id := strings.TrimSpace(r.Header.Get("X-Installation-ID")); id != "" {
-		return id
-	}
-	return strings.TrimSpace(r.Header.Get(attest.HeaderKeyID))
+	return middlewares.ClientIP(r, h.TrustProxyHeaders)
 }

@@ -11,7 +11,7 @@ import (
 
 // ExpectedSchemaVersion is the newest migration required by this binary.
 // Dedicated non-web roles wait for the web role to reach this version.
-const ExpectedSchemaVersion = 29
+const ExpectedSchemaVersion = 31
 
 type rowQuerier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row

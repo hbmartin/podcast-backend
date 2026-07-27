@@ -551,11 +551,19 @@ VALUES ($1, $2)
 ON CONFLICT (object_key) DO NOTHING;
 
 -- name: ClaimObjectDeletes :many
-SELECT * FROM object_delete_outbox
-WHERE completed_at IS NULL AND available_at <= now()
-ORDER BY id
-LIMIT $1
-FOR UPDATE SKIP LOCKED;
+-- The UPDATE both leases the batch (moves available_at forward) and returns
+-- it, so the claim survives past this statement; a bare SELECT ... FOR UPDATE
+-- in auto-commit would release its row locks immediately.
+UPDATE object_delete_outbox
+SET available_at = now() + interval '10 minutes'
+WHERE id IN (
+    SELECT id FROM object_delete_outbox
+    WHERE completed_at IS NULL AND available_at <= now()
+    ORDER BY id
+    LIMIT $1
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING *;
 
 -- name: CompleteObjectDelete :exec
 UPDATE object_delete_outbox SET completed_at = now() WHERE id = $1;
@@ -603,13 +611,15 @@ SELECT * FROM shared_lists WHERE code = $1;
 
 -- name: UpsertDevicePush :exec
 -- The client omits push_token unless it holds one, so an empty incoming
--- token keeps whatever was registered before.
+-- token keeps whatever was registered before. The same applies to
+-- push_environment: a registration ping that omits it must not flip a
+-- sandbox-registered token to production (APNs would then reject it).
 INSERT INTO devices (user_id, device_id, push_token, push_on, push_environment, updated_at)
-VALUES ($1, $2, $3, $4, $5, now())
+VALUES ($1, $2, $3, $4, CASE WHEN $5::text <> '' THEN $5::text ELSE 'production' END, now())
 ON CONFLICT (user_id, device_id) DO UPDATE SET
     push_token = CASE WHEN EXCLUDED.push_token <> '' THEN EXCLUDED.push_token ELSE devices.push_token END,
     push_on = EXCLUDED.push_on,
-    push_environment = EXCLUDED.push_environment,
+    push_environment = CASE WHEN $5::text <> '' THEN $5::text ELSE devices.push_environment END,
     updated_at = now();
 
 -- name: SetPodcastNotifyFlags :exec

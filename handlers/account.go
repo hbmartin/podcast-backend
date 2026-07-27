@@ -200,9 +200,16 @@ func (h Handlers) PostUserToken(w http.ResponseWriter, r *http.Request) {
 			invalidGrant = true
 			return err
 		}
-		if time.Now().After(stored.ExpiresAt) || stored.DeviceID != req.Device {
+		if time.Now().After(stored.ExpiresAt) {
 			invalidGrant = true
 			return nil
+		}
+		if stored.DeviceID != req.Device {
+			// A live token presented with the wrong device binding is a theft
+			// signal, same as reuse of a rotated token: revoke the family.
+			_, err = q.RevokeRefreshTokenFamily(r.Context(), stored.FamilyID)
+			invalidGrant = true
+			return err
 		}
 		user, err := q.GetUserByID(r.Context(), stored.UserID)
 		if err != nil {

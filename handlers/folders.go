@@ -145,7 +145,7 @@ func (h Handlers) PostSuggestFolders(w http.ResponseWriter, r *http.Request) {
 		}
 		seen[uuid] = struct{}{}
 	}
-	install := installationID(r)
+	install := h.installationID(r)
 	if install == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return

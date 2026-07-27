@@ -148,7 +148,7 @@ func hmacBytes(key []byte, message string) []byte {
 var countryPattern = regexp.MustCompile(`^[A-Z]{2}$`)
 
 func (h Handlers) GetRelatedPodcasts(w http.ResponseWriter, r *http.Request) {
-	install := installationID(r)
+	install := h.installationID(r)
 	if install == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return

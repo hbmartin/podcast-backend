@@ -146,7 +146,9 @@ func (s *pgStore) GetEpisodeRecommendationData(ctx context.Context, userID int64
 		      SELECT 1 FROM user_episodes ue WHERE ue.user_id=$1 AND ue.episode_uuid=e.uuid
 		      AND (ue.is_deleted OR ue.playing_status IN (2,3) OR ue.played_up_to > 0 OR ue.starred))
 		  AND NOT EXISTS (SELECT 1 FROM history h WHERE h.user_id=$1 AND h.episode_uuid=e.uuid)
-		  AND NOT EXISTS (SELECT 1 FROM up_next_items un WHERE un.user_id=$1 AND un.episode_uuid=e.uuid)`, userID)
+		  AND NOT EXISTS (SELECT 1 FROM up_next_items un WHERE un.user_id=$1 AND un.episode_uuid=e.uuid)
+		ORDER BY e.published_at DESC
+		LIMIT 1000`, userID)
 	if err != nil {
 		return result, err
 	}

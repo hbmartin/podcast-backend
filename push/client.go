@@ -167,9 +167,33 @@ func (c *Client) Send(ctx context.Context, deviceToken, _ string, n Notification
 		return err
 	}
 
+	// APNs 429/5xx and transport errors are transient; without a retry a
+	// brief outage silently drops the notification, because the task layer
+	// treats Send failures as best-effort.
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(1<<(attempt-1)) * time.Second):
+			}
+		}
+		retryable, err := c.deliver(ctx, deviceToken, bearer, payload, n)
+		if err == nil || !retryable {
+			return err
+		}
+		lastErr = err
+	}
+	return lastErr
+}
+
+// deliver performs one APNs request. The boolean reports whether the failure
+// is transient and worth retrying.
+func (c *Client) deliver(ctx context.Context, deviceToken, bearer string, payload []byte, n Notification) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"/3/device/"+deviceToken, bytes.NewReader(payload))
 	if err != nil {
-		return err
+		return false, err
 	}
 	req.Header.Set("authorization", "bearer "+bearer)
 	req.Header.Set("apns-topic", c.topic)
@@ -183,12 +207,12 @@ func (c *Client) Send(ctx context.Context, deviceToken, _ string, n Notification
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("push: delivering to APNs: %w", err)
+		return true, fmt.Errorf("push: delivering to APNs: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
-		return nil
+		return false, nil
 	}
 
 	var apnsErr struct {
@@ -198,9 +222,10 @@ func (c *Client) Send(ctx context.Context, deviceToken, _ string, n Notification
 	_ = json.Unmarshal(body, &apnsErr)
 
 	if resp.StatusCode == http.StatusGone || apnsErr.Reason == "Unregistered" || apnsErr.Reason == "BadDeviceToken" {
-		return ErrUnregistered
+		return false, ErrUnregistered
 	}
-	return fmt.Errorf("push: APNs rejected the notification: status %d reason %q", resp.StatusCode, apnsErr.Reason)
+	retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+	return retryable, fmt.Errorf("push: APNs rejected the notification: status %d reason %q", resp.StatusCode, apnsErr.Reason)
 }
 
 // Router selects the APNs host recorded with each token. APNs authentication

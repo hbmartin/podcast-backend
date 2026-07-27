@@ -300,7 +300,7 @@ func (h Handlers) allowCorpusRead(w http.ResponseWriter, r *http.Request) bool {
 		http.NotFound(w, r)
 		return false
 	}
-	install := installationID(r)
+	install := h.installationID(r)
 	if install == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return false

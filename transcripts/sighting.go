@@ -13,9 +13,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
+	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/metrics"
 )
@@ -33,13 +35,13 @@ var (
 	ErrRetryable = errors.New("retryable sighting fetch failure")
 )
 
-// blockedIP reports whether an address must not be fetched: loopback, private
-// (RFC1918 / IPv6 ULA), link-local (incl. the 169.254.169.254 cloud-metadata
-// endpoint), unspecified, or multicast. This is the SSRF guard.
+// blockedIP reports whether an address must not be fetched. It delegates to
+// the crawler's shared SSRF blocklist so sighting fetches block exactly the
+// same ranges as feed fetches (incl. CGNAT, benchmark, and cloud-metadata
+// space that the net.IP convenience predicates miss).
 func blockedIP(ip net.IP) bool {
-	return ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
-		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() ||
-		ip.IsInterfaceLocalMulticast()
+	addr, ok := netip.AddrFromSlice(ip)
+	return !ok || !crawler.IsPublicFetchAddress(addr)
 }
 
 // safeDialContext resolves the host and refuses to connect to any non-public

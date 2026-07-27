@@ -11,7 +11,7 @@ on:
 permissions:
   contents: write
   packages: read
-  id-token: write
+  attestations: read
 
 env:
   IMAGE: ghcr.io/hbmartin/podcast-backend
@@ -25,15 +25,20 @@ jobs:
     outputs:
       digest: ${{ steps.resolve.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
       - name: Validate requested version
         env:
           VERSION: ${{ inputs.version }}
         run: '[[ "$VERSION" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]+$ ]]'
-      - uses: imjasonh/setup-crane@v0.4
-      - uses: sigstore/cosign-installer@v3
+      - uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - id: resolve
         env:
           VERSION: ${{ inputs.version }}
@@ -41,11 +46,12 @@ jobs:
       - name: Verify signature, provenance, and SPDX SBOM
         env:
           DIGEST: ${{ steps.resolve.outputs.digest }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/container.yml@refs/heads/main"
           cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "${IMAGE}@${DIGEST}"
-          cosign verify-attestation --type slsaprovenance --certificate-identity "$identity" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "${IMAGE}@${DIGEST}"
-          cosign verify-attestation --type spdxjson --certificate-identity "$identity" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "${IMAGE}@${DIGEST}"
+          gh attestation verify "oci://${IMAGE}@${DIGEST}" --repo "$GITHUB_REPOSITORY" --cert-identity "$identity" --predicate-type https://slsa.dev/provenance/v1
+          gh attestation verify "oci://${IMAGE}@${DIGEST}" --repo "$GITHUB_REPOSITORY" --cert-identity "$identity" --predicate-type https://spdx.dev/Document
       - name: Require at least one configured live provider
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -88,13 +94,15 @@ jobs:
     runs-on: ubuntu-latest
     environment: railway-template-approval
     steps:
-      - run: echo "Confirmed canonical Railway template was repinned to ${{ needs.verify-and-deploy.outputs.digest }}"
+      - env:
+          DIGEST: ${{ needs.verify-and-deploy.outputs.digest }}
+        run: echo "Confirmed canonical Railway template was repinned to ${DIGEST}"
 
   release:
     needs: [verify-and-deploy, template-approval]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}

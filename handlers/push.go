@@ -30,7 +30,9 @@ func (h Handlers) persistPushState(r *http.Request, deviceID, pushToken, pushOn,
 	}
 
 	if pushEnvironment != "sandbox" && pushEnvironment != "production" {
-		pushEnvironment = "production"
+		// Unknown or omitted: let the upsert preserve the stored environment
+		// (new registrations default to production in SQL).
+		pushEnvironment = ""
 	}
 
 	if err := h.Queries.UpsertDevicePush(r.Context(), db.UpsertDevicePushParams{

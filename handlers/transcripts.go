@@ -15,6 +15,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/metrics"
 	"github.com/hbmartin/podcast-backend/pcerrors"
@@ -359,13 +361,11 @@ func isTokenFreeURL(raw string) bool {
 	if u.User != nil {
 		return false
 	}
-	// Reject obvious non-public IP literals early (the fetcher's dialer also
-	// blocks resolved private addresses as defense in depth).
-	if ip := net.ParseIP(u.Hostname()); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
-			ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
-			return false
-		}
+	// Reject non-public IP literals early using the crawler's shared SSRF
+	// blocklist (the fetcher's dialer also blocks resolved private addresses
+	// as defense in depth).
+	if addr, err := netip.ParseAddr(u.Hostname()); err == nil && !crawler.IsPublicFetchAddress(addr) {
+		return false
 	}
 	for name, values := range u.Query() {
 		if tokenishQueryName.MatchString(name) {

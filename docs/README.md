@@ -5,6 +5,11 @@ feature activation, and immutable transcript corpus contract, start with
 [Deployment and coordinated protocol](DeploymentAndProtocol.md). That document
 supersedes older rollout statements in the workstream history below.
 
+Client developers integrating against this branch should also read
+[Client-visible changes from the PR #22 review fixes](ClientProtocolChanges.md),
+which lists every wire-observable behavior change from the post-review
+hardening pass and the required client action for each.
+
 These guides describe the user and operator impact of the security, correctness,
 concurrency, and operability work consolidated from pull-request feedback on PRs
 1 through 17. They document the behavior in the current branch, including the

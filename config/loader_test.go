@@ -55,7 +55,8 @@ func TestLoadWebConfigMissingConnectionString(t *testing.T) {
 func TestLoadPublicBaseURLPolicy(t *testing.T) {
 	t.Setenv("DB_CONNECTION_STRING", "connection_string")
 	t.Setenv("PUBLIC_BASE_URL", "https://pods.example.com")
-	t.Setenv("ADMIN_TOKEN", "0123456789abcdef0123456789abcdef") // gitleaks:allow -- deterministic test fixture
+	t.Setenv("ADMIN_TOKEN", "0123456789abcdef0123456789abcdef")   // gitleaks:allow -- deterministic test fixture
+	t.Setenv("METRICS_TOKEN", "fedcba9876543210fedcba9876543210") // gitleaks:allow -- deterministic test fixture
 
 	config, err := loadWebServerConfig(&RuntimeConfiguration{Production: true})
 	require.NoError(t, err)

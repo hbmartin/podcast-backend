@@ -141,6 +141,13 @@ func validateFeedURL(rawURL string, allowPrivate bool) error {
 	return nil
 }
 
+// IsPublicFetchAddress reports whether an address may be fetched server-side.
+// It is the single SSRF blocklist for every outbound fetch path (feeds,
+// transcript sightings), so the covered ranges cannot drift apart.
+func IsPublicFetchAddress(addr netip.Addr) bool {
+	return isPublicFeedAddress(addr)
+}
+
 func isPublicFeedAddress(addr netip.Addr) bool {
 	addr = addr.Unmap()
 	if !addr.IsValid() || !addr.IsGlobalUnicast() {

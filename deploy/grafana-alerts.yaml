@@ -9,6 +9,9 @@ groups:
         title: Sustained backend HTTP 5xx
         condition: C
         for: 10m
+        # No data means no 5xx samples matched the filter, which is healthy.
+        noDataState: OK
+        execErrState: Error
         data:
           - refId: C
             datasourceUid: prometheus
@@ -19,6 +22,10 @@ groups:
         title: Three consecutive readiness failures
         condition: C
         for: 0s
+        # The failed-outcome counter only exists after the first failure; its
+        # absence is healthy.
+        noDataState: OK
+        execErrState: Error
         data:
           - refId: C
             datasourceUid: prometheus
@@ -29,39 +36,58 @@ groups:
         title: Worker heartbeat absent for five minutes
         condition: C
         for: 1m
+        # bool keeps a 0 sample while healthy, so NoData only occurs when the
+        # heartbeat series is gone entirely (worker down or never scraped) —
+        # exactly the outage this rule exists to catch.
+        noDataState: Alerting
+        execErrState: Error
         data:
           - refId: C
             datasourceUid: prometheus
             model:
-              expr: time() - podcast_backend_role_heartbeat_unixtime{role="worker"} > 300
+              expr: (time() - podcast_backend_role_heartbeat_unixtime{role="worker"}) > bool 300
               instant: true
       - uid: podcast-queue-age
         title: Queue age exceeds ten minutes
         condition: C
         for: 5m
+        # bool keeps a 0 sample while healthy; a missing gauge means nothing is
+        # reporting queue depth, which is itself an outage.
+        noDataState: Alerting
+        execErrState: Error
         data:
           - refId: C
             datasourceUid: prometheus
             model:
-              expr: podcast_backend_queue_oldest_task_age_seconds > 600
+              expr: podcast_backend_queue_oldest_task_age_seconds > bool 600
               instant: true
       - uid: podcast-refresh-overdue
         title: Refresh scheduling overdue
         condition: C
         for: 5m
+        # bool keeps a 0 sample while healthy; an absent last-success gauge
+        # means the refresh scheduler has never reported in.
+        noDataState: Alerting
+        execErrState: Error
         data:
           - refId: C
             datasourceUid: prometheus
             model:
-              expr: time() - podcast_backend_scheduler_last_success_unixtime{scheduler="refresh"} > 900
+              expr: (time() - podcast_backend_scheduler_last_success_unixtime{scheduler="refresh"}) > bool 900
               instant: true
       - uid: podcast-digest-overdue
         title: Weekly digest scheduling overdue
         condition: C
         for: 5m
+        # The labeled staleness expression is the LHS so its (non-zero) value
+        # survives the on() joins against the label-less time-window vectors.
+        # Outside the Sunday-evening window the join is empty, so NoData is the
+        # healthy state and must map to OK.
+        noDataState: OK
+        execErrState: Error
         data:
           - refId: C
             datasourceUid: prometheus
             model:
-              expr: (day_of_week() == 0 and hour() >= 18) and (time() - podcast_backend_scheduler_last_success_unixtime{scheduler="digest"} > 604800)
+              expr: (time() - podcast_backend_scheduler_last_success_unixtime{scheduler="digest"} > 604800) and on() (day_of_week() == 0) and on() (hour() >= 18)
               instant: true
