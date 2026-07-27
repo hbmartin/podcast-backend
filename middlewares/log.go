@@ -40,15 +40,14 @@ func LogMiddleware(next http.Handler) http.Handler {
 		if route == "" {
 			route = "unmatched"
 		}
-		metrics.HTTPRequestDuration.
-			WithLabelValues(r.Method, route, strconv.Itoa(logRespWriter.statusCode)).
-			Observe(duration.Seconds())
+		status := strconv.Itoa(logRespWriter.statusCode)
+		metrics.ObserveHTTPRequest(r.Context(), r.Method, route, status, duration.Seconds())
 
 		slog.Info(
 			"WebRequest",
 			"proto", r.Proto,
 			"method", r.Method,
-			"url", r.URL,
+			"route", route,
 			"duration", duration,
 			"status", logRespWriter.statusCode,
 			"traceId", r.Context().Value(ContextKey("traceId")))

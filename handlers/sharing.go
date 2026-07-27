@@ -2,11 +2,9 @@ package handlers
 
 import (
 	"crypto/rand"
-	"crypto/sha1"
-	"crypto/subtle"
-	"encoding/hex"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/hbmartin/podcast-backend/db"
 
@@ -14,8 +12,8 @@ import (
 )
 
 // PostShareList handles POST /share/list (sharing host role): create a
-// shareable podcast list. The legacy SHA-1 signature is verified only when
-// SHARING_CREDENTIAL is configured — protocol compatibility, not security.
+// shareable podcast list. Authentication is enforced by the route; the legacy
+// SHA-1 credential is intentionally ignored and no longer configured.
 func (h Handlers) PostShareList(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title       string `json:"title"`
@@ -31,13 +29,19 @@ func (h Handlers) PostShareList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if credential := h.Config.SharingCredential; credential != "" {
-		sum := sha1.Sum([]byte(req.Datetime + credential))
-		expected := hex.EncodeToString(sum[:])
-		if subtle.ConstantTimeCompare([]byte(expected), []byte(req.H)) != 1 {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"status": "error", "message": "invalid signature"})
-			return
-		}
+	user := getUser(r.Context())
+	if user == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	allowed, retry, err := redisLimit(r.Context(), h.Redis, "share:user:"+user.UUID, 30, time.Minute)
+	if err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+	if !allowed {
+		writeRateLimited(w, retry)
+		return
 	}
 
 	uuids := make([]string, 0, len(req.Podcasts))
@@ -52,7 +56,6 @@ func (h Handlers) PostShareList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var list db.SharedList
-	var err error
 	for attempt := 0; attempt < 2; attempt++ {
 		list, err = h.Queries.CreateSharedList(r.Context(), db.CreateSharedListParams{
 			Code:         shareCode(),

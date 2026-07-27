@@ -45,12 +45,13 @@ func TestLoginSuccess(t *testing.T) {
 
 	resp := &pb.UserLoginResponse{}
 	code, _, err := makeProtoRequest(router, "/user/login",
-		&pb.UserLoginRequest{Email: "mail@test.com", Password: "secret-pass", Scope: "mobile"}, resp)
+		&pb.UserLoginRequest{Email: "mail@test.com", Password: "secret-pass", Scope: "mobile", Device: "install-1"}, resp)
 
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, testUserUUID, resp.Uuid)
 	assert.Equal(t, "mail@test.com", resp.Email)
+	assert.NotEmpty(t, resp.RefreshToken)
 
 	// minted token must round-trip through our own validator
 	parsed, err := auth.ValidateAccessToken(resp.Token)
@@ -64,7 +65,7 @@ func TestLoginWrongPassword(t *testing.T) {
 	router := setup(&QuerierMock{GetUserByEmailResult: user})
 
 	code, raw, _ := makeProtoRequest(router, "/user/login",
-		&pb.UserLoginRequest{Email: "mail@test.com", Password: "wrong"}, nil)
+		&pb.UserLoginRequest{Email: "mail@test.com", Password: "wrong", Device: "install-1"}, nil)
 
 	assert.Equal(t, http.StatusUnauthorized, code)
 	assert.Equal(t, pcerrors.IncorrectPassword, decodeErrorEnvelope(t, raw))
@@ -74,7 +75,7 @@ func TestLoginUnknownEmail(t *testing.T) {
 	router := setup(&QuerierMock{GetUserByEmailError: pgx.ErrNoRows})
 
 	code, raw, _ := makeProtoRequest(router, "/user/login",
-		&pb.UserLoginRequest{Email: "nobody@test.com", Password: "whatever"}, nil)
+		&pb.UserLoginRequest{Email: "nobody@test.com", Password: "whatever", Device: "install-1"}, nil)
 
 	assert.Equal(t, http.StatusUnauthorized, code)
 	assert.Equal(t, pcerrors.EmailNotFound, decodeErrorEnvelope(t, raw))
@@ -100,23 +101,24 @@ func TestRegisterSuccess(t *testing.T) {
 
 	resp := &pb.RegisterResponse{}
 	code, _, err := makeProtoRequest(router, "/user/register",
-		&pb.RegisterRequest{Email: "new@test.com", Password: "longenough", Scope: "mobile"}, resp)
+		&pb.RegisterRequest{Email: "new@test.com", Password: "long-enough-password", Scope: "mobile", Device: "install-1"}, resp)
 
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, code)
 	assert.True(t, resp.Success.GetValue())
 	assert.Equal(t, testUserUUID, resp.Uuid)
 	assert.NotEmpty(t, resp.Token)
+	assert.NotEmpty(t, resp.RefreshToken)
 	// password must be stored hashed
-	assert.NotEqual(t, "longenough", mock.CreateUserParams.PasswordHash)
-	assert.True(t, auth.CheckPassword(mock.CreateUserParams.PasswordHash, "longenough"))
+	assert.NotEqual(t, "long-enough-password", mock.CreateUserParams.PasswordHash)
+	assert.True(t, auth.CheckPassword(mock.CreateUserParams.PasswordHash, "long-enough-password"))
 }
 
 func TestRegisterEmailTaken(t *testing.T) {
 	router := setup(&QuerierMock{CreateUserError: &pgconn.PgError{Code: "23505"}})
 
 	code, raw, _ := makeProtoRequest(router, "/user/register",
-		&pb.RegisterRequest{Email: "dup@test.com", Password: "longenough"}, nil)
+		&pb.RegisterRequest{Email: "dup@test.com", Password: "long-enough-password", Device: "install-1"}, nil)
 
 	assert.Equal(t, http.StatusConflict, code)
 	assert.Equal(t, pcerrors.EmailTaken, decodeErrorEnvelope(t, raw))
@@ -126,17 +128,17 @@ func TestRegisterValidation(t *testing.T) {
 	router := setup(&QuerierMock{})
 
 	code, raw, _ := makeProtoRequest(router, "/user/register",
-		&pb.RegisterRequest{Email: "not-an-email", Password: "longenough"}, nil)
+		&pb.RegisterRequest{Email: "not-an-email", Password: "long-enough-password", Device: "install-1"}, nil)
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, pcerrors.EmailInvalid, decodeErrorEnvelope(t, raw))
 
 	code, raw, _ = makeProtoRequest(router, "/user/register",
-		&pb.RegisterRequest{Email: "a@b.co", Password: "tiny"}, nil)
+		&pb.RegisterRequest{Email: "a@b.co", Password: "tiny", Device: "install-1"}, nil)
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, pcerrors.PasswordInvalid, decodeErrorEnvelope(t, raw))
 
 	code, raw, _ = makeProtoRequest(router, "/user/register",
-		&pb.RegisterRequest{Email: "a@b.co", Password: strings.Repeat("x", maxPasswordBytes+1)}, nil)
+		&pb.RegisterRequest{Email: "a@b.co", Password: strings.Repeat("x", maxPasswordBytes+1), Device: "install-1"}, nil)
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, pcerrors.PasswordInvalid, decodeErrorEnvelope(t, raw))
 }
@@ -148,7 +150,7 @@ func TestTokenRefreshGrant(t *testing.T) {
 	mock := &QuerierMock{
 		GetRefreshTokenByHashResult: db.RefreshToken{
 			ID: 1, UserID: 42, TokenHash: hash, Scope: "mobile",
-			ExpiresAt: time.Now().Add(time.Hour),
+			ExpiresAt: time.Now().Add(time.Hour), FamilyID: testUserUUID, DeviceID: "install-1",
 		},
 		GetUserByIDResult:        db.User{ID: 42, Uuid: testUserUUID, Email: "mail@test.com"},
 		RevokeRefreshTokenResult: 1,
@@ -157,7 +159,7 @@ func TestTokenRefreshGrant(t *testing.T) {
 
 	resp := &pb.TokenLoginResponse{}
 	code, _, err := makeProtoRequest(router, "/user/token",
-		&pb.UserTokenRequest{GrantType: "refresh_token", RefreshToken: token, Scope: "mobile"}, resp)
+		&pb.UserTokenRequest{GrantType: "refresh_token", RefreshToken: token, Scope: "mobile", Device: "install-1"}, resp)
 
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, code)
@@ -185,16 +187,45 @@ func TestTokenInvalidGrant(t *testing.T) {
 	assert.Equal(t, pcerrors.InvalidGrant, decodeErrorEnvelope(t, raw))
 }
 
-func TestForgotPasswordAlwaysSucceeds(t *testing.T) {
-	router := setup(&QuerierMock{})
+func TestPasswordResetConsumesCodeForMatchingAccountAndRevokesFamilies(t *testing.T) {
+	user := testUser(t, "old-password")
+	mock := &QuerierMock{
+		GetUserByEmailResult:           user,
+		ConsumePasswordResetCodeResult: user.ID,
+		UpdateUserPasswordResult:       1,
+		RevokeAllRefreshTokensResult:   2,
+	}
+	router := setup(mock)
 
 	resp := &pb.UserChangeResponse{}
-	code, _, err := makeProtoRequest(router, "/user/forgot_password",
-		&pb.EmailRequest{Email: "anyone@test.com"}, resp)
+	code, _, err := makeProtoRequest(router, "/user/reset_password",
+		&pb.UserResetPasswordRequest{
+			Email: "mail@test.com", ResetPasswordToken: "one-time-code",
+			Password: "new-password-12", Device: "install-1",
+		}, resp)
 
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, code)
 	assert.True(t, resp.Success.GetValue())
+	assert.Equal(t, auth.HashRefreshToken("one-time-code"), mock.ConsumedPasswordResetCodeHash)
+	assert.True(t, auth.CheckPassword(mock.UpdateUserPasswordParams.PasswordHash, "new-password-12"))
+	assert.Equal(t, user.ID, mock.RevokeAllRefreshTokensUserID)
+}
+
+func TestPasswordResetRejectsCodeIssuedForDifferentAccount(t *testing.T) {
+	user := testUser(t, "old-password")
+	mock := &QuerierMock{GetUserByEmailResult: user, ConsumePasswordResetCodeResult: user.ID + 1}
+	router := setup(mock)
+
+	code, raw, _ := makeProtoRequest(router, "/user/reset_password",
+		&pb.UserResetPasswordRequest{
+			Email: user.Email, ResetPasswordToken: "wrong-account-code",
+			Password: "new-password-12", Device: "install-1",
+		}, nil)
+
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, pcerrors.InvalidGrant, decodeErrorEnvelope(t, raw))
+	assert.Nil(t, mock.UpdateUserPasswordParams)
 }
 
 func TestChangeEmailSuccess(t *testing.T) {

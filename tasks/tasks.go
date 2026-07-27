@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/hibiken/asynq"
 
 	"github.com/hbmartin/podcast-backend/errs"
+	"github.com/hbmartin/podcast-backend/metrics"
 )
 
 // Task types. Each type is routed to a matching handler registered on the
@@ -24,6 +26,8 @@ const (
 	TypeSocialPush         = "push:social"
 	TypeSightingFetch      = "transcript:sighting_fetch"
 	TypeGroupPostFanout    = "push:group_post_fanout"
+	TypeObjectCleanup      = "object:cleanup"
+	TypeCorpusLegacyImport = "corpus:legacy_import"
 )
 
 // Queue names, in priority order.
@@ -37,6 +41,7 @@ const (
 type PodcastRefreshPayload struct {
 	PodcastUUID string `json:"podcast_uuid"`
 	FeedURL     string `json:"feed_url"`
+	JobID       string `json:"job_id,omitempty"`
 }
 
 // OpmlImportPayload carries the data needed to import an OPML feed list.
@@ -78,24 +83,41 @@ type GroupPostFanoutPayload struct {
 
 // QueueClient enqueues background tasks onto the Redis queue.
 type QueueClient struct {
-	client *asynq.Client
+	client    *asynq.Client
+	inspector *asynq.Inspector
 }
 
-func NewQueueClient(redisAddr string, redisPwd string, redisDb int) *QueueClient {
-	return &QueueClient{
-		client: asynq.NewClient(asynq.RedisClientOpt{
-			Addr:     redisAddr,
-			Password: redisPwd,
-			DB:       redisDb,
-		}),
+func NewQueueClient(redisURL string) (*QueueClient, error) {
+	redisOpt, err := asynq.ParseRedisURI(redisURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse queue Redis URL: %w", err)
 	}
+	return &QueueClient{client: asynq.NewClient(redisOpt), inspector: asynq.NewInspector(redisOpt)}, nil
 }
 
 func (qc *QueueClient) Close() error {
 	if qc == nil || qc.client == nil {
 		return nil
 	}
-	return qc.client.Close()
+	err := qc.client.Close()
+	if qc.inspector != nil {
+		err = errors.Join(err, qc.inspector.Close())
+	}
+	return err
+}
+
+func (qc *QueueClient) ObserveQueueAge(ctx context.Context) {
+	if qc == nil || qc.inspector == nil {
+		return
+	}
+	maximum := time.Duration(0)
+	for _, queue := range []string{QueueCritical, QueueDefault, QueueLow} {
+		info, err := qc.inspector.GetQueueInfo(queue)
+		if err == nil && info.Latency > maximum {
+			maximum = info.Latency
+		}
+	}
+	metrics.RecordQueueAge(ctx, maximum.Seconds())
 }
 
 // Enqueue places a raw task on the queue. Prefer the typed helpers below.
@@ -114,15 +136,28 @@ func (qc *QueueClient) Enqueue(ctx context.Context, task *asynq.Task, opts ...as
 
 // EnqueuePodcastRefresh queues a background refresh of a single podcast feed.
 func (qc *QueueClient) EnqueuePodcastRefresh(ctx context.Context, uuid string, url string) error {
+	return qc.EnqueuePodcastRefreshJob(ctx, uuid, url, "")
+}
+
+// EnqueuePodcastRefreshJob adds the client-visible polling identity and gives
+// the attempt a hard two-minute execution deadline.
+func (qc *QueueClient) EnqueuePodcastRefreshJob(ctx context.Context, uuid, feedURL, jobID string) error {
 	const op errs.Op = "tasks/QueueClient.EnqueuePodcastRefresh"
 
-	payload, err := json.Marshal(PodcastRefreshPayload{PodcastUUID: uuid, FeedURL: url})
+	payload, err := json.Marshal(PodcastRefreshPayload{PodcastUUID: uuid, FeedURL: feedURL, JobID: jobID})
 	if err != nil {
 		return errs.E(op, errs.Internal, err)
 	}
 
 	task := asynq.NewTask(TypePodcastRefresh, payload)
-	if err := qc.Enqueue(ctx, task); err != nil {
+	opts := []asynq.Option{asynq.Timeout(2 * time.Minute), asynq.Retention(15 * time.Minute)}
+	if jobID != "" {
+		opts = append(opts, asynq.TaskID("podcast-refresh:"+jobID))
+	}
+	if err := qc.Enqueue(ctx, task, opts...); err != nil {
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
+			return nil
+		}
 		return errs.E(op, err)
 	}
 	return nil
@@ -187,6 +222,28 @@ func (qc *QueueClient) EnqueueRefreshDuePodcasts(ctx context.Context) error {
 			return nil
 		}
 		return errs.E(op, err)
+	}
+	return nil
+}
+
+func (qc *QueueClient) EnqueueObjectCleanup(ctx context.Context) error {
+	task := asynq.NewTask(TypeObjectCleanup, nil)
+	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.TaskID(TypeObjectCleanup), asynq.Retention(15*time.Minute)); err != nil {
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (qc *QueueClient) EnqueueCorpusLegacyImport(ctx context.Context) error {
+	task := asynq.NewTask(TypeCorpusLegacyImport, nil)
+	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.TaskID(TypeCorpusLegacyImport), asynq.Retention(time.Hour)); err != nil {
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
+			return nil
+		}
+		return err
 	}
 	return nil
 }

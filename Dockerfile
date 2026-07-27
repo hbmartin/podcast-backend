@@ -18,7 +18,8 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 RUN go mod download
 COPY . .
-RUN go build -ldflags "-s -w" -o ./podcast-backend .
+ARG VERSION=dev
+RUN go build -ldflags "-s -w -X main.buildVersion=${VERSION}" -o ./podcast-backend .
 
 FROM scratch AS runner
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/

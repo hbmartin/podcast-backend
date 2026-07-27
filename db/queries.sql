@@ -31,13 +31,13 @@ UPDATE users SET deleted_at = now(), updated_at = now()
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: CreateRefreshToken :one
-INSERT INTO refresh_tokens (user_id, token_hash, scope, expires_at)
-VALUES ($1, $2, $3, $4)
+INSERT INTO refresh_tokens (user_id, token_hash, scope, expires_at, family_id, device_id, rotated_from_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: GetRefreshTokenByHash :one
 SELECT * FROM refresh_tokens
-WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+WHERE token_hash = $1
 FOR UPDATE;
 
 -- name: RevokeRefreshToken :execrows
@@ -47,6 +47,21 @@ WHERE token_hash = $1 AND revoked_at IS NULL;
 -- name: RevokeAllRefreshTokens :execrows
 UPDATE refresh_tokens SET revoked_at = now()
 WHERE user_id = $1 AND revoked_at IS NULL;
+
+-- name: RevokeRefreshTokenFamily :execrows
+UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now())
+WHERE family_id = $1;
+
+-- name: CreatePasswordResetCode :one
+INSERT INTO password_reset_codes (user_id, code_hash, expires_at)
+VALUES ($1, $2, $3)
+RETURNING *;
+
+-- name: ConsumePasswordResetCode :one
+UPDATE password_reset_codes
+SET consumed_at = now()
+WHERE code_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+RETURNING user_id;
 
 -- name: GetUserForUpdate :one
 SELECT * FROM users
@@ -504,6 +519,52 @@ UPDATE podcasts SET
     colors_source_image_url = $5
 WHERE id = $1;
 
+-- name: GetSocialAvatarByUserID :one
+SELECT * FROM social_avatars WHERE user_id = $1 AND deleted_at IS NULL;
+
+-- name: GetSocialAvatarByCapabilityHash :one
+SELECT * FROM social_avatars WHERE capability_hash = $1 AND deleted_at IS NULL;
+
+-- name: UpsertSocialAvatar :one
+INSERT INTO social_avatars (user_id, capability_hash, version, object_key, content_hash)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (user_id) DO UPDATE SET
+    capability_hash = EXCLUDED.capability_hash,
+    version = EXCLUDED.version,
+    object_key = EXCLUDED.object_key,
+    content_hash = EXCLUDED.content_hash,
+    created_at = now(),
+    deleted_at = NULL
+RETURNING *;
+
+-- name: SetSocialProfileAvatarURL :execrows
+UPDATE social_profiles SET avatar_url = $2, updated_at = now() WHERE user_id = $1;
+
+-- name: DeleteSocialAvatar :one
+UPDATE social_avatars SET deleted_at = now()
+WHERE user_id = $1 AND deleted_at IS NULL
+RETURNING object_key;
+
+-- name: EnqueueObjectDelete :exec
+INSERT INTO object_delete_outbox (object_key, reason)
+VALUES ($1, $2)
+ON CONFLICT (object_key) DO NOTHING;
+
+-- name: ClaimObjectDeletes :many
+SELECT * FROM object_delete_outbox
+WHERE completed_at IS NULL AND available_at <= now()
+ORDER BY id
+LIMIT $1
+FOR UPDATE SKIP LOCKED;
+
+-- name: CompleteObjectDelete :exec
+UPDATE object_delete_outbox SET completed_at = now() WHERE id = $1;
+
+-- name: RetryObjectDelete :exec
+UPDATE object_delete_outbox
+SET attempts = attempts + 1, available_at = now() + ($2::bigint * interval '1 second')
+WHERE id = $1;
+
 -- name: TopPodcastsBySubscribers :many
 SELECT p.*, COUNT(up.user_id)::bigint AS subscriber_count
 FROM podcasts p
@@ -543,11 +604,12 @@ SELECT * FROM shared_lists WHERE code = $1;
 -- name: UpsertDevicePush :exec
 -- The client omits push_token unless it holds one, so an empty incoming
 -- token keeps whatever was registered before.
-INSERT INTO devices (user_id, device_id, push_token, push_on, updated_at)
-VALUES ($1, $2, $3, $4, now())
+INSERT INTO devices (user_id, device_id, push_token, push_on, push_environment, updated_at)
+VALUES ($1, $2, $3, $4, $5, now())
 ON CONFLICT (user_id, device_id) DO UPDATE SET
     push_token = CASE WHEN EXCLUDED.push_token <> '' THEN EXCLUDED.push_token ELSE devices.push_token END,
     push_on = EXCLUDED.push_on,
+    push_environment = EXCLUDED.push_environment,
     updated_at = now();
 
 -- name: SetPodcastNotifyFlags :exec
@@ -556,7 +618,7 @@ SET notify_enabled = (podcast_uuid = ANY(@notify_uuids::uuid[]))
 WHERE user_id = $1 AND NOT is_deleted;
 
 -- name: GetPushTargetsForPodcast :many
-SELECT d.user_id, d.device_id, d.push_token
+SELECT d.user_id, d.device_id, d.push_token, d.push_environment
 FROM devices d
 JOIN user_podcasts up ON up.user_id = d.user_id
 WHERE up.podcast_uuid = $1
@@ -1411,7 +1473,7 @@ UPDATE social_list_entries SET added_by = NULL WHERE added_by = $1;
 
 -- Slice 8: social push targets — every push-enabled device of one user.
 -- name: GetPushTargetsForUser :many
-SELECT d.user_id, d.device_id, d.push_token
+SELECT d.user_id, d.device_id, d.push_token, d.push_environment
 FROM devices d
 WHERE d.user_id = $1 AND d.push_on AND d.push_token <> '';
 

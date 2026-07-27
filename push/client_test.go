@@ -47,7 +47,7 @@ func TestClientSendsAlert(t *testing.T) {
 	client, err := NewClient(keyPEM, "KEY123", "TEAM456", "com.example.pods", server.URL)
 	require.NoError(t, err)
 
-	err = client.Send(context.Background(), "DEADBEEF", Notification{Title: "Test Show", Body: "Episode Three"})
+	err = client.Send(context.Background(), "DEADBEEF", "production", Notification{Title: "Test Show", Body: "Episode Three"})
 	require.NoError(t, err)
 
 	assert.Equal(t, "/3/device/DEADBEEF", got.path)
@@ -94,8 +94,8 @@ func TestClientReusesProviderToken(t *testing.T) {
 	client, err := NewClient(keyPEM, "K", "T", "topic", server.URL)
 	require.NoError(t, err)
 
-	require.NoError(t, client.Send(context.Background(), "A", Notification{}))
-	require.NoError(t, client.Send(context.Background(), "B", Notification{}))
+	require.NoError(t, client.Send(context.Background(), "A", "production", Notification{}))
+	require.NoError(t, client.Send(context.Background(), "B", "production", Notification{}))
 	require.Len(t, tokens, 2)
 	assert.Equal(t, tokens[0], tokens[1], "JWT cached across sends")
 }
@@ -121,7 +121,7 @@ func TestClientUnregisteredToken(t *testing.T) {
 		client, err := NewClient(keyPEM, "K", "T", "topic", server.URL)
 		require.NoError(t, err)
 
-		err = client.Send(context.Background(), "DEAD", Notification{})
+		err = client.Send(context.Background(), "DEAD", "production", Notification{})
 		assert.ErrorIs(t, err, tc.expect, "status %d reason %s", tc.status, tc.reason)
 		server.Close()
 	}
@@ -139,7 +139,7 @@ func TestClientOtherErrorsAreNotUnregistered(t *testing.T) {
 	client, err := NewClient(keyPEM, "K", "T", "topic", server.URL)
 	require.NoError(t, err)
 
-	err = client.Send(context.Background(), "DEAD", Notification{})
+	err = client.Send(context.Background(), "DEAD", "production", Notification{})
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrUnregistered)
 }

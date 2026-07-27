@@ -62,7 +62,7 @@ func (n *Notifier) NotifyNewEpisodes(ctx context.Context, podcastUuid string, ep
 			if dropped[target.PushToken] {
 				continue
 			}
-			err := n.Sender.Send(ctx, target.PushToken, notification)
+			err := n.Sender.Send(ctx, target.PushToken, target.PushEnvironment, notification)
 			if errors.Is(err, ErrUnregistered) {
 				metrics.PushDeliveries.WithLabelValues("unregistered").Inc()
 				dropped[target.PushToken] = true
@@ -169,7 +169,7 @@ func (n *Notifier) NotifySocial(ctx context.Context, targetUserID int64, pushTyp
 	}
 
 	for _, target := range targets {
-		if err := n.Sender.Send(ctx, target.PushToken, notification); err != nil {
+		if err := n.Sender.Send(ctx, target.PushToken, target.PushEnvironment, notification); err != nil {
 			if errors.Is(err, ErrUnregistered) {
 				_ = n.DB.ClearPushToken(ctx, target.PushToken)
 				continue
@@ -205,7 +205,7 @@ func (n *Notifier) NotifyDigest(ctx context.Context, targetUserID int64, title, 
 			CollapseID: "digest",
 			Data:       map[string]string{"social_type": "9"},
 		}
-		if err := n.Sender.Send(ctx, target.PushToken, notification); err != nil {
+		if err := n.Sender.Send(ctx, target.PushToken, target.PushEnvironment, notification); err != nil {
 			if errors.Is(err, ErrUnregistered) {
 				if clearErr := n.DB.ClearPushToken(ctx, target.PushToken); clearErr != nil {
 					failures = append(failures, clearErr)

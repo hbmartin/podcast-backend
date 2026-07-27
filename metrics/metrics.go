@@ -3,9 +3,21 @@
 package metrics
 
 import (
+	"context"
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
+
+var meter = otel.Meter("github.com/hbmartin/podcast-backend")
+var otelHTTPRequestDuration, _ = meter.Float64Histogram("podcast_backend.http.request_duration_seconds")
+var otelRoleHeartbeat, _ = meter.Int64Gauge("podcast_backend.role.heartbeat_unixtime")
+var otelQueueAge, _ = meter.Float64Gauge("podcast_backend.queue.oldest_task_age_seconds")
+var otelSchedulerSuccess, _ = meter.Int64Gauge("podcast_backend.scheduler.last_success_unixtime")
 
 // HTTPRequestDuration observes every routed request, labeled by method, the
 // mux route pattern (not the raw path, to bound cardinality), and status.
@@ -16,6 +28,35 @@ var HTTPRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Help:      "HTTP request latency by route pattern.",
 	Buckets:   prometheus.DefBuckets,
 }, []string{"method", "route", "status"})
+
+func ObserveHTTPRequest(ctx context.Context, method, route, status string, seconds float64) {
+	HTTPRequestDuration.WithLabelValues(method, route, status).Observe(seconds)
+	otelHTTPRequestDuration.Record(ctx, seconds, otelmetric.WithAttributes(
+		attribute.String("http.request.method", method),
+		attribute.String("http.route", route),
+		attribute.String("http.response.status_code", status),
+	))
+}
+
+var RoleHeartbeat = promauto.NewGaugeVec(prometheus.GaugeOpts{Namespace: "podcast_backend", Subsystem: "role", Name: "heartbeat_unixtime", Help: "Last heartbeat Unix timestamp for each process role."}, []string{"role"})
+var QueueOldestTaskAge = promauto.NewGauge(prometheus.GaugeOpts{Namespace: "podcast_backend", Subsystem: "queue", Name: "oldest_task_age_seconds", Help: "Age of the oldest pending task across queues."})
+var SchedulerLastSuccess = promauto.NewGaugeVec(prometheus.GaugeOpts{Namespace: "podcast_backend", Subsystem: "scheduler", Name: "last_success_unixtime", Help: "Last successful scheduling timestamp."}, []string{"scheduler"})
+var ReadinessChecks = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: "podcast_backend", Subsystem: "readiness", Name: "checks_total", Help: "Readiness checks by outcome."}, []string{"outcome"})
+
+func RecordRoleHeartbeat(ctx context.Context, role string) {
+	now := time.Now().Unix()
+	RoleHeartbeat.WithLabelValues(role).Set(float64(now))
+	otelRoleHeartbeat.Record(ctx, now, otelmetric.WithAttributes(attribute.String("process.role", role)))
+}
+func RecordQueueAge(ctx context.Context, seconds float64) {
+	QueueOldestTaskAge.Set(seconds)
+	otelQueueAge.Record(ctx, seconds)
+}
+func RecordSchedulerSuccess(ctx context.Context, scheduler string) {
+	now := time.Now().Unix()
+	SchedulerLastSuccess.WithLabelValues(scheduler).Set(float64(now))
+	otelSchedulerSuccess.Record(ctx, now, otelmetric.WithAttributes(attribute.String("scheduler", scheduler)))
+}
 
 // CrawlsTotal counts feed crawl attempts by outcome
 // (ok | not_modified | failed).

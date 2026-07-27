@@ -2,14 +2,17 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/mail"
+	"strings"
 	"time"
 
 	"github.com/hbmartin/podcast-backend/auth"
 	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/middlewares"
 	"github.com/hbmartin/podcast-backend/pcerrors"
 	pb "github.com/hbmartin/podcast-backend/protos/api"
 
@@ -20,7 +23,7 @@ import (
 )
 
 const (
-	minPasswordLength = 6
+	minPasswordLength = 12
 	maxPasswordBytes  = 72 // bcrypt input limit
 )
 
@@ -32,6 +35,9 @@ func (h Handlers) PostUserLogin(w http.ResponseWriter, r *http.Request) {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.InvalidGrant, "invalid request")
 		return
 	}
+	if !h.allowCredentialRequest(w, r, req.Email) {
+		return
+	}
 
 	if req.Email == "" {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.BlankEmail, "email is required")
@@ -39,6 +45,10 @@ func (h Handlers) PostUserLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Password == "" {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.BlankPassword, "password is required")
+		return
+	}
+	if !validDeviceID(req.Device) {
+		pcerrors.Write(w, http.StatusBadRequest, pcerrors.InvalidGrant, "device is required")
 		return
 	}
 
@@ -57,16 +67,24 @@ func (h Handlers) PostUserLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, _, err := auth.MintAccessToken(user.Uuid, user.Email, scopeOrMobile(req.Scope))
+	scope := scopeOrMobile(req.Scope)
+	token, expiresIn, err := auth.MintAccessToken(user.Uuid, user.Email, scope)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	refreshToken, err := h.issueRefreshToken(r.Context(), h.Queries, user.ID, scope, req.Device, uuid.NewString(), nil)
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 
 	writeProto(w, http.StatusOK, &pb.UserLoginResponse{
-		Token: token,
-		Uuid:  user.Uuid,
-		Email: user.Email,
+		Token:        token,
+		Uuid:         user.Uuid,
+		Email:        user.Email,
+		RefreshToken: refreshToken,
+		ExpiresIn:    expiresIn,
 	})
 }
 
@@ -76,6 +94,9 @@ func (h Handlers) PostUserRegister(w http.ResponseWriter, r *http.Request) {
 	req := &pb.RegisterRequest{}
 	if err := bindProto(r, req); err != nil {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.UserRegisterFailed, "invalid request")
+		return
+	}
+	if !h.allowCredentialRequest(w, r, req.Email) {
 		return
 	}
 
@@ -89,6 +110,10 @@ func (h Handlers) PostUserRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Password == "" {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.BlankPassword, "password is required")
+		return
+	}
+	if !validDeviceID(req.Device) {
+		pcerrors.Write(w, http.StatusBadRequest, pcerrors.UserRegisterFailed, "device is required")
 		return
 	}
 	if len(req.Password) < minPasswordLength {
@@ -107,11 +132,18 @@ func (h Handlers) PostUserRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	scope := scopeOrMobile(req.Scope)
-	user, err := h.Queries.CreateUser(r.Context(), db.CreateUserParams{
-		Uuid:         uuid.NewString(),
-		Email:        req.Email,
-		PasswordHash: hash,
-		Scope:        scope,
+	var user db.User
+	var refreshToken string
+	err = h.Queries.InTx(r.Context(), func(q db.Querier) error {
+		var createErr error
+		user, createErr = q.CreateUser(r.Context(), db.CreateUserParams{
+			Uuid: uuid.NewString(), Email: req.Email, PasswordHash: hash, Scope: scope,
+		})
+		if createErr != nil {
+			return createErr
+		}
+		refreshToken, createErr = h.issueRefreshToken(r.Context(), q, user.ID, scope, req.Device, uuid.NewString(), nil)
+		return createErr
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -123,16 +155,18 @@ func (h Handlers) PostUserRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, _, err := auth.MintAccessToken(user.Uuid, user.Email, scope)
+	token, expiresIn, err := auth.MintAccessToken(user.Uuid, user.Email, scope)
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 
 	writeProto(w, http.StatusOK, &pb.RegisterResponse{
-		Success: wrapperspb.Bool(true),
-		Token:   token,
-		Uuid:    user.Uuid,
+		Success:      wrapperspb.Bool(true),
+		Token:        token,
+		Uuid:         user.Uuid,
+		RefreshToken: refreshToken,
+		ExpiresIn:    expiresIn,
 	})
 }
 
@@ -145,17 +179,30 @@ func (h Handlers) PostUserToken(w http.ResponseWriter, r *http.Request) {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.InvalidGrant, "invalid request")
 		return
 	}
+	if !h.allowCredentialRequest(w, r, auth.HashRefreshToken(req.RefreshToken)) {
+		return
+	}
 
-	if req.GrantType != "refresh_token" || req.RefreshToken == "" {
+	if req.GrantType != "refresh_token" || !auth.ValidRefreshToken(req.RefreshToken) || !validDeviceID(req.Device) {
 		pcerrors.Write(w, http.StatusBadRequest, pcerrors.InvalidGrant, "unsupported grant type")
 		return
 	}
 
 	var response *pb.TokenLoginResponse
+	invalidGrant := false
 	err := h.Queries.InTx(r.Context(), func(q db.Querier) error {
 		stored, err := q.GetRefreshTokenByHash(r.Context(), auth.HashRefreshToken(req.RefreshToken))
 		if err != nil {
 			return err
+		}
+		if stored.RevokedAt != nil {
+			_, err = q.RevokeRefreshTokenFamily(r.Context(), stored.FamilyID)
+			invalidGrant = true
+			return err
+		}
+		if time.Now().After(stored.ExpiresAt) || stored.DeviceID != req.Device {
+			invalidGrant = true
+			return nil
 		}
 		user, err := q.GetUserByID(r.Context(), stored.UserID)
 		if err != nil {
@@ -167,6 +214,10 @@ func (h Handlers) PostUserToken(w http.ResponseWriter, r *http.Request) {
 		}
 		newRefresh, err := h.rotateRefreshToken(r.Context(), q, stored, user.ID)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				invalidGrant = true
+				return nil
+			}
 			return err
 		}
 		response = &pb.TokenLoginResponse{
@@ -188,6 +239,10 @@ func (h Handlers) PostUserToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+	if invalidGrant {
+		pcerrors.Write(w, http.StatusBadRequest, pcerrors.InvalidGrant, "refresh token is invalid or expired")
+		return
+	}
 	writeProto(w, http.StatusOK, response)
 }
 
@@ -197,39 +252,125 @@ func (h Handlers) rotateRefreshToken(ctx context.Context, q db.Querier, old db.R
 		return "", err
 	}
 	if revoked != 1 {
+		_, _ = q.RevokeRefreshTokenFamily(ctx, old.FamilyID)
 		return "", pgx.ErrNoRows
 	}
+	return h.issueRefreshToken(ctx, q, userID, old.Scope, old.DeviceID, old.FamilyID, &old.ID)
+}
 
+func (h Handlers) issueRefreshToken(ctx context.Context, q db.Querier, userID int64, scope, device, family string, rotatedFrom *int64) (string, error) {
 	token, hash, err := auth.NewRefreshToken()
 	if err != nil {
 		return "", err
 	}
-
 	_, err = q.CreateRefreshToken(ctx, db.CreateRefreshTokenParams{
-		UserID:    userID,
-		TokenHash: hash,
-		Scope:     old.Scope,
-		ExpiresAt: time.Now().Add(h.Config.RefreshTokenTTL),
+		UserID: userID, TokenHash: hash, Scope: scope,
+		ExpiresAt: time.Now().Add(h.Config.RefreshTokenTTL), FamilyID: family,
+		DeviceID: device, RotatedFromID: rotatedFrom,
 	})
-	if err != nil {
-		return "", err
-	}
-	return token, nil
+	return token, err
 }
 
-// PostForgotPassword handles POST /user/forgot_password. No mailer is wired
-// up yet; the request is acknowledged so the client flow completes, and the
-// event is logged for the operator.
-func (h Handlers) PostForgotPassword(w http.ResponseWriter, r *http.Request) {
-	req := &pb.EmailRequest{}
-	if err := bindProto(r, req); err != nil {
-		pcerrors.Write(w, http.StatusBadRequest, pcerrors.EmailInvalid, "invalid request")
+func validDeviceID(device string) bool {
+	device = strings.TrimSpace(device)
+	return device != "" && len(device) <= 256
+}
+
+// PostUserTokenRevoke revokes the complete refresh-token family. Token
+// possession is sufficient; unknown or inactive tokens are idempotent.
+func (h Handlers) PostUserTokenRevoke(w http.ResponseWriter, r *http.Request) {
+	req := &pb.UserRevokeRequest{}
+	if err := bindProto(r, req); err != nil || !auth.ValidRefreshToken(req.RefreshToken) {
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	if !h.allowCredentialRequest(w, r, auth.HashRefreshToken(req.RefreshToken)) {
+		return
+	}
+	err := h.Queries.InTx(r.Context(), func(q db.Querier) error {
+		stored, err := q.GetRefreshTokenByHash(r.Context(), auth.HashRefreshToken(req.RefreshToken))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_, err = q.RevokeRefreshTokenFamily(r.Context(), stored.FamilyID)
+		return err
+	})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
 
-	slog.Info("Password reset requested (no mailer configured)", "email", req.Email)
-
+// PostResetPassword consumes an operator-issued one-time code.
+func (h Handlers) PostResetPassword(w http.ResponseWriter, r *http.Request) {
+	req := &pb.UserResetPasswordRequest{}
+	if err := bindProto(r, req); err != nil || !validNewPassword(req.Password) || req.ResetPasswordToken == "" || !validDeviceID(req.Device) || strings.TrimSpace(req.Email) == "" {
+		pcerrors.Write(w, http.StatusBadRequest, pcerrors.PasswordInvalid, "invalid reset request")
+		return
+	}
+	if !h.allowCredentialRequest(w, r, req.Email) {
+		return
+	}
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	err = h.Queries.InTx(r.Context(), func(q db.Querier) error {
+		user, err := q.GetUserByEmail(r.Context(), strings.TrimSpace(req.Email))
+		if err != nil {
+			return err
+		}
+		userID, err := q.ConsumePasswordResetCode(r.Context(), auth.HashRefreshToken(req.ResetPasswordToken))
+		if err != nil {
+			return err
+		}
+		if userID != user.ID {
+			return pgx.ErrNoRows
+		}
+		if _, err = q.UpdateUserPassword(r.Context(), db.UpdateUserPasswordParams{ID: userID, PasswordHash: hash}); err != nil {
+			return err
+		}
+		_, err = q.RevokeAllRefreshTokens(r.Context(), userID)
+		return err
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		pcerrors.Write(w, http.StatusBadRequest, pcerrors.InvalidGrant, "reset code is invalid or expired")
+		return
+	}
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
 	writeProto(w, http.StatusOK, &pb.UserChangeResponse{Success: wrapperspb.Bool(true)})
+}
+
+func validNewPassword(password string) bool {
+	return len(password) >= minPasswordLength && len(password) <= maxPasswordBytes
+}
+
+func (h Handlers) allowCredentialRequest(w http.ResponseWriter, r *http.Request, identifier string) bool {
+	digest := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(identifier))))
+	checks := []struct {
+		key   string
+		limit int64
+	}{{"credential:ip:" + middlewares.ClientIP(r, h.TrustProxyHeaders), 10}, {"credential:identifier:" + hex.EncodeToString(digest[:]), 5}}
+	for _, check := range checks {
+		allowed, retry, err := redisLimit(r.Context(), h.Redis, check.key, check.limit, time.Minute)
+		if err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return false
+		}
+		if !allowed {
+			writeRateLimited(w, retry)
+			return false
+		}
+	}
+	return true
 }
 
 // PostChangeEmail handles POST /user/change_email (authenticated).

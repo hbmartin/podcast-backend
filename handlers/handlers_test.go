@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/hbmartin/podcast-backend/auth"
 	"github.com/hbmartin/podcast-backend/config"
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
@@ -58,21 +60,36 @@ type QuerierMock struct {
 	GetRefreshTokenByHashResult db.RefreshToken
 	GetRefreshTokenByHashError  error
 
-	RevokeRefreshTokenResult     int64
-	RevokeRefreshTokenError      error
-	RevokedTokenHash             string
-	RevokeAllRefreshTokensResult int64
-	RevokeAllRefreshTokensError  error
-	RevokeAllRefreshTokensUserID int64
+	RevokeRefreshTokenResult       int64
+	RevokeRefreshTokenError        error
+	RevokedTokenHash               string
+	RevokeAllRefreshTokensResult   int64
+	RevokeAllRefreshTokensError    error
+	RevokeAllRefreshTokensUserID   int64
+	RevokeRefreshTokenFamilyResult int64
+	RevokeRefreshTokenFamilyError  error
+	RevokedFamilyID                string
+	ConsumePasswordResetCodeResult int64
+	ConsumePasswordResetCodeError  error
+	ConsumedPasswordResetCodeHash  string
 
 	// Social-erase stubs: PostDeleteAccount always runs socialErase, so the
 	// plain mock answers these as no-ops (a never-joined account).
 	DeleteSocialProfileResult int64
 	DeleteSocialProfileError  error
+	DeleteSocialAvatarResult  string
+	DeleteSocialAvatarError   error
 	TombstoneHandleResult     int64
 	TombstoneHandleError      error
 	DeleteRelationshipsError  error
 	InTxCalls                 int
+}
+
+func (m *QuerierMock) DeleteSocialAvatar(ctx context.Context, userID int64) (string, error) {
+	if m.DeleteSocialAvatarResult == "" && m.DeleteSocialAvatarError == nil {
+		return "", pgx.ErrNoRows
+	}
+	return m.DeleteSocialAvatarResult, m.DeleteSocialAvatarError
 }
 
 // InTx runs fn against the mock itself, mimicking a transaction.
@@ -111,6 +128,11 @@ func (m *QuerierMock) UpdateUserPassword(ctx context.Context, arg db.UpdateUserP
 	return m.UpdateUserPasswordResult, m.UpdateUserPasswordError
 }
 
+func (m *QuerierMock) ConsumePasswordResetCode(ctx context.Context, codeHash string) (int64, error) {
+	m.ConsumedPasswordResetCodeHash = codeHash
+	return m.ConsumePasswordResetCodeResult, m.ConsumePasswordResetCodeError
+}
+
 func (m *QuerierMock) SoftDeleteUser(ctx context.Context, id int64) (int64, error) {
 	m.SoftDeletedUserID = id
 	return m.SoftDeleteUserResult, m.SoftDeleteUserError
@@ -133,6 +155,11 @@ func (m *QuerierMock) RevokeRefreshToken(ctx context.Context, tokenHash string) 
 func (m *QuerierMock) RevokeAllRefreshTokens(ctx context.Context, userID int64) (int64, error) {
 	m.RevokeAllRefreshTokensUserID = userID
 	return m.RevokeAllRefreshTokensResult, m.RevokeAllRefreshTokensError
+}
+
+func (m *QuerierMock) RevokeRefreshTokenFamily(ctx context.Context, familyID string) (int64, error) {
+	m.RevokedFamilyID = familyID
+	return m.RevokeRefreshTokenFamilyResult, m.RevokeRefreshTokenFamilyError
 }
 
 func (m *QuerierMock) DeleteSocialProfile(ctx context.Context, userID int64) (int64, error) {
@@ -358,19 +385,27 @@ func setup(querierMock *QuerierMock) *http.ServeMux {
 	auth.Init(testAuthConfig)
 
 	router := http.NewServeMux()
-	handlers := Handlers{Queries: querierMock, Config: testAuthConfig}
+	handlers := Handlers{Queries: querierMock, Config: testAuthConfig, Redis: newTestRedis()}
 
 	router.HandleFunc("GET /health", handlers.GetHealth)
 	router.HandleFunc("GET /health.html", handlers.GetHealthHTML)
 	router.HandleFunc("POST /user/login", handlers.PostUserLogin)
 	router.HandleFunc("POST /user/register", handlers.PostUserRegister)
-	router.HandleFunc("POST /user/forgot_password", handlers.PostForgotPassword)
+	router.HandleFunc("POST /user/reset_password", handlers.PostResetPassword)
 	router.HandleFunc("POST /user/token", handlers.PostUserToken)
 	router.Handle("POST /user/change_email", mockAuthMiddleware(http.HandlerFunc(handlers.PostChangeEmail)))
 	router.Handle("POST /user/change_password", mockAuthMiddleware(http.HandlerFunc(handlers.PostChangePassword)))
 	router.Handle("POST /user/delete_account", mockAuthMiddleware(http.HandlerFunc(handlers.PostDeleteAccount)))
 
 	return router
+}
+
+func newTestRedis() *redis.Client {
+	server, err := miniredis.Run()
+	if err != nil {
+		panic(err)
+	}
+	return redis.NewClient(&redis.Options{Addr: server.Addr()})
 }
 
 func mockAuthMiddleware(next http.Handler) http.Handler {

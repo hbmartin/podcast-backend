@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -40,7 +41,7 @@ type Notification struct {
 
 // Sender delivers one notification to one device token.
 type Sender interface {
-	Send(ctx context.Context, deviceToken string, n Notification) error
+	Send(ctx context.Context, deviceToken, environment string, n Notification) error
 }
 
 // ErrUnregistered reports that APNs no longer recognizes the device token;
@@ -50,6 +51,7 @@ var ErrUnregistered = errors.New("push: device token unregistered")
 // DefaultEndpoint is the production APNs host. Use
 // "https://api.sandbox.push.apple.com" for development builds.
 const DefaultEndpoint = "https://api.push.apple.com"
+const SandboxEndpoint = "https://api.sandbox.push.apple.com"
 
 // Apple accepts provider JWTs between 20 and 60 minutes old; refresh at 40.
 const tokenLifetime = 40 * time.Minute
@@ -107,6 +109,17 @@ func NewClientFromFile(keyFile, keyID, teamID, topic, endpoint string) (*Client,
 	return NewClient(keyPEM, keyID, teamID, topic, endpoint)
 }
 
+// NewClientFromBase64 decodes a PEM-encoded APNs key supplied through an
+// environment variable. PaaS deployments do not need a writable filesystem
+// or a provider-specific secret-file mount.
+func NewClientFromBase64(encoded, keyID, teamID, topic, endpoint string) (*Client, error) {
+	keyPEM, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("push: decoding APNs key: %w", err)
+	}
+	return NewClient(keyPEM, keyID, teamID, topic, endpoint)
+}
+
 func (c *Client) bearer() (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -132,7 +145,7 @@ func (c *Client) bearer() (string, error) {
 
 // Send posts one alert. It maps APNs 410/Unregistered/BadDeviceToken
 // responses to ErrUnregistered.
-func (c *Client) Send(ctx context.Context, deviceToken string, n Notification) error {
+func (c *Client) Send(ctx context.Context, deviceToken, _ string, n Notification) error {
 	bearer, err := c.bearer()
 	if err != nil {
 		return err
@@ -188,4 +201,18 @@ func (c *Client) Send(ctx context.Context, deviceToken string, n Notification) e
 		return ErrUnregistered
 	}
 	return fmt.Errorf("push: APNs rejected the notification: status %d reason %q", resp.StatusCode, apnsErr.Reason)
+}
+
+// Router selects the APNs host recorded with each token. APNs authentication
+// keys work in both environments, but device tokens are environment-specific.
+type Router struct {
+	Production Sender
+	Sandbox    Sender
+}
+
+func (r Router) Send(ctx context.Context, deviceToken, environment string, n Notification) error {
+	if environment == "sandbox" {
+		return r.Sandbox.Send(ctx, deviceToken, environment, n)
+	}
+	return r.Production.Send(ctx, deviceToken, environment, n)
 }

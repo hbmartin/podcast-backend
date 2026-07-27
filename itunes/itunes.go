@@ -29,6 +29,10 @@ type Searcher interface {
 	Lookup(ctx context.Context, collectionID int64) (*Result, error)
 }
 
+type CountrySearcher interface {
+	SearchCountry(ctx context.Context, term, country string, limit int) ([]Result, error)
+}
+
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
@@ -58,12 +62,19 @@ type itunesResult struct {
 }
 
 func (c *Client) Search(ctx context.Context, term string, limit int) ([]Result, error) {
+	return c.SearchCountry(ctx, term, "", limit)
+}
+
+func (c *Client) SearchCountry(ctx context.Context, term, country string, limit int) ([]Result, error) {
 	const op errs.Op = "itunes/Client.Search"
 
 	query := url.Values{
 		"media": {"podcast"},
 		"term":  {term},
 		"limit": {fmt.Sprint(limit)},
+	}
+	if country != "" {
+		query.Set("country", country)
 	}
 	return c.call(ctx, op, c.BaseURL+"/search?"+query.Encode())
 }

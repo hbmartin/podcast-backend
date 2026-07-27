@@ -24,6 +24,12 @@ func NewRefreshToken() (token string, hash string, err error) {
 	return token, HashRefreshToken(token), nil
 }
 
+// ValidRefreshToken performs structural validation without consulting storage.
+func ValidRefreshToken(token string) bool {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	return err == nil && len(raw) == 32
+}
+
 // HashRefreshToken returns the sha256 hex digest used as the storage key for
 // a refresh token.
 func HashRefreshToken(token string) string {

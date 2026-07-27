@@ -59,6 +59,7 @@ func TestPushRegistrationPersisted(t *testing.T) {
 		"device":           "device-1",
 		"push_token":       "ABCDEF0123456789",
 		"push_on":          "true",
+		"push_environment": "sandbox",
 		"push_messages_on": "01",
 	})
 
@@ -71,6 +72,7 @@ func TestPushRegistrationPersisted(t *testing.T) {
 	assert.Equal(t, "device-1", m.devicePush[0].DeviceID)
 	assert.Equal(t, "ABCDEF0123456789", m.devicePush[0].PushToken)
 	assert.True(t, m.devicePush[0].PushOn)
+	assert.Equal(t, "sandbox", m.devicePush[0].PushEnvironment)
 
 	assert.Len(t, m.notifyFlags, 1)
 	assert.Equal(t, int64(42), m.notifyFlags[0].UserID)

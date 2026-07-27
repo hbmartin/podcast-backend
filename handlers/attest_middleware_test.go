@@ -3,9 +3,10 @@ package handlers
 import (
 	"context"
 	"encoding/base64"
-	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,15 +16,22 @@ import (
 	"github.com/hbmartin/podcast-backend/db"
 )
 
-// Real assertion vector (App ID 35MFYY2JY5.co.chiff.attestation-test); the
-// signed clientData is {"challenge":"assertion-test"}.
 const (
-	mwAppID          = "35MFYY2JY5.co.chiff.attestation-test"
-	mwKeyID          = "AcP/pnpoNVPIJYZOvmIvWzDvmxkFoQCE4Uu7Nk6WiAA="
-	mwPubKeyHex      = "0437c404fa2bbf8fbcf4ee7080573d5fa80c4f6cc3a22f7db43af92c394e7cd1c880c95ab422972625e8e673af1bda2b096654e9b602895601f925bb5941c53082"
-	mwAssertionB64U  = "omlzaWduYXR1cmVYRzBFAiEAyC5S3pcvtSpmTfNSd8aJRJCQ6PbN7Dnv_oPkZNMLeIwCIBmxCHXKYyGswzp_LwOxoL18puHooxudXWqDgtTvRomdcWF1dGhlbnRpY2F0b3JEYXRhWCV87ytV2nJBCLqRJ5b2df8AvnHVLa4mj6aI00ym0n9wdEAAAAAD"
-	mwSignedBodyB64U = "eyJjaGFsbGVuZ2UiOiJhc3NlcnRpb24tdGVzdCJ9"
+	mwKeyID = "test-key"
 )
+
+type mwFakeVerifier struct{ expected []byte }
+
+func (v *mwFakeVerifier) VerifyAttestation(_, _, _ []byte) ([]byte, []byte, string, error) {
+	return nil, nil, "", errors.New("not used")
+}
+
+func (v *mwFakeVerifier) VerifyAssertion(_, _, clientData []byte) (uint32, error) {
+	if !slices.Equal(v.expected, clientData) {
+		return 0, attest.ErrInvalidAttestation
+	}
+	return 1, nil
+}
 
 // mwFakeStore implements just the attest queries AttestVerify calls.
 type mwFakeStore struct {
@@ -51,36 +59,31 @@ func (f *mwFakeStore) AdvanceAttestCounter(_ context.Context, arg db.AdvanceAtte
 
 func mwHandlers(t *testing.T, store db.Store) Handlers {
 	t.Helper()
-	v, err := attest.NewVerifier(mwAppID, true)
+	req := mwRequest(t, signedBody(t), false)
+	expected, err := attest.CanonicalRequest(req, signedBody(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Handlers{Queries: store, AttestVerifier: v}
+	return Handlers{Queries: store, AttestVerifier: &mwFakeVerifier{expected: expected}}
 }
 
 func mwRequest(t *testing.T, body []byte, withHeaders bool) *http.Request {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/transcripts/contribute", strings.NewReader(string(body)))
 	if withHeaders {
-		cbor, _ := base64.RawURLEncoding.DecodeString(mwAssertionB64U)
 		req.Header.Set(attest.HeaderKeyID, mwKeyID)
-		req.Header.Set(attest.HeaderAssertion, base64.StdEncoding.EncodeToString(cbor))
+		req.Header.Set(attest.HeaderAssertion, base64.StdEncoding.EncodeToString([]byte("assertion")))
 	}
 	return req
 }
 
 func signedBody(t *testing.T) []byte {
 	t.Helper()
-	b, err := base64.RawURLEncoding.DecodeString(mwSignedBodyB64U)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
+	return []byte(`{"challenge":"assertion-test"}`)
 }
 
 func newActiveStore() *mwFakeStore {
-	pub, _ := hex.DecodeString(mwPubKeyHex)
-	return &mwFakeStore{status: "active", pub: pub}
+	return &mwFakeStore{status: "active", pub: []byte("public-key")}
 }
 
 func run(t *testing.T, h Handlers, mode attest.Mode, req *http.Request) (*httptest.ResponseRecorder, bool) {

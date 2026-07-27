@@ -1,0 +1,63 @@
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Previously published immutable version
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: read
+
+env:
+  IMAGE: ghcr.io/hbmartin/podcast-backend
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RENDER_HOOKS: ${{ secrets.RENDER_DEPLOY_HOOK_URLS }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: imjasonh/setup-crane@v0.4
+      - id: resolve
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]+$ ]]
+          echo "digest=$(crane digest "${IMAGE}:${VERSION}")" >> "$GITHUB_OUTPUT"
+      - name: Record Render rollback pin
+        env:
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          scripts/set-image-digest.sh "$DIGEST"
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add render.yaml
+          git commit -m "Roll back Render image to ${VERSION}"
+          git push origin HEAD:main
+      - name: Roll back configured Railway services
+        if: ${{ env.RAILWAY_TOKEN != '' }}
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+          RAILWAY_SERVICE_IDS: ${{ secrets.RAILWAY_SERVICE_IDS }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          VERSION: ${{ inputs.version }}
+        run: scripts/railway-deploy-image.sh "${IMAGE}@${DIGEST}" "$VERSION"
+      - name: Trigger configured Render services
+        if: ${{ env.RENDER_HOOKS != '' }}
+        env:
+          HOOKS: ${{ env.RENDER_HOOKS }}
+        run: |
+          while IFS= read -r hook; do
+            [[ -z "$hook" ]] || curl --fail-with-body --silent --show-error --request POST "$hook"
+          done < <(tr ',' '\n' <<<"$HOOKS")

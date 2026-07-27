@@ -39,6 +39,73 @@ type Bookmark struct {
 	ModifiedAt        int64
 }
 
+type CorpusArtifact struct {
+	ID          string
+	CandidateID string
+	Kind        string
+	ObjectKey   string
+	ContentHash string
+	MediaType   string
+	Format      string
+	ByteLength  int64
+	Language    string
+	Source      string
+	Provenance  []byte
+	CreatedAt   time.Time
+}
+
+type CorpusAttachmentToken struct {
+	CandidateID string
+	TokenHash   string
+	ExpiresAt   time.Time
+	ConsumedAt  *time.Time
+	CreatedAt   time.Time
+}
+
+type CorpusAuditEvent struct {
+	ID          int64
+	Actor       string
+	Action      string
+	CandidateID *string
+	ReleaseID   *string
+	Details     []byte
+	CreatedAt   time.Time
+}
+
+type CorpusCandidate struct {
+	ID                string
+	EpisodeUuid       string
+	PodcastUuid       string
+	Language          string
+	Source            string
+	Status            string
+	ContentHash       string
+	Attribution       string
+	AttributionID     string
+	ContributionID    *int64
+	SightingID        *int64
+	DerivedFrom       *string
+	PublisherVerified bool
+	Provenance        []byte
+	DecisionReason    string
+	DecidedAt         *time.Time
+	CreatedAt         time.Time
+}
+
+type CorpusRelease struct {
+	ID                    string
+	EpisodeUuid           string
+	Language              string
+	TranscriptArtifactID  *string
+	FingerprintArtifactID *string
+	SummaryArtifactID     *string
+	ChaptersArtifactID    *string
+	Active                bool
+	Reason                string
+	CreatedBy             string
+	CreatedAt             time.Time
+}
+
 type Device struct {
 	UserID             int64
 	DeviceID           string
@@ -53,6 +120,7 @@ type Device struct {
 	CreatedAt          time.Time
 	PushToken          string
 	PushOn             bool
+	PushEnvironment    string
 }
 
 type Episode struct {
@@ -158,6 +226,25 @@ type ModerationReport struct {
 	ContentRef     string
 }
 
+type ObjectDeleteOutbox struct {
+	ID          int64
+	ObjectKey   string
+	Reason      string
+	Attempts    int32
+	AvailableAt time.Time
+	CompletedAt *time.Time
+	CreatedAt   time.Time
+}
+
+type PasswordResetCode struct {
+	ID         int64
+	UserID     int64
+	CodeHash   string
+	ExpiresAt  time.Time
+	ConsumedAt *time.Time
+	CreatedAt  time.Time
+}
+
 type Playlist struct {
 	UserID          int64
 	Uuid            string
@@ -237,13 +324,17 @@ type PodcastReview struct {
 }
 
 type RefreshToken struct {
-	ID        int64
-	UserID    int64
-	TokenHash string
-	Scope     string
-	CreatedAt time.Time
-	ExpiresAt time.Time
-	RevokedAt *time.Time
+	ID            int64
+	UserID        int64
+	TokenHash     string
+	Scope         string
+	CreatedAt     time.Time
+	ExpiresAt     time.Time
+	RevokedAt     *time.Time
+	FamilyID      string
+	DeviceID      string
+	RotatedFromID *int64
+	LastUsedAt    *time.Time
 }
 
 type SharedItem struct {
@@ -267,6 +358,16 @@ type SharedList struct {
 	Description  string
 	PodcastUuids []string
 	CreatedAt    time.Time
+}
+
+type SocialAvatar struct {
+	UserID         int64
+	CapabilityHash string
+	Version        string
+	ObjectKey      string
+	ContentHash    string
+	CreatedAt      time.Time
+	DeletedAt      *time.Time
 }
 
 type SocialFollow struct {
@@ -381,6 +482,7 @@ type SocialProfile struct {
 	DigestSentAt            *time.Time
 	Curator                 bool
 	DigestClaimedAt         *time.Time
+	AvatarUrl               string
 }
 
 type SocialRelationship struct {
@@ -406,6 +508,7 @@ type TranscriptContribution struct {
 	ReceivedAt             time.Time
 	Attribution            string
 	AttributionID          string
+	ContentHash            *string
 }
 
 type TranscriptSighting struct {

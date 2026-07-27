@@ -26,12 +26,15 @@ import (
 	"github.com/hbmartin/podcast-backend/artwork"
 	"github.com/hbmartin/podcast-backend/attest"
 	"github.com/hbmartin/podcast-backend/auth"
+	"github.com/hbmartin/podcast-backend/avatars"
 	"github.com/hbmartin/podcast-backend/config"
 	"github.com/hbmartin/podcast-backend/crawler"
 	"github.com/hbmartin/podcast-backend/db"
 	"github.com/hbmartin/podcast-backend/handlers"
 	"github.com/hbmartin/podcast-backend/itunes"
+	"github.com/hbmartin/podcast-backend/metrics"
 	"github.com/hbmartin/podcast-backend/middlewares"
+	"github.com/hbmartin/podcast-backend/objectstore"
 	"github.com/hbmartin/podcast-backend/push"
 	"github.com/hbmartin/podcast-backend/syncsvc"
 	"github.com/hbmartin/podcast-backend/tasks"
@@ -40,9 +43,24 @@ import (
 
 var configValues *config.Configuration
 
+// buildVersion is injected into release images with -ldflags and exposed by
+// the capability manifest and deployment telemetry.
+var buildVersion = "dev"
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return "dev"
+}
+
 // tracingEnabled reports whether telemetry.Init activated OTel; the router
 // is wrapped with otelhttp only then, keeping the no-tracing path free.
 var tracingEnabled bool
+
+const defaultAttestedBody = 4 << 20
 
 // publicChain serves unauthenticated endpoints: trace, log, CORS.
 func publicChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
@@ -83,19 +101,47 @@ func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) htt
 // pointer to this package-level slot and main assigns it once push is wired.
 var socialPushSeam handlers.SocialPushFunc
 
-func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, queuePing func(ctx context.Context) error) http.Handler {
+func setupRouter(db db.Store, queueClient *tasks.QueueClient, redisClient *redis.Client, feedCrawler *crawler.Crawler, searcher itunes.Searcher, queuePing func(ctx context.Context) error, schemaPing func(ctx context.Context) error) http.Handler {
 	slog.Info("Starting API... \n")
 
 	controllers := handlers.Handlers{
-		Queries:       db,
-		Queue:         queueClient,
-		SocialPush:    &socialPushSeam,
-		Config:        configValues.AuthConfig,
-		Crawler:       feedCrawler,
-		Search:        searcher,
-		Images:        artwork.NewHTTPImageFetcher(),
-		PublicBaseURL: configValues.WebServerConfig.PublicBaseURL,
-		QueuePing:     queuePing,
+		Queries:           db,
+		Queue:             queueClient,
+		Redis:             redisClient,
+		SocialPush:        &socialPushSeam,
+		Config:            configValues.AuthConfig,
+		Crawler:           feedCrawler,
+		Search:            searcher,
+		Images:            artwork.NewHTTPImageFetcher(),
+		PublicBaseURL:     configValues.WebServerConfig.PublicBaseURL,
+		TrustProxyHeaders: configValues.WebServerConfig.TrustProxyHeaders,
+		ServerVersion:     firstNonEmpty(configValues.RuntimeConfig.Version, buildVersion),
+		AppAttestMode:     configValues.AppAttestConfig.Mode,
+		AvatarEnabled:     configValues.VisionConfig.Enabled,
+		FoldersEnabled:    configValues.GeminiConfig.Enabled,
+		CorpusEnabled:     configValues.ObjectStorageConfig.Enabled,
+		AdminToken:        configValues.WebServerConfig.AdminToken,
+		AssociatedAppID:   configValues.AppAttestConfig.AppID,
+		FolderSuggester:   handlers.NewGeminiFolderSuggester(configValues.GeminiConfig.APIKey, configValues.GeminiConfig.Model, nil),
+		QueuePing:         queuePing,
+		SchemaPing:        schemaPing,
+	}
+	if configValues.ObjectStorageConfig.Enabled {
+		store, err := objectstore.NewS3Store(context.Background(),
+			configValues.ObjectStorageConfig.EndpointURL, configValues.ObjectStorageConfig.Bucket,
+			configValues.ObjectStorageConfig.AccessKeyID, configValues.ObjectStorageConfig.SecretAccessKey,
+			configValues.ObjectStorageConfig.Region)
+		if err != nil {
+			log.Fatal(err)
+		}
+		controllers.ObjectStore = store
+		if configValues.VisionConfig.Enabled {
+			scanner, err := avatars.NewVisionScanner(context.Background(), configValues.VisionConfig.CredentialsBase64)
+			if err != nil {
+				log.Fatal(err)
+			}
+			controllers.AvatarScanner = scanner
+		}
 	}
 
 	// App Attest: verify device attestation on the fork-owned endpoints when
@@ -122,9 +168,9 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	// endpoints only, to slow online brute-forcing.
 	authLimiter := middlewares.NewRateLimiter(
 		configValues.WebServerConfig.AuthRateLimitPerMinute,
-		configValues.WebServerConfig.PublicBaseURL != "",
+		configValues.WebServerConfig.TrustProxyHeaders,
 	)
-	limitedChain := func(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+	bootstrapLimitedChain := func(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
 		return middlewares.TraceMiddleware(
 			middlewares.LogMiddleware(
 				configValues.WebServerConfig.Cors.Handler(
@@ -155,17 +201,67 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 				configValues.WebServerConfig.Cors.Handler(
 					controllers.AttestVerify(mode, maxBody, endpoint, handler))))
 	}
+	// The coordinated client signs every authenticated API request. Anonymous
+	// optional-auth requests stay public; presenting a Bearer token opts into
+	// both JWT and App Attest verification.
+	authChain := func(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+		return attestedAuthChain(attestMode, defaultAttestedBody, "authenticated", handler)
+	}
+	optionalAuthChain := func(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+		conditional := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") == "" {
+				handler(w, r)
+				return
+			}
+			auth.TokenAuthMiddleware(controllers.AttestVerify(attestMode, defaultAttestedBody, "optional-auth", handler)).ServeHTTP(w, r)
+		})
+		return middlewares.TraceMiddleware(middlewares.LogMiddleware(configValues.WebServerConfig.Cors.Handler(conditional)))
+	}
+	limitedChain := func(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
+		return middlewares.TraceMiddleware(
+			middlewares.LogMiddleware(
+				configValues.WebServerConfig.Cors.Handler(
+					authLimiter.Handler(
+						controllers.AttestVerify(attestMode, defaultAttestedBody, "credential", handler)))))
+	}
+	refreshTokenChain := func(handler http.HandlerFunc) http.Handler {
+		conditional := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "" {
+				auth.TokenAuthMiddleware(handler).ServeHTTP(w, r)
+				return
+			}
+			controllers.AttestVerify(attestMode, defaultAttestedBody, "token-refresh", handler).ServeHTTP(w, r)
+		})
+		return middlewares.TraceMiddleware(middlewares.LogMiddleware(configValues.WebServerConfig.Cors.Handler(conditional)))
+	}
 
 	router.HandleFunc("OPTIONS /", configValues.WebServerConfig.Cors.HandlerFunc)
-	router.Handle("GET /health", onlyLogMiddleware(controllers.GetHealth))
+	router.Handle("GET /livez", onlyLogMiddleware(controllers.GetLiveness))
+	operationsChain := func(next http.Handler) http.Handler {
+		return middlewares.TraceMiddleware(
+			middlewares.LogMiddleware(
+				middlewares.BearerSecret(configValues.WebServerConfig.MetricsToken, next)))
+	}
+	router.Handle("GET /readyz", operationsChain(http.HandlerFunc(controllers.GetHealth)))
+	router.Handle("GET /health", operationsChain(http.HandlerFunc(controllers.GetHealth)))
 	router.Handle("GET /health.html", onlyLogMiddleware(controllers.GetHealthHTML))
-	router.Handle("GET /metrics", promhttp.Handler())
+	router.Handle("GET /metrics", operationsChain(promhttp.Handler()))
+	router.Handle("GET /admin", onlyLogMiddleware(controllers.GetAdmin))
+	router.Handle("POST /admin/login", onlyLogMiddleware(controllers.PostAdminLogin))
+	router.Handle("POST /admin/logout", onlyLogMiddleware(controllers.PostAdminLogout))
+	router.Handle("GET /admin/artifact/{id}", onlyLogMiddleware(controllers.GetAdminArtifact))
+	router.Handle("POST /admin/candidates/{id}/reject", onlyLogMiddleware(controllers.PostAdminReject))
+	router.Handle("POST /admin/promote", onlyLogMiddleware(controllers.PostAdminPromote))
+	router.Handle("POST /admin/derived", onlyLogMiddleware(controllers.PostAdminDerived))
+	router.Handle("POST /admin/releases/{id}/rollback", onlyLogMiddleware(controllers.PostAdminRollback))
+	router.Handle("POST /admin/password-reset", onlyLogMiddleware(controllers.PostAdminPasswordReset))
 
 	// api host role: account & auth (protobuf)
 	router.Handle("POST /user/login", limitedChain(controllers.PostUserLogin))
 	router.Handle("POST /user/register", limitedChain(controllers.PostUserRegister))
-	router.Handle("POST /user/forgot_password", limitedChain(controllers.PostForgotPassword))
-	router.Handle("POST /user/token", limitedChain(controllers.PostUserToken))
+	router.Handle("POST /user/token", refreshTokenChain(controllers.PostUserToken))
+	router.Handle("POST /user/token/revoke", bootstrapLimitedChain(controllers.PostUserTokenRevoke))
+	router.Handle("POST /user/reset_password", limitedChain(controllers.PostResetPassword))
 	router.Handle("POST /user/change_email", authChain(controllers.PostChangeEmail))
 	router.Handle("POST /user/change_password", authChain(controllers.PostChangePassword))
 	router.Handle("POST /user/delete_account", authChain(controllers.PostDeleteAccount))
@@ -186,9 +282,13 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 
 	// refresh host role (JSON)
 	router.Handle("POST /user/update", optionalAuthChain(controllers.PostRefreshUserUpdate))
+	router.Handle("GET /api/v1/update_podcast", attestedPublicChain(attestMode, 0, "update-podcast", controllers.GetUpdatePodcast))
+	router.Handle("GET /api/v1/update_podcast/jobs/{id}", attestedPublicChain(attestMode, 0, "update-podcast-job", controllers.GetUpdatePodcastJob))
+	router.Handle("GET /api/v1/capabilities", attestedPublicChain(attestMode, 0, "capabilities", controllers.GetCapabilities))
 	router.Handle("POST /podcasts/refresh", publicChain(controllers.PostPodcastsRefresh))
 	router.Handle("POST /podcasts/show", publicChain(controllers.PostPodcastsShow))
 	router.Handle("POST /podcasts/search", publicChain(controllers.PostPodcastsSearch))
+	router.Handle("POST /podcast/suggest_folders", attestedPublicChain(attestMode, 128<<10, "folder-suggestions", controllers.PostSuggestFolders))
 	router.Handle("POST /import/opml", authChain(controllers.PostImportOpml))
 	router.Handle("POST /import/export_feed_urls", authChain(controllers.PostExportFeedUrls))
 
@@ -203,13 +303,20 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 
 	// search host role
 	router.Handle("GET /autocomplete/search", publicChain(controllers.GetAutocompleteSearch))
+	router.Handle("POST /discover/recommend_episodes", authChain(controllers.PostRecommendEpisodes))
+	router.Handle("GET /recommendations/podcast/{uuid}", attestedPublicChain(attestMode, 0, "related-podcasts", controllers.GetRelatedPodcasts))
 
 	// api host role: App Attest bootstrap (JSON) + crowdsourced transcripts
 	// (gzipped protobuf), fork-owned (docs/AppAttest.md, docs/TranscriptContributions.md)
-	router.Handle("GET /attest/challenge", limitedChain(controllers.GetAttestChallenge))
-	router.Handle("POST /attest/enroll", limitedChain(controllers.PostAttestEnroll))
+	router.Handle("GET /attest/challenge", bootstrapLimitedChain(controllers.GetAttestChallenge))
+	router.Handle("POST /attest/enroll", bootstrapLimitedChain(controllers.PostAttestEnroll))
 	router.Handle("POST /transcripts/contribute", attestedOptionalChain(attestMode, handlers.MaxContributeBody, "contribute", controllers.PostTranscriptContribute))
+	router.Handle("POST /transcripts/contribute/metadata", attestedPublicChain(attestMode, 128<<10, "contribution-metadata", controllers.PostCorpusMetadata))
 	router.Handle("POST /transcripts/sighting", attestedOptionalChain(attestMode, handlers.MaxSightingBody, "sighting", controllers.PostTranscriptSighting))
+	router.Handle("GET /corpus/episodes/{episode}/manifest", attestedPublicChain(attestMode, 0, "corpus-manifest", controllers.GetCorpusManifest))
+	router.Handle("GET /corpus/episodes/{podcast}/{episode}", attestedPublicChain(attestMode, 0, "corpus-manifest", controllers.GetCorpusManifest))
+	router.Handle("GET /corpus/artifacts/{id}", attestedPublicChain(attestMode, 0, "corpus-artifact", controllers.GetCorpusArtifact))
+	router.Handle("GET /generated_transcripts/{podcast}/{file}", attestedPublicChain(attestMode, 0, "corpus-legacy", controllers.GetLegacyCorpus))
 
 	// api host role: feedback (protobuf; authenticated and anonymous)
 	router.Handle("POST /support/feedback", attestedAuthChain(attestFeedbackMode, handlers.MaxFeedbackBody, "feedback", controllers.PostSupportFeedback))
@@ -231,6 +338,9 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("POST /social/join", authChain(controllers.PostSocialJoin))
 	router.Handle("POST /social/profile/get", authChain(controllers.PostSocialProfileGet))
 	router.Handle("POST /social/profile/update", authChain(controllers.PostSocialProfileUpdate))
+	router.Handle("POST /social/avatar", attestedAuthChain(attestMode, handlers.MaxAvatarUpload, "avatar-upload", controllers.PostSocialAvatar))
+	router.Handle("DELETE /social/avatar", authChain(controllers.DeleteSocialAvatar))
+	router.Handle("GET /social/avatar/{version}/{file}", publicChain(controllers.GetSocialAvatar))
 	router.Handle("POST /social/profile/public", optionalAuthChain(controllers.PostSocialProfilePublic))
 	router.Handle("POST /social/block", authChain(controllers.PostSocialBlock))
 	router.Handle("POST /social/unblock", authChain(controllers.PostSocialUnblock))
@@ -314,43 +424,53 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, feedCrawler *crawl
 	router.Handle("GET /discover/json/category/{name}", publicChain(controllers.GetDiscoverCategory))
 
 	// sharing host role + share-link resolution (JSON)
-	router.Handle("POST /share/list", publicChain(controllers.PostShareList))
+	router.Handle("POST /share/list", authChain(controllers.PostShareList))
 	router.Handle("GET /l/{code}", publicChain(controllers.GetSharedList))
 	router.Handle("POST /podcast/{uuid}", publicChain(controllers.PostSharePodcast))
 	router.Handle("POST /episode/{uuid}", publicChain(controllers.PostShareEpisode))
+	router.Handle("GET /podcast/{uuid}", publicChain(controllers.GetPodcastPage))
+	router.Handle("GET /episode/{uuid}", publicChain(controllers.GetEpisodePage))
+	router.Handle("GET /apple-app-site-association", publicChain(controllers.GetAASA))
+	router.Handle("GET /.well-known/apple-app-site-association", publicChain(controllers.GetAASA))
 
 	// static host role: artwork + color metadata
 	router.Handle("GET /discover/images/metadata/{file}", publicChain(controllers.GetDiscoverImageMetadata))
+	router.Handle("GET /discover/images/artwork/{theme}/{size}/{file}", publicChain(controllers.GetDefaultArtwork))
 	router.Handle("GET /discover/images/{size}/{file}", publicChain(controllers.GetDiscoverImage))
 
 	return router
 }
 
-func initDB(ctx context.Context, configValues *config.Configuration) (db.Store, func()) {
-	if err := db.Init(configValues.WebServerConfig.ConnectionString); err != nil {
-		log.Fatal(err)
+func initDB(ctx context.Context, configValues *config.Configuration, migrate bool) (db.Store, *pgxpool.Pool, error) {
+	if migrate {
+		if err := db.Init(configValues.WebServerConfig.ConnectionString); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	conn, err := pgxpool.New(ctx, configValues.WebServerConfig.ConnectionString)
 	if err != nil {
-		log.Fatal(err)
+		return nil, nil, err
 	}
-
-	store := db.NewStore(conn)
-
-	return store, conn.Close
+	if !migrate {
+		if err := db.WaitForSchema(ctx, conn, 5*time.Minute); err != nil {
+			conn.Close()
+			return nil, nil, err
+		}
+	}
+	return db.NewStore(conn), conn, nil
 }
 
-func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawler *crawler.Crawler, searcher itunes.Searcher, queuePing func(ctx context.Context) error, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
+func startWebServer(querier db.Store, queueClient *tasks.QueueClient, redisClient *redis.Client, feedCrawler *crawler.Crawler, searcher itunes.Searcher, queuePing func(ctx context.Context) error, schemaPing func(ctx context.Context) error, configValues *config.Configuration, cancel context.CancelFunc) func(ctx context.Context) error {
 	slog.Info("Setting up API router...\n")
 
-	router := setupRouter(querier, queueClient, feedCrawler, searcher, queuePing)
+	router := setupRouter(querier, queueClient, redisClient, feedCrawler, searcher, queuePing, schemaPing)
 	if tracingEnabled {
-		router = otelhttp.NewHandler(router, "podcast-backend",
-			otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
-				return r.Method + " " + r.URL.Path
-			}))
+		// Keep the span name constant; otelhttp records the matched http.route
+		// after ServeMux returns without putting concrete identifiers in names.
+		router = otelhttp.NewHandler(router, "podcast-backend")
 	}
+	router = middlewares.CanonicalHost(configValues.WebServerConfig.PublicBaseURL, router)
 
 	srv := &http.Server{
 		Addr:              configValues.WebServerConfig.WebPort,
@@ -386,20 +506,38 @@ func startWebServer(querier db.Store, queueClient *tasks.QueueClient, feedCrawle
 // digestScheduler runs the weekly-digest sweep (Slice 14): hourly tick, real
 // sends on Sunday at or after 17:00 UTC; atomic claims and the per-profile
 // watermark make the sweep replica-safe and restart-safe.
-func digestScheduler(ctx context.Context, querier db.Store, notifier *push.Notifier) {
+func digestScheduler(ctx context.Context, querier db.Store, notifier *push.Notifier, redisClient *redis.Client, mode config.SchedulerMode) error {
+	run := func() {
+		now := time.Now().UTC()
+		if !shouldRunDigest(now) || notifier == nil {
+			return
+		}
+		year, week := now.ISOWeek()
+		key := fmt.Sprintf("scheduler:digest:%04d-%02d", year, week)
+		claimed, err := redisClient.SetNX(ctx, key, now.Format(time.RFC3339), 8*24*time.Hour).Result()
+		if err != nil {
+			slog.Warn("Digest scheduler uniqueness claim failed", "error", err)
+			return
+		}
+		if claimed {
+			digestSweep(ctx, querier, notifier)
+			metrics.RecordSchedulerSuccess(ctx, "digest")
+		}
+	}
+
+	run()
+	if mode == config.SchedulerOnce {
+		return nil
+	}
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-ticker.C:
-			now := time.Now().UTC()
-			if !shouldRunDigest(now) {
-				continue
-			}
-			digestSweep(ctx, querier, notifier)
+			run()
 		}
 	}
 }
@@ -505,23 +643,41 @@ func backfillEpisodeAliases(ctx context.Context, querier db.Store) {
 
 // refreshScheduler periodically enqueues a sweep of catalog podcasts whose
 // next_refresh_at has passed.
-func refreshScheduler(ctx context.Context, queueClient *tasks.QueueClient) {
+func refreshScheduler(ctx context.Context, queueClient *tasks.QueueClient, mode config.SchedulerMode) error {
+	enqueue := func() {
+		if err := queueClient.EnqueueRefreshDuePodcasts(ctx); err != nil {
+			slog.Warn("Unable to enqueue podcast refresh sweep", "error", err)
+		} else {
+			metrics.RecordSchedulerSuccess(ctx, "refresh")
+		}
+		queueClient.ObserveQueueAge(ctx)
+		if err := queueClient.EnqueueObjectCleanup(ctx); err != nil {
+			slog.Warn("Unable to enqueue object cleanup", "error", err)
+		}
+		if configValues.ObjectStorageConfig.Enabled {
+			if err := queueClient.EnqueueCorpusLegacyImport(ctx); err != nil {
+				slog.Warn("Unable to enqueue legacy corpus import", "error", err)
+			}
+		}
+	}
+	enqueue()
+	if mode == config.SchedulerOnce {
+		return nil
+	}
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-ticker.C:
-			if err := queueClient.EnqueueRefreshDuePodcasts(ctx); err != nil {
-				slog.Warn("Unable to enqueue podcast refresh sweep", "error", err)
-			}
+			enqueue()
 		}
 	}
 }
 
-// probeURL derives the local /health URL for the container probe. The listen
+// probeURL derives the local /livez URL for the container probe. The listen
 // address may be ":8000", "0.0.0.0:8000", "localhost:8000", or a bare port —
 // the probe always connects to loopback with that port. TLS-serving instances
 // are probed over https.
@@ -539,13 +695,50 @@ func probeURL(webPort string, useTLS bool) string {
 	if useTLS {
 		scheme = "https"
 	}
-	return scheme + "://127.0.0.1:" + port + "/health"
+	return scheme + "://127.0.0.1:" + port + "/livez"
 }
 
-// runHealthProbe implements the container HEALTHCHECK: GET /health on the
-// local server and exit 0/1. It must work inside the scratch image, where
-// there is no shell or curl.
+// runHealthProbe implements the role-aware container HEALTHCHECK. Web roles
+// use process-only liveness; daemon roles verify schema, Postgres and Redis.
 func runHealthProbe() int {
+	role := config.ProcessRole(strings.ToLower(strings.TrimSpace(os.Getenv("PROCESS_ROLE"))))
+	if role == "" {
+		role = config.RoleAll
+	}
+	if mode := strings.ToLower(strings.TrimSpace(os.Getenv("SCHEDULER_MODE"))); mode == string(config.SchedulerOnce) && (role == config.RoleRefreshScheduler || role == config.RoleDigestScheduler) {
+		return 0
+	}
+	if role != config.RoleWeb && role != config.RoleAll {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		pool, err := pgxpool.New(ctx, os.Getenv("DB_CONNECTION_STRING"))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "health probe database configuration failed:", err)
+			return 1
+		}
+		defer pool.Close()
+		if err := pool.Ping(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, "health probe database failed:", err)
+			return 1
+		}
+		if err := db.SchemaReady(ctx, pool); err != nil {
+			fmt.Fprintln(os.Stderr, "health probe schema failed:", err)
+			return 1
+		}
+		redisOptions, err := redis.ParseURL(os.Getenv("QUEUE_REDIS_URL"))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "health probe Redis configuration failed:", err)
+			return 1
+		}
+		redisClient := redis.NewClient(redisOptions)
+		defer redisClient.Close()
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			fmt.Fprintln(os.Stderr, "health probe Redis failed:", err)
+			return 1
+		}
+		return 0
+	}
+
 	useTLS := os.Getenv("TLS_CERT_FILE") != "" && os.Getenv("TLS_CERT_KEY_FILE") != ""
 
 	client, err := healthProbeClient("")
@@ -557,7 +750,11 @@ func runHealthProbe() int {
 		return 1
 	}
 
-	resp, err := client.Get(probeURL(os.Getenv("WEB_PORT"), useTLS))
+	webPort := os.Getenv("WEB_PORT")
+	if webPort == "" {
+		webPort = os.Getenv("PORT")
+	}
+	resp, err := client.Get(probeURL(webPort, useTLS))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "health probe failed:", err)
 		return 1
@@ -616,7 +813,7 @@ func healthProbeClient(certFile string) (*http.Client, error) {
 }
 
 func main() {
-	healthProbe := flag.Bool("health", false, "probe the local server's /health endpoint and exit (container HEALTHCHECK)")
+	healthProbe := flag.Bool("health", false, "run the role-aware container health probe and exit")
 	flag.Parse()
 	if *healthProbe {
 		os.Exit(runHealthProbe())
@@ -647,9 +844,49 @@ func main() {
 	slog.Info("Init auth...\n")
 	auth.Init(configValues.AuthConfig)
 
-	slog.Info("Init DB...\n")
-	querier, dbDispose := initDB(ctx, configValues)
-	defer dbDispose()
+	role := configValues.RuntimeConfig.Role
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			metrics.RecordRoleHeartbeat(ctx, string(role))
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	migrate := role == config.RoleWeb || role == config.RoleAll
+	slog.Info("Init DB", "role", role, "migrate", migrate)
+	querier, dbPool, err := initDB(ctx, configValues, migrate)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer dbPool.Close()
+
+	redisOptions, err := redis.ParseURL(configValues.QueueConfig.RedisURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	queueRedis := redis.NewClient(redisOptions)
+	defer queueRedis.Close()
+	pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+	if err := queueRedis.Ping(pingCtx).Err(); err != nil {
+		pingCancel()
+		log.Fatal("Redis is required: ", err)
+	}
+	pingCancel()
+
+	queueClient, err := tasks.NewQueueClient(configValues.QueueConfig.RedisURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := queueClient.Close(); err != nil {
+			slog.Error("Error closing queue client", "error", err)
+		}
+	}()
 
 	allowPrivateFeeds := os.Getenv("ENV") == "e2e" && os.Getenv("ALLOW_PRIVATE_FEED_URLS") == "true"
 	feedCrawler := &crawler.Crawler{DB: querier, Fetcher: crawler.NewHTTPFetcher(allowPrivateFeeds)}
@@ -660,60 +897,50 @@ func main() {
 	var notifier *push.Notifier
 	if configValues.PushConfig.Enabled {
 		slog.Info("Init APNs push...")
-		sender, err := push.NewClientFromFile(
-			configValues.PushConfig.KeyFile,
+		productionSender, err := push.NewClientFromBase64(
+			configValues.PushConfig.KeyBase64,
 			configValues.PushConfig.KeyID,
 			configValues.PushConfig.TeamID,
 			configValues.PushConfig.Topic,
-			configValues.PushConfig.Endpoint,
+			push.DefaultEndpoint,
 		)
 		if err != nil {
 			log.Fatal(err)
 		}
-		notifier = &push.Notifier{DB: querier, Sender: sender}
+		sandboxSender, err := push.NewClientFromBase64(
+			configValues.PushConfig.KeyBase64,
+			configValues.PushConfig.KeyID,
+			configValues.PushConfig.TeamID,
+			configValues.PushConfig.Topic,
+			push.SandboxEndpoint,
+		)
+		if err != nil {
+			log.Fatal(err)
+		}
+		notifier = &push.Notifier{DB: querier, Sender: push.Router{Production: productionSender, Sandbox: sandboxSender}}
 	}
 
-	// Initialize and start the background worker server and the queue
-	// client used by API handlers to enqueue tasks.
+	// Initialize the worker only in its dedicated role. The all role remains a
+	// local-development compatibility mode.
 	var worker *tasks.WorkerServer
-	var queueClient *tasks.QueueClient
-	if configValues.QueueConfig.Enabled {
+	if role == config.RoleWorker || role == config.RoleAll {
 		slog.Info("Starting background worker server...")
-		worker = tasks.NewWorkerServer(configValues, querier, feedCrawler, notifier)
+		worker, err = tasks.NewWorkerServer(configValues, querier, feedCrawler, notifier)
+		if err != nil {
+			log.Fatal(err)
+		}
 		go func() {
 			if err := worker.Start(); err != nil {
 				slog.Error("Asynq server failed to start", "error", err)
 				stop()
 			}
 		}()
-
-		queueClient = tasks.NewQueueClient(
-			configValues.QueueConfig.RedisAddress,
-			configValues.QueueConfig.RedisPassword,
-			configValues.QueueConfig.RedisDb,
-		)
-		defer func() {
-			if err := queueClient.Close(); err != nil {
-				slog.Error("Error closing queue client", "error", err)
-			}
-		}()
 	}
 
 	if notifier != nil {
-		if queueClient != nil {
-			feedCrawler.OnNewEpisodes = func(podcastUuid string, episodeUuids []string) {
-				if err := queueClient.EnqueueNotifyNewEpisodes(context.Background(), podcastUuid, episodeUuids); err != nil {
-					slog.Warn("Unable to enqueue push delivery", "podcast", podcastUuid, "error", err)
-				}
-			}
-		} else {
-			directNotifier := notifier
-			feedCrawler.OnNewEpisodes = func(podcastUuid string, episodeUuids []string) {
-				go func() {
-					sendCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
-					defer cancel()
-					directNotifier.NotifyNewEpisodes(sendCtx, podcastUuid, episodeUuids)
-				}()
+		feedCrawler.OnNewEpisodes = func(podcastUuid string, episodeUuids []string) {
+			if err := queueClient.EnqueueNotifyNewEpisodes(context.Background(), podcastUuid, episodeUuids); err != nil {
+				slog.Warn("Unable to enqueue push delivery", "podcast", podcastUuid, "error", err)
 			}
 		}
 	}
@@ -721,20 +948,13 @@ func main() {
 	// Wire the social push seam: through the queue when available so sends
 	// survive restarts, else a direct best-effort goroutine.
 	if notifier != nil {
-		if queueClient != nil {
-			socialPushSeam = func(targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string) {
-				payload := tasks.SocialPushPayload{
-					TargetUserID: targetUserID, PushType: pushType,
-					ActorHandle: actorHandle, ActorDisplayName: actorDisplayName, Data: data,
-				}
-				if err := queueClient.EnqueueSocialPush(context.Background(), payload); err != nil {
-					slog.Warn("social push enqueue failed", "err", err)
-				}
+		socialPushSeam = func(targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string) {
+			payload := tasks.SocialPushPayload{
+				TargetUserID: targetUserID, PushType: pushType,
+				ActorHandle: actorHandle, ActorDisplayName: actorDisplayName, Data: data,
 			}
-		} else {
-			directNotifier := notifier
-			socialPushSeam = func(targetUserID int64, pushType int, actorHandle, actorDisplayName string, data map[string]string) {
-				go directNotifier.NotifySocial(context.Background(), targetUserID, pushType, actorHandle, actorDisplayName, data)
+			if err := queueClient.EnqueueSocialPush(context.Background(), payload); err != nil {
+				slog.Warn("social push enqueue failed", "err", err)
 			}
 		}
 	}
@@ -742,45 +962,41 @@ func main() {
 	// Sync-driven catalog ingestion (Slice 11): dispatch only after the sync
 	// transaction commits, with per-user admission control, global
 	// de-duplication, and bounded concurrency.
-	ingest := func(ingestCtx context.Context, feedURL string) error {
-		if queueClient != nil {
+	if role == config.RoleWeb || role == config.RoleAll {
+		ingest := func(ingestCtx context.Context, feedURL string) error {
 			return queueClient.EnqueueOpmlImport(ingestCtx, []string{feedURL})
 		}
-		_, err := feedCrawler.EnsurePodcast(ingestCtx, feedURL)
-		return err
-	}
-	ingestionDispatcher := newFeedIngestionDispatcher(ctx, 4, 128, allowPrivateFeeds, ingest)
-	syncsvc.OnUnknownPodcast = ingestionDispatcher.Submit
-
-	if queueClient != nil {
-		go refreshScheduler(ctx, queueClient)
-	}
-	// The digest needs only DB + APNs — it must run in queue-less
-	// deployments too (QA review finding).
-	if notifier != nil {
-		go digestScheduler(ctx, querier, notifier)
+		ingestionDispatcher := newFeedIngestionDispatcher(ctx, 4, 128, allowPrivateFeeds, ingest)
+		syncsvc.OnUnknownPodcast = ingestionDispatcher.Submit
 	}
 
-	// One-time episode-alias backfill (ADR-0015): cover the catalog that
-	// predates the alias bridge. Idempotent (keyed on table emptiness plus
-	// ON CONFLICT DO NOTHING inserts) and cheap at fork scale.
-	go backfillEpisodeAliases(ctx, querier)
-
-	// /health reports the queue's Redis as a dependency when enabled
-	var queuePing func(ctx context.Context) error
-	if configValues.QueueConfig.Enabled {
-		queueRedis := redis.NewClient(&redis.Options{
-			Addr:     configValues.QueueConfig.RedisAddress,
-			Password: configValues.QueueConfig.RedisPassword,
-			DB:       configValues.QueueConfig.RedisDb,
-		})
-		defer queueRedis.Close()
-		queuePing = func(ctx context.Context) error {
-			return queueRedis.Ping(ctx).Err()
+	mode := configValues.RuntimeConfig.SchedulerMode
+	if role == config.RoleRefreshScheduler {
+		if err := refreshScheduler(ctx, queueClient, mode); err != nil {
+			log.Fatal(err)
 		}
+		return
+	}
+	if role == config.RoleDigestScheduler {
+		if err := digestScheduler(ctx, querier, notifier, queueRedis, mode); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if role == config.RoleAll {
+		go func() { _ = refreshScheduler(ctx, queueClient, config.SchedulerLoop) }()
+		go func() { _ = digestScheduler(ctx, querier, notifier, queueRedis, config.SchedulerLoop) }()
+		// Local compatibility mode keeps the historical direct backfill. The
+		// production web role enqueues the durable maintenance equivalent.
+		go backfillEpisodeAliases(ctx, querier)
 	}
 
-	webDispose := startWebServer(querier, queueClient, feedCrawler, searcher, queuePing, configValues, stop)
+	var webDispose func(context.Context) error
+	if role == config.RoleWeb || role == config.RoleAll {
+		queuePing := func(ctx context.Context) error { return queueRedis.Ping(ctx).Err() }
+		schemaPing := func(ctx context.Context) error { return db.SchemaReady(ctx, dbPool) }
+		webDispose = startWebServer(querier, queueClient, queueRedis, feedCrawler, searcher, queuePing, schemaPing, configValues, stop)
+	}
 
 	// Block until an interrupt signal is received
 	<-ctx.Done()
@@ -789,8 +1005,10 @@ func main() {
 	// Gracefully close the web server, then the worker pool
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := webDispose(shutdownCtx); err != nil {
-		slog.Error("Error shutting down web server", "error", err)
+	if webDispose != nil {
+		if err := webDispose(shutdownCtx); err != nil {
+			slog.Error("Error shutting down web server", "error", err)
+		}
 	}
 	if worker != nil {
 		worker.Shutdown()
