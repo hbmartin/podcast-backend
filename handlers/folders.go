@@ -90,7 +90,7 @@ func (g *geminiFolderSuggester) Suggest(ctx context.Context, language string, po
 		return nil, errPermanentGemini
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Gemini status %d", response.StatusCode)
+		return nil, fmt.Errorf("gemini status %d", response.StatusCode)
 	}
 	var envelope struct {
 		Candidates []struct {

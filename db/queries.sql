@@ -615,11 +615,11 @@ SELECT * FROM shared_lists WHERE code = $1;
 -- push_environment: a registration ping that omits it must not flip a
 -- sandbox-registered token to production (APNs would then reject it).
 INSERT INTO devices (user_id, device_id, push_token, push_on, push_environment, updated_at)
-VALUES ($1, $2, $3, $4, CASE WHEN $5::text <> '' THEN $5::text ELSE 'production' END, now())
+VALUES ($1, $2, $3, $4, CASE WHEN sqlc.arg('push_environment')::text <> '' THEN sqlc.arg('push_environment')::text ELSE 'production' END, now())
 ON CONFLICT (user_id, device_id) DO UPDATE SET
     push_token = CASE WHEN EXCLUDED.push_token <> '' THEN EXCLUDED.push_token ELSE devices.push_token END,
     push_on = EXCLUDED.push_on,
-    push_environment = CASE WHEN $5::text <> '' THEN $5::text ELSE devices.push_environment END,
+    push_environment = CASE WHEN sqlc.arg('push_environment')::text <> '' THEN sqlc.arg('push_environment')::text ELSE devices.push_environment END,
     updated_at = now();
 
 -- name: SetPodcastNotifyFlags :exec
@@ -1933,11 +1933,14 @@ ON CONFLICT (device_uuid) DO NOTHING;
 -- name: ResolveEpisodeAlias :one
 SELECT catalog_uuid FROM episode_aliases WHERE device_uuid = $1;
 
--- name: CountEpisodeAliases :one
-SELECT count(*) FROM episode_aliases;
-
 -- name: GetEpisodesForAliasBackfill :many
-SELECT uuid, guid FROM episodes ORDER BY id LIMIT $1 OFFSET $2;
+SELECT e.id, e.uuid, e.guid
+FROM episodes e
+WHERE e.id > sqlc.arg('after_id')
+  AND NOT EXISTS (
+      SELECT 1 FROM episode_aliases a WHERE a.catalog_uuid = e.uuid)
+ORDER BY e.id
+LIMIT sqlc.arg('limit');
 
 -- name: ReverseEpisodeAliases :many
 SELECT device_uuid FROM episode_aliases WHERE catalog_uuid = $1 LIMIT 5;

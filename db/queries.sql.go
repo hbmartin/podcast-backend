@@ -259,17 +259,6 @@ func (q *Queries) CountCommentReplies(ctx context.Context, arg CountCommentRepli
 	return count, err
 }
 
-const countEpisodeAliases = `-- name: CountEpisodeAliases :one
-SELECT count(*) FROM episode_aliases
-`
-
-func (q *Queries) CountEpisodeAliases(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countEpisodeAliases)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countEpisodeComments = `-- name: CountEpisodeComments :one
 SELECT count(*) FROM episode_comments c
 WHERE c.episode_uuid = $1 AND c.parent_id IS NULL
@@ -2186,21 +2175,28 @@ func (q *Queries) GetEpisodesByUUIDs(ctx context.Context, dollar_1 []string) ([]
 }
 
 const getEpisodesForAliasBackfill = `-- name: GetEpisodesForAliasBackfill :many
-SELECT uuid, guid FROM episodes ORDER BY id LIMIT $1 OFFSET $2
+SELECT e.id, e.uuid, e.guid
+FROM episodes e
+WHERE e.id > $1
+  AND NOT EXISTS (
+      SELECT 1 FROM episode_aliases a WHERE a.catalog_uuid = e.uuid)
+ORDER BY e.id
+LIMIT $2
 `
 
 type GetEpisodesForAliasBackfillParams struct {
-	Limit  int32
-	Offset int32
+	AfterID int64
+	Limit   int32
 }
 
 type GetEpisodesForAliasBackfillRow struct {
+	ID   int64
 	Uuid string
 	Guid string
 }
 
 func (q *Queries) GetEpisodesForAliasBackfill(ctx context.Context, arg GetEpisodesForAliasBackfillParams) ([]GetEpisodesForAliasBackfillRow, error) {
-	rows, err := q.db.Query(ctx, getEpisodesForAliasBackfill, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, getEpisodesForAliasBackfill, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -2208,7 +2204,7 @@ func (q *Queries) GetEpisodesForAliasBackfill(ctx context.Context, arg GetEpisod
 	var items []GetEpisodesForAliasBackfillRow
 	for rows.Next() {
 		var i GetEpisodesForAliasBackfillRow
-		if err := rows.Scan(&i.Uuid, &i.Guid); err != nil {
+		if err := rows.Scan(&i.ID, &i.Uuid, &i.Guid); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

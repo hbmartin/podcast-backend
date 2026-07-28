@@ -81,9 +81,10 @@ func TestNotifierFansOut(t *testing.T) {
 	n.NotifyNewEpisodes(context.Background(), "pod-1", []string{"ep-1", "ep-2"})
 
 	assert.Len(t, sender.sent, 4, "2 episodes x 2 devices")
-	assert.Equal(t, sentPush{token: "TOKEN1", environment: "sandbox", n: Notification{Title: "Test Show", Body: "One"}}, sender.sent[0])
-	assert.Equal(t, sentPush{token: "TOKEN2", environment: "production", n: Notification{Title: "Test Show", Body: "One"}}, sender.sent[1])
+	assert.Equal(t, sentPush{token: "TOKEN1", environment: "sandbox", n: Notification{Title: "Test Show", Body: "One", CollapseID: "episode-ep-1"}}, sender.sent[0])
+	assert.Equal(t, sentPush{token: "TOKEN2", environment: "production", n: Notification{Title: "Test Show", Body: "One", CollapseID: "episode-ep-1"}}, sender.sent[1])
 	assert.Equal(t, "Two", sender.sent[2].n.Body)
+	assert.Equal(t, "episode-ep-2", sender.sent[2].n.CollapseID)
 	assert.Empty(t, store.cleared)
 }
 
@@ -132,4 +133,14 @@ func TestNotifierNoTargetsNoWork(t *testing.T) {
 	n.NotifyNewEpisodes(context.Background(), "pod-1", []string{"ep-1"})
 
 	assert.Empty(t, sender.sent)
+}
+
+func TestSocialCollapseIDIsStableAndEventSpecific(t *testing.T) {
+	first := socialCollapseID(SocialPushGroupPost, "alice", map[string]string{"group_id": "7", "post_id": "11"})
+	reordered := socialCollapseID(SocialPushGroupPost, "alice", map[string]string{"post_id": "11", "group_id": "7"})
+	differentPost := socialCollapseID(SocialPushGroupPost, "alice", map[string]string{"group_id": "7", "post_id": "12"})
+
+	assert.Equal(t, first, reordered)
+	assert.NotEqual(t, first, differentPost)
+	assert.LessOrEqual(t, len(first), 64)
 }

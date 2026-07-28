@@ -89,5 +89,5 @@ groups:
           - refId: C
             datasourceUid: prometheus
             model:
-              expr: (time() - podcast_backend_scheduler_last_success_unixtime{scheduler="digest"} > 604800) and on() (day_of_week() == 0) and on() (hour() >= 18)
+              expr: ((time() - podcast_backend_scheduler_last_success_unixtime{scheduler="digest"} > 604800) or absent(podcast_backend_scheduler_last_success_unixtime{scheduler="digest"})) and on() (day_of_week() == 0) and on() (hour() >= 18)
               instant: true

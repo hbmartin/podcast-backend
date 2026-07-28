@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -378,9 +377,4 @@ func corpusLanguagePreferences(header, podcastLanguage string) []string {
 	}
 	add("und")
 	return result
-}
-
-func chapterTimestamp(seconds float64) string {
-	total := int(seconds)
-	return fmt.Sprintf("%02d:%02d:%02d", total/3600, (total/60)%60, total%60)
 }

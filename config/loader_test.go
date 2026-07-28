@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -86,6 +87,17 @@ func TestProductionWebRequirements(t *testing.T) {
 	t.Setenv("PUBLIC_BASE_URL", "https://pods.example.com")
 	_, err = loadWebServerConfig(&RuntimeConfiguration{Production: true})
 	assert.ErrorContains(t, err, "ADMIN_TOKEN")
+
+	t.Setenv("ADMIN_TOKEN", "0123456789abcdef0123456789abcdef") // gitleaks:allow -- deterministic test fixture
+	for _, token := range []string{"", strings.Repeat("m", 31)} {
+		t.Setenv("METRICS_TOKEN", token)
+		_, err = loadWebServerConfig(&RuntimeConfiguration{Production: true})
+		assert.ErrorContains(t, err, "METRICS_TOKEN")
+	}
+
+	t.Setenv("METRICS_TOKEN", strings.Repeat("m", 32))
+	_, err = loadWebServerConfig(&RuntimeConfiguration{Production: true})
+	assert.NoError(t, err)
 }
 
 func TestLoadAuthConfig(t *testing.T) {

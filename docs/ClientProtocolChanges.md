@@ -108,9 +108,10 @@ uploads returned errors.
 
 - Migration 027 still purges all legacy refresh tokens: every user signs in
   again once after the upgrade.
-- The schema version the non-web roles gate on is now **31** (three new
-  migrations: constraint-validation split for the push-environment column and
-  a recommendations index). This is transparent to clients.
+- The schema version the non-web roles gate on is now **33** (four new
+  migrations: push-environment constraint validation, concurrent recommendation
+  and refresh-token indexes, refresh-token FK repair, and legacy attachment-token
+  expiry). This is transparent to clients.
 
 ## Server-side fixes with no client impact (operator summary)
 
@@ -130,7 +131,8 @@ Full operator detail lives in
   instead of skipping the week; a corrupt legacy transcript row is skipped
   (and logged) instead of stalling the corpus import forever; object-store
   cleanup uses a real lease; every queue task now has an execution timeout;
-  APNs 429/5xx responses are retried with backoff.
+  APNs 429/5xx responses are retried with backoff only when the notification
+  carries a stable collapse identifier.
 - **Privacy:** legacy corpus rows contributed by a since-deleted account are
   imported as `anonymized`, closing the gap where the deletion trigger ran
   before the import.

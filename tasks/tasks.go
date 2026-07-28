@@ -188,7 +188,7 @@ func (qc *QueueClient) EnqueueSocialPush(ctx context.Context, payload SocialPush
 	if err != nil {
 		return errs.E(op, errs.Internal, err)
 	}
-	if err := qc.Enqueue(ctx, asynq.NewTask(TypeSocialPush, raw), asynq.Timeout(time.Minute)); err != nil {
+	if err := qc.Enqueue(ctx, asynq.NewTask(TypeSocialPush, raw), asynq.Timeout(5*time.Minute)); err != nil {
 		return errs.E(op, err)
 	}
 	return nil
@@ -205,7 +205,7 @@ func (qc *QueueClient) EnqueueNotifyNewEpisodes(ctx context.Context, podcastUUID
 	}
 
 	task := asynq.NewTask(TypeNotifyNewEpisodes, payload)
-	if err := qc.Enqueue(ctx, task, asynq.Timeout(5*time.Minute)); err != nil {
+	if err := qc.Enqueue(ctx, task, asynq.Timeout(30*time.Minute)); err != nil {
 		return errs.E(op, err)
 	}
 	return nil
@@ -289,7 +289,7 @@ func (qc *QueueClient) EnqueueGroupPostFanout(ctx context.Context, payload Group
 	}
 	taskID := fmt.Sprintf("%s:%d", TypeGroupPostFanout, payload.PostID)
 	if err := qc.Enqueue(ctx, asynq.NewTask(TypeGroupPostFanout, raw),
-		asynq.Queue(QueueLow), asynq.TaskID(taskID), asynq.Timeout(5*time.Minute)); err != nil {
+		asynq.Queue(QueueLow), asynq.TaskID(taskID), asynq.Timeout(30*time.Minute)); err != nil {
 		if errors.Is(err, asynq.ErrTaskIDConflict) {
 			return nil
 		}

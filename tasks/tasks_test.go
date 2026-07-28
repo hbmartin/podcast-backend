@@ -31,6 +31,47 @@ type opmlStoreStub struct {
 	seen []string
 }
 
+type aliasStoreStub struct {
+	db.Store
+	episodes  []db.GetEpisodesForAliasBackfillRow
+	aliases   map[string]string
+	upserts   int
+	failAfter int
+}
+
+func (s *aliasStoreStub) GetEpisodesForAliasBackfill(_ context.Context, arg db.GetEpisodesForAliasBackfillParams) ([]db.GetEpisodesForAliasBackfillRow, error) {
+	result := make([]db.GetEpisodesForAliasBackfillRow, 0, arg.Limit)
+	for _, episode := range s.episodes {
+		if episode.ID <= arg.AfterID || s.hasCatalogAlias(episode.Uuid) {
+			continue
+		}
+		result = append(result, episode)
+		if len(result) == int(arg.Limit) {
+			break
+		}
+	}
+	return result, nil
+}
+
+func (s *aliasStoreStub) hasCatalogAlias(catalogUUID string) bool {
+	for _, existing := range s.aliases {
+		if existing == catalogUUID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *aliasStoreStub) UpsertEpisodeAlias(_ context.Context, arg db.UpsertEpisodeAliasParams) error {
+	s.upserts++
+	if s.failAfter > 0 && s.upserts == s.failAfter {
+		s.failAfter = 0
+		return errors.New("injected alias write failure")
+	}
+	s.aliases[arg.DeviceUuid] = arg.CatalogUuid
+	return nil
+}
+
 func (s *opmlStoreStub) GetPodcastByFeedURL(ctx context.Context, feedURL string) (db.Podcast, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -110,6 +151,43 @@ func TestHandleOpmlImportTaskSuccess(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, []string{"https://example.com/one.xml", "https://example.com/two.xml"}, store.seen)
+}
+
+func TestHandleAliasBackfillFillsMissingRowsWhenAliasesExist(t *testing.T) {
+	store := &aliasStoreStub{
+		episodes: []db.GetEpisodesForAliasBackfillRow{
+			{ID: 1, Uuid: "catalog-one", Guid: "guid-one"},
+			{ID: 2, Uuid: "catalog-two", Guid: "guid-two"},
+		},
+		aliases: map[string]string{crawler.DeviceEpisodeUUID("guid-one"): "catalog-one"},
+	}
+	worker := &WorkerServer{db: store}
+
+	err := worker.HandleAliasBackfillTask(context.Background(), asynq.NewTask(TypeAliasBackfill, nil))
+
+	assert.NoError(t, err)
+	assert.Equal(t, "catalog-two", store.aliases[crawler.DeviceEpisodeUUID("guid-two")])
+	assert.Equal(t, 1, store.upserts, "the existing alias should not be rewritten")
+}
+
+func TestHandleAliasBackfillRetryResumesPartialProgress(t *testing.T) {
+	store := &aliasStoreStub{
+		episodes: []db.GetEpisodesForAliasBackfillRow{
+			{ID: 1, Uuid: "catalog-one", Guid: "guid-one"},
+			{ID: 2, Uuid: "catalog-two", Guid: "guid-two"},
+			{ID: 3, Uuid: "catalog-three", Guid: "guid-three"},
+		},
+		aliases:   make(map[string]string),
+		failAfter: 2,
+	}
+	worker := &WorkerServer{db: store}
+	task := asynq.NewTask(TypeAliasBackfill, nil)
+
+	assert.Error(t, worker.HandleAliasBackfillTask(context.Background(), task))
+	assert.Equal(t, "catalog-one", store.aliases[crawler.DeviceEpisodeUUID("guid-one")])
+
+	assert.NoError(t, worker.HandleAliasBackfillTask(context.Background(), task))
+	assert.Len(t, store.aliases, 3)
 }
 
 func TestCrawlPodcastsBoundedDeduplicatesAndCapsConcurrency(t *testing.T) {

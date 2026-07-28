@@ -1,6 +1,7 @@
 GOCMD=go
 GOTEST=$(GOCMD) test
 GOVET=$(GOCMD) vet
+STATICCHECK_VERSION=v0.7.0
 BINARY_NAME=podcast-backend
 VERSION?=1.0.0
 DOCKER_REGISTRY?= #if set it should finished by /
@@ -87,7 +88,7 @@ e2e: ## Run the end-to-end suite (needs Postgres; see readme)
 lint: vet-go lint-go ## Run all available linters
 
 lint-go: ## Use staticcheck on your project
-	go install honnef.co/go/tools/cmd/staticcheck@latest
+	go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 	$(GOHOME)staticcheck ./...
 
 vet-go: ## Use go vet on your project

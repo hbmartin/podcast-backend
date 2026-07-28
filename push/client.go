@@ -167,11 +167,15 @@ func (c *Client) Send(ctx context.Context, deviceToken, _ string, n Notification
 		return err
 	}
 
-	// APNs 429/5xx and transport errors are transient; without a retry a
-	// brief outage silently drops the notification, because the task layer
-	// treats Send failures as best-effort.
+	// APNs 429/5xx and transport errors are transient, but a transport error
+	// can occur after APNs accepted the request. Retry only notifications with
+	// a stable collapse id so the provider can coalesce an ambiguous repeat.
+	maxAttempts := 1
+	if n.CollapseID != "" {
+		maxAttempts = 3
+	}
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():

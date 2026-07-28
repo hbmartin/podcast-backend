@@ -15,8 +15,8 @@ ALTER TABLE refresh_tokens
     ADD COLUMN rotated_from_id BIGINT REFERENCES refresh_tokens(id) ON DELETE SET NULL,
     ADD COLUMN last_used_at TIMESTAMPTZ;
 CREATE INDEX refresh_tokens_family_idx ON refresh_tokens(family_id);
--- Backs both future pruning (the FK's NO-ACTION check would otherwise seq
--- scan per deleted row) and rotation-chain lookups.
+-- Backs both future pruning (the FK's SET NULL action would otherwise scan
+-- per deleted row) and rotation-chain lookups.
 CREATE INDEX refresh_tokens_rotated_from_idx ON refresh_tokens(rotated_from_id)
     WHERE rotated_from_id IS NOT NULL;
 

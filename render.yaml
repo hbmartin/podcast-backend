@@ -102,7 +102,9 @@ services:
       url: ghcr.io/hbmartin/podcast-backend@sha256:0000000000000000000000000000000000000000000000000000000000000000
     plan: starter
     region: oregon
-    schedule: "0 17 * * 0"
+    # Retry hourly through the Sunday delivery window. The weekly Redis
+    # completion marker makes successful later invocations no-ops.
+    schedule: "0 17-23 * * 0"
     envVars:
       - fromGroup: podcast-common
       - key: PROCESS_ROLE

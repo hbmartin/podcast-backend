@@ -95,23 +95,18 @@ func (w *WorkerServer) Start() error {
 }
 
 // HandleAliasBackfillTask derives device-scheme aliases for every catalog
-// episode once (ADR-0015); the durable equivalent of the RoleAll startup
-// backfill. Batches keep memory flat; errors are returned so asynq retries.
+// episode missing an alias (ADR-0015); the durable equivalent of the RoleAll
+// startup backfill. Keyset batches keep memory flat; idempotent upserts and
+// missing-row selection let an asynq retry resume after partial progress.
 func (w *WorkerServer) HandleAliasBackfillTask(ctx context.Context, _ *asynq.Task) error {
 	const op errs.Op = "tasks/WorkerServer.HandleAliasBackfillTask"
 
-	count, err := w.db.CountEpisodeAliases(ctx)
-	if err != nil {
-		return errs.E(op, errs.Database, err)
-	}
-	if count > 0 {
-		return nil
-	}
 	const batch = 500
+	var afterID int64
 	total := 0
-	for offset := int32(0); ; offset += batch {
+	for {
 		episodes, err := w.db.GetEpisodesForAliasBackfill(ctx, db.GetEpisodesForAliasBackfillParams{
-			Limit: batch, Offset: offset,
+			AfterID: afterID, Limit: batch,
 		})
 		if err != nil {
 			return errs.E(op, errs.Database, err)
@@ -120,6 +115,7 @@ func (w *WorkerServer) HandleAliasBackfillTask(ctx context.Context, _ *asynq.Tas
 			break
 		}
 		for _, episode := range episodes {
+			afterID = episode.ID
 			deviceUuid := crawler.DeviceEpisodeUUID(episode.Guid)
 			if deviceUuid == "" || deviceUuid == episode.Uuid {
 				continue
