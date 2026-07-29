@@ -187,6 +187,54 @@ func TestTokenInvalidGrant(t *testing.T) {
 	assert.Equal(t, pcerrors.InvalidGrant, decodeErrorEnvelope(t, raw))
 }
 
+func storedRefreshToken(t *testing.T, expiresAt time.Time, revokedAt *time.Time) (string, db.RefreshToken) {
+	t.Helper()
+	token, hash, err := auth.NewRefreshToken()
+	assert.NoError(t, err)
+	return token, db.RefreshToken{
+		ID: 1, UserID: 42, TokenHash: hash, Scope: "mobile",
+		ExpiresAt: expiresAt, FamilyID: testUserUUID, DeviceID: "install-1",
+		RevokedAt: revokedAt,
+	}
+}
+
+func TestTokenReuseRevokesFamily(t *testing.T) {
+	revokedAt := time.Now().Add(-time.Minute)
+	token, stored := storedRefreshToken(t, time.Now().Add(time.Hour), &revokedAt)
+	mock := &QuerierMock{GetRefreshTokenByHashResult: stored}
+	router := setup(mock)
+
+	code, raw, _ := makeProtoRequest(router, "/user/token",
+		&pb.UserTokenRequest{GrantType: "refresh_token", RefreshToken: token, Scope: "mobile", Device: "install-1"}, nil)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, pcerrors.InvalidGrant, decodeErrorEnvelope(t, raw))
+	assert.Equal(t, testUserUUID, mock.RevokedFamilyID, "reuse of a rotated token must revoke the family")
+}
+
+func TestTokenDeviceMismatchRevokesFamily(t *testing.T) {
+	token, stored := storedRefreshToken(t, time.Now().Add(time.Hour), nil)
+	mock := &QuerierMock{GetRefreshTokenByHashResult: stored}
+	router := setup(mock)
+
+	code, raw, _ := makeProtoRequest(router, "/user/token",
+		&pb.UserTokenRequest{GrantType: "refresh_token", RefreshToken: token, Scope: "mobile", Device: "other-install"}, nil)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, pcerrors.InvalidGrant, decodeErrorEnvelope(t, raw))
+	assert.Equal(t, testUserUUID, mock.RevokedFamilyID, "live token from the wrong device must revoke the family")
+}
+
+func TestTokenExpiredRejectedWithoutFamilyRevocation(t *testing.T) {
+	token, stored := storedRefreshToken(t, time.Now().Add(-time.Hour), nil)
+	mock := &QuerierMock{GetRefreshTokenByHashResult: stored}
+	router := setup(mock)
+
+	code, raw, _ := makeProtoRequest(router, "/user/token",
+		&pb.UserTokenRequest{GrantType: "refresh_token", RefreshToken: token, Scope: "mobile", Device: "install-1"}, nil)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, pcerrors.InvalidGrant, decodeErrorEnvelope(t, raw))
+	assert.Empty(t, mock.RevokedFamilyID, "expiry alone must not revoke the family")
+}
+
 func TestPasswordResetConsumesCodeForMatchingAccountAndRevokesFamilies(t *testing.T) {
 	user := testUser(t, "old-password")
 	mock := &QuerierMock{

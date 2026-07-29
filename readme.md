@@ -87,7 +87,7 @@ Configuration:
 | `ITUNES_BASE_URL` | iTunes Search API base, default `https://itunes.apple.com` |
 | `PUBLIC_BASE_URL` | custom root HTTPS origin used for links and host enforcement; required in production |
 | `ALLOWED_ORIGINS` / `TRUST_PROXY_HEADERS` | explicit CORS origins and provider proxy-header trust; CORS defaults to same-origin |
-| `METRICS_TOKEN` / `ADMIN_TOKEN` | protected operations tokens; production requires `ADMIN_TOKEN` |
+| `METRICS_TOKEN` / `ADMIN_TOKEN` | protected operations tokens; production requires both to contain at least 32 bytes |
 | `APNS_KEY_BASE64`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | complete set enables APNs; one key serves the device token's recorded sandbox or production environment |
 | `APP_ATTEST_TEAM_ID` | Apple Developer team id; setting it enables App Attest (challenge/enroll/verify). Unset ⇒ App Attest off, endpoints accept unattested requests |
 | `APP_ATTEST_BUNDLE_ID` | app bundle id for the App Attest App ID (`TEAMID.BUNDLEID`), default `au.com.shiftyjelly.podcasts` |

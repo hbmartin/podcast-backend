@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"math"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -82,7 +82,7 @@ func podcastJSONToVTT(content []byte) ([]byte, error) {
 		if text == "" {
 			text = strings.TrimSpace(segment.Text)
 		}
-		if text == "" || segment.StartTime < 0 || segment.EndTime <= segment.StartTime {
+		if text == "" || !validSegmentTime(segment.StartTime) || !validSegmentTime(segment.EndTime) || segment.EndTime <= segment.StartTime {
 			return nil, fmt.Errorf("invalid timed segment")
 		}
 		fmt.Fprintf(&output, "%d\n%s --> %s\n", index+1, vttTimestamp(segment.StartTime), vttTimestamp(segment.EndTime))
@@ -93,6 +93,15 @@ func podcastJSONToVTT(content []byte) ([]byte, error) {
 		output.WriteString("\n\n")
 	}
 	return []byte(output.String()), nil
+}
+
+// maxSegmentSeconds bounds cue timestamps (100 hours — beyond any real
+// episode). Without it, huge finite values like 1e300 pass the sign checks
+// and overflow the int64 millisecond conversion into garbage cue times.
+const maxSegmentSeconds = 360000
+
+func validSegmentTime(seconds float64) bool {
+	return !math.IsNaN(seconds) && seconds >= 0 && seconds <= maxSegmentSeconds
 }
 
 func vttTimestamp(seconds float64) string {
@@ -142,15 +151,4 @@ func sanitizeTranscriptHTML(content []byte) ([]byte, error) {
 		return nil, io.ErrUnexpectedEOF
 	}
 	return output.Bytes(), nil
-}
-
-func parseJSONNumber(value any) float64 {
-	switch typed := value.(type) {
-	case float64:
-		return typed
-	case string:
-		result, _ := strconv.ParseFloat(typed, 64)
-		return result
-	}
-	return 0
 }

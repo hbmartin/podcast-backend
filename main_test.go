@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,8 +13,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hbmartin/podcast-backend/db"
+	"github.com/hbmartin/podcast-backend/push"
 )
+
+type digestStoreStub struct {
+	db.Store
+	claimErr error
+	claims   int
+}
+
+func (s *digestStoreStub) ClaimDigestCandidates(context.Context, int32) ([]int64, error) {
+	s.claims++
+	return nil, s.claimErr
+}
 
 func TestProbeURL(t *testing.T) {
 	assert.Equal(t, "http://127.0.0.1:8000/livez", probeURL("", false), "default port")
@@ -118,4 +136,52 @@ func TestShouldRunDigestAfterSundayWindowOpens(t *testing.T) {
 	assert.True(t, shouldRunDigest(sunday.Add(5*time.Hour)))
 	assert.False(t, shouldRunDigest(sunday.Add(-time.Hour)))
 	assert.False(t, shouldRunDigest(sunday.Add(7*time.Hour)))
+}
+
+func TestRunDigestSchedulerOnceReturnsFailureAndReleasesOwnedLock(t *testing.T) {
+	server, err := miniredis.Run()
+	require.NoError(t, err)
+	defer server.Close()
+	redisClient := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer redisClient.Close()
+
+	sentinel := errors.New("digest query unavailable")
+	sunday := time.Date(2026, time.July, 26, 17, 30, 0, 0, time.UTC)
+	err = runDigestSchedulerOnce(context.Background(), &digestStoreStub{claimErr: sentinel}, &push.Notifier{}, redisClient, sunday)
+
+	assert.ErrorIs(t, err, sentinel)
+	assert.False(t, server.Exists("scheduler:digest:2026-30:lock"))
+}
+
+func TestRunDigestSchedulerOnceWritesCompletionMarker(t *testing.T) {
+	server, err := miniredis.Run()
+	require.NoError(t, err)
+	defer server.Close()
+	redisClient := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer redisClient.Close()
+	store := &digestStoreStub{}
+	sunday := time.Date(2026, time.July, 26, 17, 30, 0, 0, time.UTC)
+
+	require.NoError(t, runDigestSchedulerOnce(context.Background(), store, &push.Notifier{}, redisClient, sunday))
+	require.NoError(t, runDigestSchedulerOnce(context.Background(), store, &push.Notifier{}, redisClient, sunday.Add(time.Hour)))
+
+	assert.Equal(t, 1, store.claims, "the completion marker makes later invocations no-ops")
+	assert.True(t, server.Exists("scheduler:digest:2026-30"))
+}
+
+func TestReleaseDigestLockDoesNotDeleteNewOwner(t *testing.T) {
+	server, err := miniredis.Run()
+	require.NoError(t, err)
+	defer server.Close()
+	redisClient := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer redisClient.Close()
+	server.Set("digest-lock", "new-owner")
+
+	result, err := releaseDigestLock.Run(context.Background(), redisClient, []string{"digest-lock"}, "old-owner").Int()
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, result)
+	owner, err := server.Get("digest-lock")
+	require.NoError(t, err)
+	assert.Equal(t, "new-owner", owner)
 }

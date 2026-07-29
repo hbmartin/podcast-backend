@@ -1,12 +1,11 @@
 package avatars
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
 
-	vision "cloud.google.com/go/vision/apiv1"
+	vision "cloud.google.com/go/vision/v2/apiv1"
 	visionpb "cloud.google.com/go/vision/v2/apiv1/visionpb"
 	"google.golang.org/api/option"
 )
@@ -30,13 +29,25 @@ func NewVisionScanner(ctx context.Context, credentialsBase64 string) (*VisionSca
 }
 
 func (s *VisionScanner) Allows(ctx context.Context, data []byte) (bool, error) {
-	image, err := vision.NewImageFromReader(bytes.NewReader(data))
+	response, err := s.client.BatchAnnotateImages(ctx, &visionpb.BatchAnnotateImagesRequest{
+		Requests: []*visionpb.AnnotateImageRequest{{
+			Image:    &visionpb.Image{Content: data},
+			Features: []*visionpb.Feature{{Type: visionpb.Feature_SAFE_SEARCH_DETECTION}},
+		}},
+	})
 	if err != nil {
 		return false, err
 	}
-	annotation, err := s.client.DetectSafeSearch(ctx, image, nil)
-	if err != nil {
-		return false, err
+	if len(response.Responses) == 0 {
+		return false, fmt.Errorf("vision: empty SafeSearch response")
+	}
+	result := response.Responses[0]
+	if result.Error != nil {
+		return false, fmt.Errorf("vision: SafeSearch failed: %s", result.Error.Message)
+	}
+	annotation := result.SafeSearchAnnotation
+	if annotation == nil {
+		return false, fmt.Errorf("vision: missing SafeSearch annotation")
 	}
 	blocked := func(value visionpb.Likelihood) bool {
 		return value == visionpb.Likelihood_LIKELY || value == visionpb.Likelihood_VERY_LIKELY

@@ -89,8 +89,47 @@ func (w *WorkerServer) Start() error {
 	mux.HandleFunc(TypeGroupPostFanout, w.HandleGroupPostFanoutTask)
 	mux.HandleFunc(TypeObjectCleanup, w.HandleObjectCleanupTask)
 	mux.HandleFunc(TypeCorpusLegacyImport, w.HandleCorpusLegacyImportTask)
+	mux.HandleFunc(TypeAliasBackfill, w.HandleAliasBackfillTask)
 
 	return w.srv.Run(mux)
+}
+
+// HandleAliasBackfillTask derives device-scheme aliases for every catalog
+// episode missing an alias (ADR-0015); the durable equivalent of the RoleAll
+// startup backfill. Keyset batches keep memory flat; idempotent upserts and
+// missing-row selection let an asynq retry resume after partial progress.
+func (w *WorkerServer) HandleAliasBackfillTask(ctx context.Context, _ *asynq.Task) error {
+	const op errs.Op = "tasks/WorkerServer.HandleAliasBackfillTask"
+
+	const batch = 500
+	var afterID int64
+	total := 0
+	for {
+		episodes, err := w.db.GetEpisodesForAliasBackfill(ctx, db.GetEpisodesForAliasBackfillParams{
+			AfterID: afterID, Limit: batch,
+		})
+		if err != nil {
+			return errs.E(op, errs.Database, err)
+		}
+		if len(episodes) == 0 {
+			break
+		}
+		for _, episode := range episodes {
+			afterID = episode.ID
+			deviceUuid := crawler.DeviceEpisodeUUID(episode.Guid)
+			if deviceUuid == "" || deviceUuid == episode.Uuid {
+				continue
+			}
+			if err := w.db.UpsertEpisodeAlias(ctx, db.UpsertEpisodeAliasParams{
+				DeviceUuid: deviceUuid, CatalogUuid: episode.Uuid,
+			}); err != nil {
+				return errs.E(op, errs.Database, err)
+			}
+			total++
+		}
+	}
+	slog.Info("Episode-alias backfill complete", "aliases", total)
+	return nil
 }
 
 func (w *WorkerServer) HandleObjectCleanupTask(ctx context.Context, _ *asynq.Task) error {
@@ -147,7 +186,12 @@ func (w *WorkerServer) HandleCorpusLegacyImportTask(ctx context.Context, _ *asyn
 			afterID = row.ID
 			vtt, err := gunzipLegacy(row.VTTBlob, 2<<20)
 			if err != nil {
-				return fmt.Errorf("legacy contribution %d transcript: %w", row.ID, err)
+				// A corrupt blob is permanent: failing the task here would
+				// stall every row after it forever (the hourly re-enqueue
+				// no-ops while the failed task sits archived). Skip and keep
+				// importing; the row is re-reported each sweep.
+				slog.Warn("Legacy corpus row skipped: corrupt transcript blob", "contribution", row.ID, "error", err)
+				continue
 			}
 			hash := sha256.Sum256(vtt)
 			hashString := hex.EncodeToString(hash[:])
@@ -165,15 +209,17 @@ func (w *WorkerServer) HandleCorpusLegacyImportTask(ctx context.Context, _ *asyn
 			if len(row.FingerprintBlob) > 0 {
 				fingerprint, err := gunzipLegacy(row.FingerprintBlob, 512<<10)
 				if err != nil {
-					return fmt.Errorf("legacy contribution %d fingerprint: %w", row.ID, err)
+					// Corrupt fingerprint: still import the transcript.
+					slog.Warn("Legacy corpus fingerprint skipped: corrupt blob", "contribution", row.ID, "error", err)
+				} else {
+					fpHash := sha256.Sum256(fingerprint)
+					fpHashString := hex.EncodeToString(fpHash[:])
+					fpKey := "corpus/fingerprints/" + fpHashString + ".json"
+					if err := w.objects.Put(ctx, fpKey, fingerprint, "application/json"); err != nil {
+						return err
+					}
+					artifacts = append(artifacts, db.CorpusArtifactInput{Kind: "fingerprint", ObjectKey: fpKey, ContentHash: fpHashString, MediaType: "application/json", Format: "fingerprint-compact-v2", ByteLength: int64(len(fingerprint)), Language: languageValue, Source: "legacy"})
 				}
-				fpHash := sha256.Sum256(fingerprint)
-				fpHashString := hex.EncodeToString(fpHash[:])
-				fpKey := "corpus/fingerprints/" + fpHashString + ".json"
-				if err := w.objects.Put(ctx, fpKey, fingerprint, "application/json"); err != nil {
-					return err
-				}
-				artifacts = append(artifacts, db.CorpusArtifactInput{Kind: "fingerprint", ObjectKey: fpKey, ContentHash: fpHashString, MediaType: "application/json", Format: "fingerprint-compact-v2", ByteLength: int64(len(fingerprint)), Language: languageValue, Source: "legacy"})
 			}
 			if _, err := repository.ImportLegacyCorpusCandidate(ctx, db.ImportLegacyCorpusCandidateParams{Row: row, Language: languageValue, ContentHash: hashString, Artifacts: artifacts}); err != nil {
 				return err
@@ -212,13 +258,19 @@ func (w *WorkerServer) HandlePodcastRefreshTask(ctx context.Context, t *asynq.Ta
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		return errs.E(op, errs.Internal, fmt.Errorf("%w: %v", asynq.SkipRetry, err))
 	}
+	// Terminal statuses are set explicitly on each outcome: reporting
+	// "completed" from a defer would tell the polling client a failed or
+	// timed-out refresh succeeded.
+	setStatus := func(status string) {
+		if payload.JobID == "" {
+			return
+		}
+		statusCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = w.redis.Set(statusCtx, "refresh-job:"+payload.JobID, status, 15*time.Minute).Err()
+	}
 	if payload.JobID != "" {
 		_ = w.redis.Set(ctx, "refresh-job:"+payload.JobID, "running", 15*time.Minute).Err()
-		defer func() {
-			completeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			_ = w.redis.Set(completeCtx, "refresh-job:"+payload.JobID, "completed", 15*time.Minute).Err()
-		}()
 	}
 
 	slog.Info("Executing Podcast Refresh", "uuid", payload.PodcastUUID, "feed_url", payload.FeedURL)
@@ -227,8 +279,11 @@ func (w *WorkerServer) HandlePodcastRefreshTask(ctx context.Context, t *asynq.Ta
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			slog.Warn("Podcast refresh skipped: unknown podcast", "uuid", payload.PodcastUUID)
+			setStatus("failed")
 			return nil
 		}
+		// leave "running": asynq retries the attempt and the key's TTL
+		// bounds how long the client can poll
 		return errs.E(op, err)
 	}
 
@@ -236,7 +291,10 @@ func (w *WorkerServer) HandlePodcastRefreshTask(ctx context.Context, t *asynq.Ta
 		// crawl failures are recorded on the podcast row; retrying the task
 		// immediately would just hammer a broken feed
 		slog.Warn("Podcast crawl failed", "uuid", podcast.Uuid, "error", err)
+		setStatus("failed")
+		return nil
 	}
+	setStatus("completed")
 	return nil
 }
 

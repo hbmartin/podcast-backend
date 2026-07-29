@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
@@ -70,26 +71,6 @@ func publicChain(handler func(w http.ResponseWriter, r *http.Request)) http.Hand
 				http.HandlerFunc(handler))))
 }
 
-// authChain additionally requires a valid Bearer access token.
-func authChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
-	return middlewares.TraceMiddleware(
-		middlewares.LogMiddleware(
-			configValues.WebServerConfig.Cors.Handler(
-				auth.TokenAuthMiddleware(
-					http.HandlerFunc(handler)))))
-}
-
-// optionalAuthChain attaches the user when a valid Bearer token is present
-// but serves anonymous requests too (refresh works signed out; push
-// registration piggybacked on it needs the identity).
-func optionalAuthChain(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
-	return middlewares.TraceMiddleware(
-		middlewares.LogMiddleware(
-			configValues.WebServerConfig.Cors.Handler(
-				auth.OptionalTokenMiddleware(
-					http.HandlerFunc(handler)))))
-}
-
 func onlyLogMiddleware(handler func(w http.ResponseWriter, r *http.Request)) http.Handler {
 	return middlewares.TraceMiddleware(
 		middlewares.LogMiddleware(
@@ -117,7 +98,7 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, redisClient *redis
 		TrustProxyHeaders: configValues.WebServerConfig.TrustProxyHeaders,
 		ServerVersion:     firstNonEmpty(configValues.RuntimeConfig.Version, buildVersion),
 		AppAttestMode:     configValues.AppAttestConfig.Mode,
-		AvatarEnabled:     configValues.VisionConfig.Enabled,
+		AvatarEnabled:     configValues.VisionConfig.Enabled && configValues.ObjectStorageConfig.Enabled,
 		FoldersEnabled:    configValues.GeminiConfig.Enabled,
 		CorpusEnabled:     configValues.ObjectStorageConfig.Enabled,
 		AdminToken:        configValues.WebServerConfig.AdminToken,
@@ -225,12 +206,15 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, redisClient *redis
 						controllers.AttestVerify(attestMode, defaultAttestedBody, "credential", handler)))))
 	}
 	refreshTokenChain := func(handler http.HandlerFunc) http.Handler {
+		// Attestation is verified on both paths: presenting a Bearer token
+		// must not downgrade the attestation guarantee on token issuance.
+		attested := controllers.AttestVerify(attestMode, defaultAttestedBody, "token-refresh", handler)
 		conditional := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Authorization") != "" {
-				auth.TokenAuthMiddleware(handler).ServeHTTP(w, r)
+				auth.TokenAuthMiddleware(attested).ServeHTTP(w, r)
 				return
 			}
-			controllers.AttestVerify(attestMode, defaultAttestedBody, "token-refresh", handler).ServeHTTP(w, r)
+			attested.ServeHTTP(w, r)
 		})
 		return middlewares.TraceMiddleware(middlewares.LogMiddleware(configValues.WebServerConfig.Cors.Handler(conditional)))
 	}
@@ -503,29 +487,74 @@ func startWebServer(querier db.Store, queueClient *tasks.QueueClient, redisClien
 	return srv.Shutdown
 }
 
+var releaseDigestLock = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+end
+return 0`)
+
+// runDigestSchedulerOnce performs one time-gated digest attempt. Failures are
+// returned so one-shot cron providers record a failed invocation and the next
+// scheduled attempt can retry it.
+func runDigestSchedulerOnce(ctx context.Context, querier db.Store, notifier *push.Notifier, redisClient *redis.Client, now time.Time) error {
+	now = now.UTC()
+	if !shouldRunDigest(now) || notifier == nil {
+		return nil
+	}
+	year, week := now.ISOWeek()
+	doneKey := fmt.Sprintf("scheduler:digest:%04d-%02d", year, week)
+	done, err := redisClient.Exists(ctx, doneKey).Result()
+	if err != nil {
+		return fmt.Errorf("digest completion check: %w", err)
+	}
+	if done > 0 {
+		return nil
+	}
+
+	// Short-lived lock, not a week-long claim: a crashed or failed sweep only
+	// pauses retries until the lock expires. A unique value plus compare/delete
+	// prevents an expired owner from deleting a newer scheduler's lock.
+	lockKey := doneKey + ":lock"
+	lockOwner := uuid.NewString()
+	claimed, err := redisClient.SetNX(ctx, lockKey, lockOwner, 2*time.Hour).Result()
+	if err != nil {
+		return fmt.Errorf("digest uniqueness claim: %w", err)
+	}
+	if !claimed {
+		return nil
+	}
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := releaseDigestLock.Run(releaseCtx, redisClient, []string{lockKey}, lockOwner).Err(); err != nil {
+			slog.Warn("Digest scheduler lock release failed", "error", err)
+		}
+	}()
+
+	if err := digestSweep(ctx, querier, notifier); err != nil {
+		return fmt.Errorf("digest sweep: %w", err)
+	}
+	if err := redisClient.Set(ctx, doneKey, now.Format(time.RFC3339), 8*24*time.Hour).Err(); err != nil {
+		return fmt.Errorf("digest completion marker: %w", err)
+	}
+	metrics.RecordSchedulerSuccess(ctx, "digest")
+	return nil
+}
+
 // digestScheduler runs the weekly-digest sweep (Slice 14): hourly tick, real
 // sends on Sunday at or after 17:00 UTC; atomic claims and the per-profile
 // watermark make the sweep replica-safe and restart-safe.
 func digestScheduler(ctx context.Context, querier db.Store, notifier *push.Notifier, redisClient *redis.Client, mode config.SchedulerMode) error {
-	run := func() {
-		now := time.Now().UTC()
-		if !shouldRunDigest(now) || notifier == nil {
-			return
-		}
-		year, week := now.ISOWeek()
-		key := fmt.Sprintf("scheduler:digest:%04d-%02d", year, week)
-		claimed, err := redisClient.SetNX(ctx, key, now.Format(time.RFC3339), 8*24*time.Hour).Result()
-		if err != nil {
-			slog.Warn("Digest scheduler uniqueness claim failed", "error", err)
-			return
-		}
-		if claimed {
-			digestSweep(ctx, querier, notifier)
-			metrics.RecordSchedulerSuccess(ctx, "digest")
-		}
+	run := func() error {
+		return runDigestSchedulerOnce(ctx, querier, notifier, redisClient, time.Now())
 	}
 
-	run()
+	if err := run(); err != nil {
+		if mode == config.SchedulerOnce {
+			return err
+		}
+		slog.Warn("Digest sweep failed; will retry next tick", "error", err)
+	}
 	if mode == config.SchedulerOnce {
 		return nil
 	}
@@ -537,7 +566,9 @@ func digestScheduler(ctx context.Context, querier db.Store, notifier *push.Notif
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			run()
+			if err := run(); err != nil {
+				slog.Warn("Digest sweep failed; will retry next tick", "error", err)
+			}
 		}
 	}
 }
@@ -551,7 +582,7 @@ func shouldRunDigest(now time.Time) bool {
 // milestones + the graph's week. Guarded candidates only (joined AND (graph
 // OR fresh milestone)); zero-content accounts still advance the watermark so
 // the sweep stays cheap.
-func digestSweep(ctx context.Context, querier db.Store, notifier *push.Notifier) {
+func digestSweep(ctx context.Context, querier db.Store, notifier *push.Notifier) error {
 	// Drain in batches: the watermark advances per user, so each query
 	// returns the next unserved cohort until none remain (QA review: a
 	// single capped batch starved everyone past the first 500).
@@ -560,7 +591,7 @@ func digestSweep(ctx context.Context, querier db.Store, notifier *push.Notifier)
 		users, err := querier.ClaimDigestCandidates(ctx, 500)
 		if err != nil {
 			slog.Warn("Digest sweep query failed", "error", err)
-			return
+			return err
 		}
 		if len(users) == 0 {
 			break
@@ -575,12 +606,14 @@ func digestSweep(ctx context.Context, querier db.Store, notifier *push.Notifier)
 			}
 			if err := querier.SetDigestSent(ctx, userID); err != nil {
 				slog.Warn("Unable to set digest watermark", "user", userID, "error", err)
-				return // avoid a hot loop re-selecting the same user
+				// avoid a hot loop re-selecting the same user
+				return err
 			}
 		}
 		total += len(users)
 	}
 	slog.Info("Digest sweep complete", "sent", total)
+	return nil
 }
 
 func composeDigestBody(ctx context.Context, querier db.Store, userID int64) string {
@@ -603,19 +636,16 @@ func composeDigestBody(ctx context.Context, querier db.Store, userID int64) stri
 	return strings.Join(parts, " · ")
 }
 
-// backfillEpisodeAliases derives device-scheme aliases for every catalog
-// episode once (ADR-0015). Runs at startup in the background; batches keep
-// memory flat.
+// backfillEpisodeAliases derives device-scheme aliases for catalog episodes
+// that still lack one (ADR-0015). Runs at startup in the background; keyset
+// batches keep memory flat and let a later startup resume partial work.
 func backfillEpisodeAliases(ctx context.Context, querier db.Store) {
-	count, err := querier.CountEpisodeAliases(ctx)
-	if err != nil || count > 0 {
-		return
-	}
 	const batch = 500
+	var afterID int64
 	total := 0
-	for offset := int32(0); ; offset += batch {
+	for {
 		episodes, err := querier.GetEpisodesForAliasBackfill(ctx, db.GetEpisodesForAliasBackfillParams{
-			Limit: batch, Offset: offset,
+			AfterID: afterID, Limit: batch,
 		})
 		if err != nil {
 			slog.Warn("Episode-alias backfill query failed", "error", err)
@@ -625,6 +655,7 @@ func backfillEpisodeAliases(ctx context.Context, querier db.Store) {
 			break
 		}
 		for _, episode := range episodes {
+			afterID = episode.ID
 			deviceUuid := crawler.DeviceEpisodeUUID(episode.Guid)
 			if deviceUuid == "" || deviceUuid == episode.Uuid {
 				continue
@@ -989,6 +1020,13 @@ func main() {
 		// Local compatibility mode keeps the historical direct backfill. The
 		// production web role enqueues the durable maintenance equivalent.
 		go backfillEpisodeAliases(ctx, querier)
+	}
+	if role == config.RoleWeb {
+		// Durable equivalent of the RoleAll direct backfill (ADR-0015): the
+		// worker runs it once; the handler no-ops when aliases already exist.
+		if err := queueClient.EnqueueAliasBackfill(ctx); err != nil {
+			slog.Warn("Unable to enqueue episode-alias backfill", "error", err)
+		}
 	}
 
 	var webDispose func(context.Context) error

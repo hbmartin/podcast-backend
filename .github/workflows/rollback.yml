@@ -11,6 +11,7 @@ on:
 permissions:
   contents: write
   packages: read
+  attestations: read
 
 env:
   IMAGE: ghcr.io/hbmartin/podcast-backend
@@ -22,27 +23,36 @@ jobs:
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       RENDER_HOOKS: ${{ secrets.RENDER_DEPLOY_HOOK_URLS }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
-      - uses: imjasonh/setup-crane@v0.4
+      - name: Require at least one configured live provider
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RENDER_HOOKS: ${{ secrets.RENDER_DEPLOY_HOOK_URLS }}
+        run: '[[ -n "$RAILWAY_TOKEN" || -n "$RENDER_HOOKS" ]]'
+      - uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - id: resolve
         env:
           VERSION: ${{ inputs.version }}
         run: |
           [[ "$VERSION" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]+$ ]]
           echo "digest=$(crane digest "${IMAGE}:${VERSION}")" >> "$GITHUB_OUTPUT"
-      - name: Record Render rollback pin
+      - name: Verify signature, provenance, and SPDX SBOM
         env:
           DIGEST: ${{ steps.resolve.outputs.digest }}
-          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          scripts/set-image-digest.sh "$DIGEST"
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          git add render.yaml
-          git commit -m "Roll back Render image to ${VERSION}"
-          git push origin HEAD:main
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/container.yml@refs/heads/main"
+          cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "${IMAGE}@${DIGEST}"
+          gh attestation verify "oci://${IMAGE}@${DIGEST}" --repo "$GITHUB_REPOSITORY" --cert-identity "$identity" --predicate-type https://slsa.dev/provenance/v1
+          gh attestation verify "oci://${IMAGE}@${DIGEST}" --repo "$GITHUB_REPOSITORY" --cert-identity "$identity" --predicate-type https://spdx.dev/Document
       - name: Roll back configured Railway services
         if: ${{ env.RAILWAY_TOKEN != '' }}
         env:
@@ -53,6 +63,19 @@ jobs:
           DIGEST: ${{ steps.resolve.outputs.digest }}
           VERSION: ${{ inputs.version }}
         run: scripts/railway-deploy-image.sh "${IMAGE}@${DIGEST}" "$VERSION"
+      - name: Record Render rollback pin
+        env:
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          scripts/set-image-digest.sh "$DIGEST"
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add render.yaml
+          if ! git diff --cached --quiet; then
+            git commit -m "Roll back Render image to ${VERSION}"
+            git push origin HEAD:main
+          fi
       - name: Trigger configured Render services
         if: ${{ env.RENDER_HOOKS != '' }}
         env:

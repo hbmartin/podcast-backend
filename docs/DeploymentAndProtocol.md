@@ -13,18 +13,20 @@ four roles with scheduler loops. Render uses web, worker, and two one-shot cron
 jobs from `render.yaml`.
 
 Production requires PostgreSQL, persistent no-eviction Redis/Valkey,
-`PUBLIC_BASE_URL`, `ADMIN_TOKEN`, and an explicit role. `PUBLIC_BASE_URL` is a
-custom root HTTPS origin. Public HTML requests on a provider host redirect to
-it; API and artifact requests on the wrong host receive 421. Provider-native
-database backups should be enabled; restore into a new database, verify schema
-and readiness, then repoint every role together.
+`PUBLIC_BASE_URL`, `ADMIN_TOKEN`, `METRICS_TOKEN`, and an explicit role. Both
+operation tokens must contain at least 32 bytes. `PUBLIC_BASE_URL` is a custom
+root HTTPS origin. Public HTML requests on a provider host redirect to it; API
+and artifact requests on the wrong host receive 421. Provider-native database
+backups should be enabled; restore into a new database, verify schema and
+readiness, then repoint every role together.
 
 Images publish publicly at `ghcr.io/hbmartin/podcast-backend` for amd64 and
 arm64 with immutable calendar and full-commit tags, provenance, SPDX SBOM, and
-keyless Cosign signing. Promotion verifies all supply-chain evidence and pins
-provider services by digest. The Railway template itself must be repinned by a
-human in the template editor. Rollback redeploys an earlier digest and never
-runs down-migrations.
+keyless Cosign signing. Promotion verifies all supply-chain evidence (Cosign
+signature plus GitHub provenance and SPDX SBOM attestations) and pins provider
+services by digest. The Railway template itself must be repinned by a human in
+the template editor. Rollback re-verifies the same evidence, redeploys an
+earlier digest, and never runs down-migrations.
 
 Current provider costs must be checked immediately before deployment using the
 official [Railway pricing](https://docs.railway.com/pricing/plans) and [Render

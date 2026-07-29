@@ -211,6 +211,12 @@ func loadWebServerConfig(runtime *RuntimeConfiguration) (*WebServerConfiguration
 	if runtime.Production && len(config.AdminToken) < 32 {
 		return nil, fmt.Errorf("ADMIN_TOKEN must be set to at least 32 bytes in production")
 	}
+	// An empty METRICS_TOKEN fails closed (404 on /metrics, /readyz, /health),
+	// which would silently blind readiness probes and monitoring — surface the
+	// misconfiguration at boot instead.
+	if runtime.Production && len(config.MetricsToken) < 32 {
+		return nil, fmt.Errorf("METRICS_TOKEN must be set to at least 32 bytes in production")
+	}
 
 	seen := map[string]struct{}{}
 	appendOrigin := func(origin string) error {

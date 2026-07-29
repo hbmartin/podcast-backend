@@ -2,9 +2,12 @@ package push
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 
 	"github.com/hbmartin/podcast-backend/db"
@@ -57,7 +60,11 @@ func (n *Notifier) NotifyNewEpisodes(ctx context.Context, podcastUuid string, ep
 			continue
 		}
 
-		notification := Notification{Title: podcast.Title, Body: episode.Title}
+		notification := Notification{
+			Title:      podcast.Title,
+			Body:       episode.Title,
+			CollapseID: "episode-" + episode.Uuid,
+		}
 		for _, target := range targets {
 			if dropped[target.PushToken] {
 				continue
@@ -164,7 +171,7 @@ func (n *Notifier) NotifySocial(ctx context.Context, targetUserID int64, pushTyp
 		Title:      title,
 		Body:       body,
 		Category:   "so",
-		CollapseID: fmt.Sprintf("so-%d-%s", pushType, actorHandle),
+		CollapseID: socialCollapseID(pushType, actorHandle, data),
 		Data:       payloadData,
 	}
 
@@ -177,6 +184,23 @@ func (n *Notifier) NotifySocial(ctx context.Context, targetUserID int64, pushTyp
 			slog.Warn("social push delivery failed", "err", err, "type", pushType)
 		}
 	}
+}
+
+// socialCollapseID is stable for one logical event, including its routing
+// data, while keeping APNs' header well below its 64-byte limit. Distinct group
+// posts or shared items from the same actor therefore do not collapse together.
+func socialCollapseID(pushType int, actorHandle string, data map[string]string) string {
+	hash := sha256.New()
+	fmt.Fprintf(hash, "%d\x00%s\x00", pushType, actorHandle)
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		fmt.Fprintf(hash, "%s\x00%s\x00", key, data[key])
+	}
+	return "social-" + hex.EncodeToString(hash.Sum(nil)[:16])
 }
 
 // NotifyDigest delivers the weekly digest (Slice 14): one pre-composed push,

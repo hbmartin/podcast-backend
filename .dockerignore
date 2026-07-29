@@ -1,0 +1,29 @@
+# Keep the build context to what `go build` and db/migrations need.
+.git
+.github
+.dockerignore
+Dockerfile
+docker-compose.yml
+GitVersion.yml
+makefile
+sqlc.yaml
+.semgrep.yml
+docs
+deploy
+scripts
+reviews_triage
+e2e
+
+# Never let local secrets or env files enter a build layer.
+.env
+.env.*
+*.env
+
+# Editor/agent state and local artifacts.
+.claude
+.idea
+.vscode
+*.md
+test-result.txt
+*.out
+podcast-backend

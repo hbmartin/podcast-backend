@@ -90,7 +90,7 @@ func (g *geminiFolderSuggester) Suggest(ctx context.Context, language string, po
 		return nil, errPermanentGemini
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Gemini status %d", response.StatusCode)
+		return nil, fmt.Errorf("gemini status %d", response.StatusCode)
 	}
 	var envelope struct {
 		Candidates []struct {
@@ -145,7 +145,7 @@ func (h Handlers) PostSuggestFolders(w http.ResponseWriter, r *http.Request) {
 		}
 		seen[uuid] = struct{}{}
 	}
-	install := installationID(r)
+	install := h.installationID(r)
 	if install == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return

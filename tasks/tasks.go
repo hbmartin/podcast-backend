@@ -28,6 +28,7 @@ const (
 	TypeGroupPostFanout    = "push:group_post_fanout"
 	TypeObjectCleanup      = "object:cleanup"
 	TypeCorpusLegacyImport = "corpus:legacy_import"
+	TypeAliasBackfill      = "maintenance:alias_backfill"
 )
 
 // Queue names, in priority order.
@@ -173,7 +174,7 @@ func (qc *QueueClient) EnqueueOpmlImport(ctx context.Context, feedURLs []string)
 	}
 
 	task := asynq.NewTask(TypeOpmlImport, payload)
-	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow)); err != nil {
+	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.Timeout(10*time.Minute)); err != nil {
 		return errs.E(op, err)
 	}
 	return nil
@@ -187,7 +188,7 @@ func (qc *QueueClient) EnqueueSocialPush(ctx context.Context, payload SocialPush
 	if err != nil {
 		return errs.E(op, errs.Internal, err)
 	}
-	if err := qc.Enqueue(ctx, asynq.NewTask(TypeSocialPush, raw)); err != nil {
+	if err := qc.Enqueue(ctx, asynq.NewTask(TypeSocialPush, raw), asynq.Timeout(5*time.Minute)); err != nil {
 		return errs.E(op, err)
 	}
 	return nil
@@ -204,7 +205,7 @@ func (qc *QueueClient) EnqueueNotifyNewEpisodes(ctx context.Context, podcastUUID
 	}
 
 	task := asynq.NewTask(TypeNotifyNewEpisodes, payload)
-	if err := qc.Enqueue(ctx, task); err != nil {
+	if err := qc.Enqueue(ctx, task, asynq.Timeout(30*time.Minute)); err != nil {
 		return errs.E(op, err)
 	}
 	return nil
@@ -216,7 +217,7 @@ func (qc *QueueClient) EnqueueRefreshDuePodcasts(ctx context.Context) error {
 	const op errs.Op = "tasks/QueueClient.EnqueueRefreshDuePodcasts"
 
 	task := asynq.NewTask(TypeRefreshDuePodcasts, nil)
-	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.TaskID(TypeRefreshDuePodcasts)); err != nil {
+	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.TaskID(TypeRefreshDuePodcasts), asynq.Timeout(15*time.Minute)); err != nil {
 		// a sweep already waiting in the queue is not an error
 		if errors.Is(err, asynq.ErrTaskIDConflict) {
 			return nil
@@ -228,7 +229,7 @@ func (qc *QueueClient) EnqueueRefreshDuePodcasts(ctx context.Context) error {
 
 func (qc *QueueClient) EnqueueObjectCleanup(ctx context.Context) error {
 	task := asynq.NewTask(TypeObjectCleanup, nil)
-	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.TaskID(TypeObjectCleanup), asynq.Retention(15*time.Minute)); err != nil {
+	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.TaskID(TypeObjectCleanup), asynq.Retention(15*time.Minute), asynq.Timeout(5*time.Minute)); err != nil {
 		if errors.Is(err, asynq.ErrTaskIDConflict) {
 			return nil
 		}
@@ -239,7 +240,21 @@ func (qc *QueueClient) EnqueueObjectCleanup(ctx context.Context) error {
 
 func (qc *QueueClient) EnqueueCorpusLegacyImport(ctx context.Context) error {
 	task := asynq.NewTask(TypeCorpusLegacyImport, nil)
-	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.TaskID(TypeCorpusLegacyImport), asynq.Retention(time.Hour)); err != nil {
+	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.TaskID(TypeCorpusLegacyImport), asynq.Retention(time.Hour), asynq.Timeout(30*time.Minute)); err != nil {
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// EnqueueAliasBackfill queues the one-shot episode-alias backfill (ADR-0015).
+// The handler no-ops once aliases exist, so re-enqueueing at every web
+// startup is cheap; asynq.TaskID de-duplicates concurrent replicas.
+func (qc *QueueClient) EnqueueAliasBackfill(ctx context.Context) error {
+	task := asynq.NewTask(TypeAliasBackfill, nil)
+	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.TaskID(TypeAliasBackfill), asynq.Retention(time.Hour), asynq.Timeout(30*time.Minute)); err != nil {
 		if errors.Is(err, asynq.ErrTaskIDConflict) {
 			return nil
 		}
@@ -259,7 +274,7 @@ func (qc *QueueClient) EnqueueSightingFetch(ctx context.Context, sightingID int6
 	}
 
 	task := asynq.NewTask(TypeSightingFetch, payload)
-	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow)); err != nil {
+	if err := qc.Enqueue(ctx, task, asynq.Queue(QueueLow), asynq.Timeout(2*time.Minute)); err != nil {
 		return errs.E(op, err)
 	}
 	return nil
@@ -274,7 +289,7 @@ func (qc *QueueClient) EnqueueGroupPostFanout(ctx context.Context, payload Group
 	}
 	taskID := fmt.Sprintf("%s:%d", TypeGroupPostFanout, payload.PostID)
 	if err := qc.Enqueue(ctx, asynq.NewTask(TypeGroupPostFanout, raw),
-		asynq.Queue(QueueLow), asynq.TaskID(taskID)); err != nil {
+		asynq.Queue(QueueLow), asynq.TaskID(taskID), asynq.Timeout(30*time.Minute)); err != nil {
 		if errors.Is(err, asynq.ErrTaskIDConflict) {
 			return nil
 		}

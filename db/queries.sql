@@ -551,11 +551,19 @@ VALUES ($1, $2)
 ON CONFLICT (object_key) DO NOTHING;
 
 -- name: ClaimObjectDeletes :many
-SELECT * FROM object_delete_outbox
-WHERE completed_at IS NULL AND available_at <= now()
-ORDER BY id
-LIMIT $1
-FOR UPDATE SKIP LOCKED;
+-- The UPDATE both leases the batch (moves available_at forward) and returns
+-- it, so the claim survives past this statement; a bare SELECT ... FOR UPDATE
+-- in auto-commit would release its row locks immediately.
+UPDATE object_delete_outbox
+SET available_at = now() + interval '10 minutes'
+WHERE id IN (
+    SELECT id FROM object_delete_outbox
+    WHERE completed_at IS NULL AND available_at <= now()
+    ORDER BY id
+    LIMIT $1
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING *;
 
 -- name: CompleteObjectDelete :exec
 UPDATE object_delete_outbox SET completed_at = now() WHERE id = $1;
@@ -603,13 +611,15 @@ SELECT * FROM shared_lists WHERE code = $1;
 
 -- name: UpsertDevicePush :exec
 -- The client omits push_token unless it holds one, so an empty incoming
--- token keeps whatever was registered before.
+-- token keeps whatever was registered before. The same applies to
+-- push_environment: a registration ping that omits it must not flip a
+-- sandbox-registered token to production (APNs would then reject it).
 INSERT INTO devices (user_id, device_id, push_token, push_on, push_environment, updated_at)
-VALUES ($1, $2, $3, $4, $5, now())
+VALUES ($1, $2, $3, $4, CASE WHEN sqlc.arg('push_environment')::text <> '' THEN sqlc.arg('push_environment')::text ELSE 'production' END, now())
 ON CONFLICT (user_id, device_id) DO UPDATE SET
     push_token = CASE WHEN EXCLUDED.push_token <> '' THEN EXCLUDED.push_token ELSE devices.push_token END,
     push_on = EXCLUDED.push_on,
-    push_environment = EXCLUDED.push_environment,
+    push_environment = CASE WHEN sqlc.arg('push_environment')::text <> '' THEN sqlc.arg('push_environment')::text ELSE devices.push_environment END,
     updated_at = now();
 
 -- name: SetPodcastNotifyFlags :exec
@@ -1923,11 +1933,14 @@ ON CONFLICT (device_uuid) DO NOTHING;
 -- name: ResolveEpisodeAlias :one
 SELECT catalog_uuid FROM episode_aliases WHERE device_uuid = $1;
 
--- name: CountEpisodeAliases :one
-SELECT count(*) FROM episode_aliases;
-
 -- name: GetEpisodesForAliasBackfill :many
-SELECT uuid, guid FROM episodes ORDER BY id LIMIT $1 OFFSET $2;
+SELECT e.id, e.uuid, e.guid
+FROM episodes e
+WHERE e.id > sqlc.arg('after_id')
+  AND NOT EXISTS (
+      SELECT 1 FROM episode_aliases a WHERE a.catalog_uuid = e.uuid)
+ORDER BY e.id
+LIMIT sqlc.arg('limit');
 
 -- name: ReverseEpisodeAliases :many
 SELECT device_uuid FROM episode_aliases WHERE catalog_uuid = $1 LIMIT 5;

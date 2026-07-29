@@ -107,7 +107,9 @@ func (h Handlers) GetUpdatePodcastJob(w http.ResponseWriter, r *http.Request) {
 	}
 	status, err := h.Redis.Get(r.Context(), "refresh-job:"+jobID).Result()
 	w.Header().Set("Cache-Control", "no-store")
-	if err != nil || status == "completed" {
+	// Both terminal statuses end polling with 200; "failed" means the crawl
+	// ran and did not succeed (the podcast row records the failure detail).
+	if err != nil || status == "completed" || status == "failed" {
 		w.WriteHeader(http.StatusOK)
 		return
 	}

@@ -109,10 +109,21 @@ func (s *pgStore) CreateContributionCandidate(ctx context.Context, arg CreateCon
 			return CreateContributionCandidateResult{}, err
 		}
 	}
+	// Tokens are short-lived and a consumed token is never resurrected. On a
+	// duplicate contribution the token is replaced only when the candidate
+	// belongs to the same contributor (a client retry); a different user
+	// submitting identical content must not gain attach rights.
 	_, err = tx.Exec(ctx, `
 		INSERT INTO corpus_attachment_tokens (candidate_id,token_hash,expires_at)
-		VALUES ($1,$2,'infinity'::timestamptz)
-		ON CONFLICT (candidate_id) DO UPDATE SET token_hash=EXCLUDED.token_hash, expires_at=EXCLUDED.expires_at, consumed_at=NULL`, candidateID, arg.AttachmentTokenHash)
+		VALUES ($1,$2,now() + interval '15 minutes')
+		ON CONFLICT (candidate_id) DO UPDATE
+		SET token_hash=EXCLUDED.token_hash, expires_at=EXCLUDED.expires_at
+		WHERE corpus_attachment_tokens.consumed_at IS NULL
+		  AND EXISTS (
+		      SELECT 1 FROM corpus_candidates c
+		      WHERE c.id = corpus_attachment_tokens.candidate_id
+		        AND c.attribution = $3 AND c.attribution_id = $4)`,
+		candidateID, arg.AttachmentTokenHash, arg.Attribution, arg.AttributionID)
 	if err != nil {
 		return CreateContributionCandidateResult{}, err
 	}
@@ -352,6 +363,23 @@ func (s *pgStore) ImportLegacyCorpusCandidate(ctx context.Context, arg ImportLeg
 	if _, err = tx.Exec(ctx, `UPDATE transcript_contributions SET content_hash=$2 WHERE id=$1 AND content_hash IS NULL`, arg.Row.ID, arg.ContentHash); err != nil {
 		return "", err
 	}
+	// The deletion trigger only anonymizes candidates that exist when the
+	// account is erased; a legacy row imported afterwards must not
+	// re-attribute the deleted user. FOR SHARE serializes with a concurrent
+	// soft-delete so the trigger and this check cannot both miss the row.
+	anonymize := false
+	if arg.Row.Attribution == "user" {
+		var live bool
+		err := tx.QueryRow(ctx, `SELECT deleted_at IS NULL FROM users WHERE uuid::text=$1 FOR SHARE`, arg.Row.AttributionID).Scan(&live)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			anonymize = true // no matching account: treat as erased
+		case err != nil:
+			return "", err
+		default:
+			anonymize = !live
+		}
+	}
 	provenance, _ := json.Marshal(map[string]any{"legacyContributionId": arg.Row.ID, "engine": arg.Row.Engine, "model": arg.Row.ModelID, "appVersion": arg.Row.AppVersion, "diarized": arg.Row.Diarized})
 	var candidateID string
 	err = tx.QueryRow(ctx, `
@@ -360,6 +388,11 @@ func (s *pgStore) ImportLegacyCorpusCandidate(ctx context.Context, arg ImportLeg
 		RETURNING id::text`, arg.Row.EpisodeUuid, arg.Row.PodcastUuid, arg.Language, arg.ContentHash, arg.Row.Attribution, arg.Row.AttributionID, arg.Row.ID, provenance).Scan(&candidateID)
 	if err != nil {
 		return "", err
+	}
+	if anonymize {
+		if _, err = tx.Exec(ctx, `UPDATE corpus_candidates SET attribution='anonymized', attribution_id='candidate:'||id::text WHERE id=$1`, candidateID); err != nil {
+			return "", err
+		}
 	}
 	for _, artifact := range arg.Artifacts {
 		if _, err = tx.Exec(ctx, `

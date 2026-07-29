@@ -1,13 +1,24 @@
 -- Coordinated pre-release auth migration: legacy refresh tokens deliberately
 -- do not survive because older clients lack mandatory device binding.
+
+-- Serialize against concurrent writers up front: DELETE alone would not stop
+-- an old web pod from inserting a token between the purge and the NOT NULL
+-- ALTER below, which would fail the ALTER and leave the migration dirty
+-- mid-rolling-deploy.
+LOCK TABLE refresh_tokens IN ACCESS EXCLUSIVE MODE;
+
 DELETE FROM refresh_tokens;
 
 ALTER TABLE refresh_tokens
     ADD COLUMN family_id UUID NOT NULL,
     ADD COLUMN device_id TEXT NOT NULL,
-    ADD COLUMN rotated_from_id BIGINT REFERENCES refresh_tokens(id),
+    ADD COLUMN rotated_from_id BIGINT REFERENCES refresh_tokens(id) ON DELETE SET NULL,
     ADD COLUMN last_used_at TIMESTAMPTZ;
 CREATE INDEX refresh_tokens_family_idx ON refresh_tokens(family_id);
+-- Backs both future pruning (the FK's SET NULL action would otherwise scan
+-- per deleted row) and rotation-chain lookups.
+CREATE INDEX refresh_tokens_rotated_from_idx ON refresh_tokens(rotated_from_id)
+    WHERE rotated_from_id IS NOT NULL;
 
 CREATE TABLE password_reset_codes (
     id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

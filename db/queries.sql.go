@@ -119,13 +119,21 @@ func (q *Queries) ClaimHandle(ctx context.Context, arg ClaimHandleParams) error 
 }
 
 const claimObjectDeletes = `-- name: ClaimObjectDeletes :many
-SELECT id, object_key, reason, attempts, available_at, completed_at, created_at FROM object_delete_outbox
-WHERE completed_at IS NULL AND available_at <= now()
-ORDER BY id
-LIMIT $1
-FOR UPDATE SKIP LOCKED
+UPDATE object_delete_outbox
+SET available_at = now() + interval '10 minutes'
+WHERE id IN (
+    SELECT id FROM object_delete_outbox
+    WHERE completed_at IS NULL AND available_at <= now()
+    ORDER BY id
+    LIMIT $1
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING id, object_key, reason, attempts, available_at, completed_at, created_at
 `
 
+// The UPDATE both leases the batch (moves available_at forward) and returns
+// it, so the claim survives past this statement; a bare SELECT ... FOR UPDATE
+// in auto-commit would release its row locks immediately.
 func (q *Queries) ClaimObjectDeletes(ctx context.Context, limit int32) ([]ObjectDeleteOutbox, error) {
 	rows, err := q.db.Query(ctx, claimObjectDeletes, limit)
 	if err != nil {
@@ -246,17 +254,6 @@ type CountCommentRepliesParams struct {
 
 func (q *Queries) CountCommentReplies(ctx context.Context, arg CountCommentRepliesParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countCommentReplies, arg.ParentID, arg.Viewer)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const countEpisodeAliases = `-- name: CountEpisodeAliases :one
-SELECT count(*) FROM episode_aliases
-`
-
-func (q *Queries) CountEpisodeAliases(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countEpisodeAliases)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -2178,21 +2175,28 @@ func (q *Queries) GetEpisodesByUUIDs(ctx context.Context, dollar_1 []string) ([]
 }
 
 const getEpisodesForAliasBackfill = `-- name: GetEpisodesForAliasBackfill :many
-SELECT uuid, guid FROM episodes ORDER BY id LIMIT $1 OFFSET $2
+SELECT e.id, e.uuid, e.guid
+FROM episodes e
+WHERE e.id > $1
+  AND NOT EXISTS (
+      SELECT 1 FROM episode_aliases a WHERE a.catalog_uuid = e.uuid)
+ORDER BY e.id
+LIMIT $2
 `
 
 type GetEpisodesForAliasBackfillParams struct {
-	Limit  int32
-	Offset int32
+	AfterID int64
+	Limit   int32
 }
 
 type GetEpisodesForAliasBackfillRow struct {
+	ID   int64
 	Uuid string
 	Guid string
 }
 
 func (q *Queries) GetEpisodesForAliasBackfill(ctx context.Context, arg GetEpisodesForAliasBackfillParams) ([]GetEpisodesForAliasBackfillRow, error) {
-	rows, err := q.db.Query(ctx, getEpisodesForAliasBackfill, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, getEpisodesForAliasBackfill, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -2200,7 +2204,7 @@ func (q *Queries) GetEpisodesForAliasBackfill(ctx context.Context, arg GetEpisod
 	var items []GetEpisodesForAliasBackfillRow
 	for rows.Next() {
 		var i GetEpisodesForAliasBackfillRow
-		if err := rows.Scan(&i.Uuid, &i.Guid); err != nil {
+		if err := rows.Scan(&i.ID, &i.Uuid, &i.Guid); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -7234,11 +7238,11 @@ func (q *Queries) UpsertDevice(ctx context.Context, arg UpsertDeviceParams) erro
 
 const upsertDevicePush = `-- name: UpsertDevicePush :exec
 INSERT INTO devices (user_id, device_id, push_token, push_on, push_environment, updated_at)
-VALUES ($1, $2, $3, $4, $5, now())
+VALUES ($1, $2, $3, $4, CASE WHEN $5::text <> '' THEN $5::text ELSE 'production' END, now())
 ON CONFLICT (user_id, device_id) DO UPDATE SET
     push_token = CASE WHEN EXCLUDED.push_token <> '' THEN EXCLUDED.push_token ELSE devices.push_token END,
     push_on = EXCLUDED.push_on,
-    push_environment = EXCLUDED.push_environment,
+    push_environment = CASE WHEN $5::text <> '' THEN $5::text ELSE devices.push_environment END,
     updated_at = now()
 `
 
@@ -7251,7 +7255,9 @@ type UpsertDevicePushParams struct {
 }
 
 // The client omits push_token unless it holds one, so an empty incoming
-// token keeps whatever was registered before.
+// token keeps whatever was registered before. The same applies to
+// push_environment: a registration ping that omits it must not flip a
+// sandbox-registered token to production (APNs would then reject it).
 func (q *Queries) UpsertDevicePush(ctx context.Context, arg UpsertDevicePushParams) error {
 	_, err := q.db.Exec(ctx, upsertDevicePush,
 		arg.UserID,

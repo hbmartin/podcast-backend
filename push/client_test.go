@@ -130,7 +130,9 @@ func TestClientUnregisteredToken(t *testing.T) {
 func TestClientOtherErrorsAreNotUnregistered(t *testing.T) {
 	keyPEM, _ := testKeyPEM(t)
 
+	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
 		w.WriteHeader(http.StatusTooManyRequests)
 		json.NewEncoder(w).Encode(map[string]string{"reason": "TooManyRequests"})
 	}))
@@ -142,6 +144,30 @@ func TestClientOtherErrorsAreNotUnregistered(t *testing.T) {
 	err = client.Send(context.Background(), "DEAD", "production", Notification{})
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrUnregistered)
+	assert.Equal(t, 1, requests, "a notification without a collapse id is not safe to retry")
+}
+
+func TestClientRetriesWhenCollapseIDIsStable(t *testing.T) {
+	keyPEM, _ := testKeyPEM(t)
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		assert.Equal(t, "episode-123", r.Header.Get("apns-collapse-id"))
+		if requests < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(keyPEM, "K", "T", "topic", server.URL)
+	require.NoError(t, err)
+
+	err = client.Send(context.Background(), "DEVICE", "production", Notification{CollapseID: "episode-123"})
+	require.NoError(t, err)
+	assert.Equal(t, 3, requests)
 }
 
 func TestNewClientRejectsBadKey(t *testing.T) {
