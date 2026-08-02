@@ -1421,7 +1421,7 @@ func (q *Queries) GetAttestKey(ctx context.Context, keyID string) (AttestKey, er
 }
 
 const getBookmark = `-- name: GetBookmark :one
-SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks WHERE user_id = $1 AND bookmark_uuid = $2
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at, excerpt, end_time_secs, trim_modified, tags, tags_modified FROM bookmarks WHERE user_id = $1 AND bookmark_uuid = $2
 `
 
 type GetBookmarkParams struct {
@@ -1444,12 +1444,17 @@ func (q *Queries) GetBookmark(ctx context.Context, arg GetBookmarkParams) (Bookm
 		&i.IsDeleted,
 		&i.IsDeletedModified,
 		&i.ModifiedAt,
+		&i.Excerpt,
+		&i.EndTimeSecs,
+		&i.TrimModified,
+		&i.Tags,
+		&i.TagsModified,
 	)
 	return i, err
 }
 
 const getBookmarks = `-- name: GetBookmarks :many
-SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at, excerpt, end_time_secs, trim_modified, tags, tags_modified FROM bookmarks
 WHERE user_id = $1 AND NOT is_deleted
 `
 
@@ -1474,6 +1479,11 @@ func (q *Queries) GetBookmarks(ctx context.Context, userID int64) ([]Bookmark, e
 			&i.IsDeleted,
 			&i.IsDeletedModified,
 			&i.ModifiedAt,
+			&i.Excerpt,
+			&i.EndTimeSecs,
+			&i.TrimModified,
+			&i.Tags,
+			&i.TagsModified,
 		); err != nil {
 			return nil, err
 		}
@@ -1486,7 +1496,7 @@ func (q *Queries) GetBookmarks(ctx context.Context, userID int64) ([]Bookmark, e
 }
 
 const getBookmarksForEpisodes = `-- name: GetBookmarksForEpisodes :many
-SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at, excerpt, end_time_secs, trim_modified, tags, tags_modified FROM bookmarks
 WHERE user_id = $1 AND episode_uuid = ANY($2::uuid[]) AND NOT is_deleted
 `
 
@@ -1516,6 +1526,11 @@ func (q *Queries) GetBookmarksForEpisodes(ctx context.Context, arg GetBookmarksF
 			&i.IsDeleted,
 			&i.IsDeletedModified,
 			&i.ModifiedAt,
+			&i.Excerpt,
+			&i.EndTimeSecs,
+			&i.TrimModified,
+			&i.Tags,
+			&i.TagsModified,
 		); err != nil {
 			return nil, err
 		}
@@ -1528,7 +1543,7 @@ func (q *Queries) GetBookmarksForEpisodes(ctx context.Context, arg GetBookmarksF
 }
 
 const getBookmarksModifiedSince = `-- name: GetBookmarksModifiedSince :many
-SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at, excerpt, end_time_secs, trim_modified, tags, tags_modified FROM bookmarks
 WHERE user_id = $1 AND modified_at > $2 AND modified_at <= $3
 `
 
@@ -1559,6 +1574,11 @@ func (q *Queries) GetBookmarksModifiedSince(ctx context.Context, arg GetBookmark
 			&i.IsDeleted,
 			&i.IsDeletedModified,
 			&i.ModifiedAt,
+			&i.Excerpt,
+			&i.EndTimeSecs,
+			&i.TrimModified,
+			&i.Tags,
+			&i.TagsModified,
 		); err != nil {
 			return nil, err
 		}
@@ -7147,8 +7167,9 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 const upsertBookmark = `-- name: UpsertBookmark :exec
 INSERT INTO bookmarks (
     user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title,
-    title_modified, created_at, is_deleted, is_deleted_modified, modified_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    title_modified, created_at, is_deleted, is_deleted_modified, modified_at,
+    excerpt, end_time_secs, trim_modified, tags, tags_modified
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (user_id, bookmark_uuid) DO UPDATE SET
     podcast_uuid = EXCLUDED.podcast_uuid,
     episode_uuid = EXCLUDED.episode_uuid,
@@ -7158,7 +7179,12 @@ ON CONFLICT (user_id, bookmark_uuid) DO UPDATE SET
     created_at = EXCLUDED.created_at,
     is_deleted = EXCLUDED.is_deleted,
     is_deleted_modified = EXCLUDED.is_deleted_modified,
-    modified_at = EXCLUDED.modified_at
+    modified_at = EXCLUDED.modified_at,
+    excerpt = EXCLUDED.excerpt,
+    end_time_secs = EXCLUDED.end_time_secs,
+    trim_modified = EXCLUDED.trim_modified,
+    tags = EXCLUDED.tags,
+    tags_modified = EXCLUDED.tags_modified
 `
 
 type UpsertBookmarkParams struct {
@@ -7173,6 +7199,11 @@ type UpsertBookmarkParams struct {
 	IsDeleted         bool
 	IsDeletedModified int64
 	ModifiedAt        int64
+	Excerpt           string
+	EndTimeSecs       float64
+	TrimModified      int64
+	Tags              []string
+	TagsModified      int64
 }
 
 func (q *Queries) UpsertBookmark(ctx context.Context, arg UpsertBookmarkParams) error {
@@ -7188,6 +7219,11 @@ func (q *Queries) UpsertBookmark(ctx context.Context, arg UpsertBookmarkParams) 
 		arg.IsDeleted,
 		arg.IsDeletedModified,
 		arg.ModifiedAt,
+		arg.Excerpt,
+		arg.EndTimeSecs,
+		arg.TrimModified,
+		arg.Tags,
+		arg.TagsModified,
 	)
 	return err
 }

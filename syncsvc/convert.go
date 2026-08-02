@@ -194,7 +194,7 @@ func orEmpty(s *string) string {
 }
 
 func bookmarkToProto(row db.Bookmark) *pb.SyncUserBookmark {
-	return &pb.SyncUserBookmark{
+	rec := &pb.SyncUserBookmark{
 		BookmarkUuid:      row.BookmarkUuid,
 		PodcastUuid:       row.PodcastUuid,
 		EpisodeUuid:       row.EpisodeUuid,
@@ -205,6 +205,20 @@ func bookmarkToProto(row db.Bookmark) *pb.SyncUserBookmark {
 		IsDeleted:         wrapperspb.Bool(row.IsDeleted),
 		IsDeletedModified: wrapperspb.Int64(row.IsDeletedModified),
 	}
+	// Highlight fields (ADR-0016): only emitted when set, so pre-highlight
+	// clients and rows never see spurious presence.
+	if row.Excerpt != "" {
+		rec.Excerpt = wrapperspb.String(row.Excerpt)
+		rec.EndTime = wrapperspb.Double(row.EndTimeSecs)
+	}
+	if row.TrimModified != 0 {
+		rec.TrimModified = wrapperspb.Int64(row.TrimModified)
+	}
+	if row.TagsModified != 0 {
+		rec.Tags = row.Tags
+		rec.TagsModified = wrapperspb.Int64(row.TagsModified)
+	}
+	return rec
 }
 
 func bookmarkToResponse(row db.Bookmark) *pb.BookmarkResponse {
@@ -215,5 +229,10 @@ func bookmarkToResponse(row db.Bookmark) *pb.BookmarkResponse {
 		Time:         row.TimeSecs,
 		Title:        row.Title,
 		CreatedAt:    timestamppb.New(row.CreatedAt),
+		Excerpt:      row.Excerpt,
+		EndTime:      row.EndTimeSecs,
+		TrimModified: row.TrimModified,
+		Tags:         row.Tags,
+		TagsModified: row.TagsModified,
 	}
 }

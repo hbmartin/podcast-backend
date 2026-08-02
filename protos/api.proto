@@ -258,6 +258,14 @@ message SyncUserBookmark {
   // Fork: smart-highlight enrichment (iOS Bookmark migration-80 columns).
   google.protobuf.StringValue excerpt = 1001;
   google.protobuf.DoubleValue end_time = 1002;
+  // Fork (ADR-0016, iOS migration 87): user-authored trim + tags. A set
+  // trim_modified marks excerpt/end_time as user-edited: it merges LWW against
+  // another trim stamp and always beats machine-derived enrichment. Tags merge
+  // as a whole set, LWW by tags_modified (never per-tag); tags are only
+  // applied when tags_modified is present.
+  google.protobuf.Int64Value trim_modified = 1003;
+  repeated string tags = 1004;
+  google.protobuf.Int64Value tags_modified = 1005;
 }
 
 message PodcastSettings {
@@ -404,6 +412,13 @@ message BookmarkResponse {
   string title = 6;
   // JSON name is camelCase in the client's nameMap (upstream quirk).
   google.protobuf.Timestamp createdAt = 7;
+  // ---- Fork extensions (>= 1001, ADR-0016): smart-highlight fields so full
+  // sync restores enrichment, trims and tags. Empty string / 0 = not set. ----
+  string excerpt = 1001;
+  double end_time = 1002;
+  int64 trim_modified = 1003;
+  repeated string tags = 1004;
+  int64 tags_modified = 1005;
 }
 
 message StarredEpisodesResponse {
@@ -823,6 +838,11 @@ message ChangeableSettings {
   BoolSetting adaptive_effects = 1011;
   BoolSetting allow_cellular_downloads = 1012;
   BoolSetting allow_cellular_auto_downloads = 1013;
+  // Highlights program (ADR-0016): capture/editor/prompt-style preferences.
+  BoolSetting review_highlight_after_capture = 1014;
+  StringSetting highlight_style_preset = 1015;
+  StringSetting highlight_style_custom = 1016;
+  Int32Setting highlight_confirmation_style = 1017;
 }
 
 message NamedSettingsResponse {
@@ -941,6 +961,11 @@ message NamedSettingsResponse {
   BoolSetting adaptive_effects = 1011;
   BoolSetting allow_cellular_downloads = 1012;
   BoolSetting allow_cellular_auto_downloads = 1013;
+  // Highlights program (ADR-0016): capture/editor/prompt-style preferences.
+  BoolSetting review_highlight_after_capture = 1014;
+  StringSetting highlight_style_preset = 1015;
+  StringSetting highlight_style_custom = 1016;
+  Int32Setting highlight_confirmation_style = 1017;
 }
 
 message PodcastRatingAddRequest {

@@ -66,7 +66,7 @@ cobertura: ## Run the tests of the project and export a cobertura coverage xml
 	$(GOHOME)gocov-xml < profile.json > coverage.xml
 
 ## Codegen:
-PROTOC_VERSION=35.0
+PROTOC_VERSION=35.1
 
 proto: ## Regenerate Go protobuf code from protos/api.proto (requires protoc $(PROTOC_VERSION))
 	@actual="$$(protoc --version 2>/dev/null || true)"; \

@@ -262,6 +262,113 @@ func TestBookmarkTitleLWW(t *testing.T) {
 	assert.Equal(t, "newer", store.bookmarks["bm-1"].Title)
 }
 
+// ADR-0016: machine enrichment fills once; a user trim beats machine state and
+// merges LWW against other trims; tags replace as a whole set LWW by stamp.
+func TestBookmarkHighlightMergeSemantics(t *testing.T) {
+	store := newFakeStore()
+	engine := &Engine{DB: store}
+	ctx := context.Background()
+
+	base := func() *pb.SyncUserBookmark {
+		return &pb.SyncUserBookmark{
+			BookmarkUuid: "bm-1",
+			PodcastUuid:  "pod-1",
+			EpisodeUuid:  "ep-1",
+			CreatedAt:    timestamppb.Now(),
+			Time:         wrapperspb.Int32(42),
+		}
+	}
+	apply := func(rec *pb.SyncUserBookmark) {
+		_, err := engine.ApplyUpdate(ctx, 1, &pb.SyncUpdateRequest{Records: []*pb.Record{
+			{Record: &pb.Record_Bookmark{Bookmark: rec}},
+		}})
+		assert.NoError(t, err)
+	}
+
+	// Machine enrichment fills the empty window.
+	machine := base()
+	machine.Excerpt = wrapperspb.String("machine one")
+	machine.EndTime = wrapperspb.Double(50)
+	apply(machine)
+	assert.Equal(t, "machine one", store.bookmarks["bm-1"].Excerpt)
+	assert.Equal(t, float64(50), store.bookmarks["bm-1"].EndTimeSecs)
+	assert.Equal(t, int64(0), store.bookmarks["bm-1"].TrimModified)
+
+	// A second machine enrichment never overwrites (first writer wins).
+	machine2 := base()
+	machine2.Excerpt = wrapperspb.String("machine two")
+	machine2.EndTime = wrapperspb.Double(60)
+	apply(machine2)
+	assert.Equal(t, "machine one", store.bookmarks["bm-1"].Excerpt)
+
+	// A user trim beats machine state.
+	trim := base()
+	trim.Excerpt = wrapperspb.String("user trim")
+	trim.EndTime = wrapperspb.Double(55)
+	trim.TrimModified = wrapperspb.Int64(2000)
+	apply(trim)
+	assert.Equal(t, "user trim", store.bookmarks["bm-1"].Excerpt)
+	assert.Equal(t, float64(55), store.bookmarks["bm-1"].EndTimeSecs)
+	assert.Equal(t, int64(2000), store.bookmarks["bm-1"].TrimModified)
+
+	// Machine enrichment after a trim is ignored.
+	apply(machine2)
+	assert.Equal(t, "user trim", store.bookmarks["bm-1"].Excerpt)
+
+	// A stale trim loses; a newer trim wins.
+	staleTrim := base()
+	staleTrim.Excerpt = wrapperspb.String("stale trim")
+	staleTrim.EndTime = wrapperspb.Double(48)
+	staleTrim.TrimModified = wrapperspb.Int64(1000)
+	apply(staleTrim)
+	assert.Equal(t, "user trim", store.bookmarks["bm-1"].Excerpt)
+
+	newerTrim := base()
+	newerTrim.Excerpt = wrapperspb.String("newer trim")
+	newerTrim.EndTime = wrapperspb.Double(58)
+	newerTrim.TrimModified = wrapperspb.Int64(3000)
+	apply(newerTrim)
+	assert.Equal(t, "newer trim", store.bookmarks["bm-1"].Excerpt)
+
+	// Tags: whole-set LWW by stamp; absent stamp leaves the set untouched.
+	tagged := base()
+	tagged.Tags = []string{"ai", "investing"}
+	tagged.TagsModified = wrapperspb.Int64(2000)
+	apply(tagged)
+	assert.Equal(t, []string{"ai", "investing"}, store.bookmarks["bm-1"].Tags)
+
+	staleTags := base()
+	staleTags.Tags = []string{"stale"}
+	staleTags.TagsModified = wrapperspb.Int64(1000)
+	apply(staleTags)
+	assert.Equal(t, []string{"ai", "investing"}, store.bookmarks["bm-1"].Tags)
+
+	noStamp := base()
+	noStamp.Tags = []string{"ignored"}
+	apply(noStamp)
+	assert.Equal(t, []string{"ai", "investing"}, store.bookmarks["bm-1"].Tags)
+
+	emptied := base()
+	emptied.Tags = nil
+	emptied.TagsModified = wrapperspb.Int64(4000)
+	apply(emptied)
+	assert.Empty(t, store.bookmarks["bm-1"].Tags)
+	assert.Equal(t, int64(4000), store.bookmarks["bm-1"].TagsModified)
+
+	// Round-trip emission: excerpt/trim/tags only appear when set.
+	row := store.bookmarks["bm-1"]
+	proto := bookmarkToProto(row)
+	assert.Equal(t, "newer trim", proto.Excerpt.GetValue())
+	assert.Equal(t, int64(3000), proto.TrimModified.GetValue())
+	assert.NotNil(t, proto.TagsModified)
+
+	fresh := bookmarkToProto(db.Bookmark{BookmarkUuid: "bm-2", CreatedAt: row.CreatedAt})
+	assert.Nil(t, fresh.Excerpt)
+	assert.Nil(t, fresh.TrimModified)
+	assert.Nil(t, fresh.TagsModified)
+	assert.Empty(t, fresh.Tags)
+}
+
 func upNextChange(action int32, uuid string, modified int64) *pb.UpNextChanges_Change {
 	return &pb.UpNextChanges_Change{Uuid: uuid, Action: action, Modified: modified, Title: "t-" + uuid}
 }

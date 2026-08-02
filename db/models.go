@@ -37,6 +37,11 @@ type Bookmark struct {
 	IsDeleted         bool
 	IsDeletedModified int64
 	ModifiedAt        int64
+	Excerpt           string
+	EndTimeSecs       float64
+	TrimModified      int64
+	Tags              []string
+	TagsModified      int64
 }
 
 type CorpusArtifact struct {

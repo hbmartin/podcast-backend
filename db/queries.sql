@@ -242,8 +242,9 @@ SELECT * FROM bookmarks WHERE user_id = $1 AND bookmark_uuid = $2;
 -- name: UpsertBookmark :exec
 INSERT INTO bookmarks (
     user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title,
-    title_modified, created_at, is_deleted, is_deleted_modified, modified_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    title_modified, created_at, is_deleted, is_deleted_modified, modified_at,
+    excerpt, end_time_secs, trim_modified, tags, tags_modified
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (user_id, bookmark_uuid) DO UPDATE SET
     podcast_uuid = EXCLUDED.podcast_uuid,
     episode_uuid = EXCLUDED.episode_uuid,
@@ -253,7 +254,12 @@ ON CONFLICT (user_id, bookmark_uuid) DO UPDATE SET
     created_at = EXCLUDED.created_at,
     is_deleted = EXCLUDED.is_deleted,
     is_deleted_modified = EXCLUDED.is_deleted_modified,
-    modified_at = EXCLUDED.modified_at;
+    modified_at = EXCLUDED.modified_at,
+    excerpt = EXCLUDED.excerpt,
+    end_time_secs = EXCLUDED.end_time_secs,
+    trim_modified = EXCLUDED.trim_modified,
+    tags = EXCLUDED.tags,
+    tags_modified = EXCLUDED.tags_modified;
 
 -- name: GetBookmarksModifiedSince :many
 SELECT * FROM bookmarks

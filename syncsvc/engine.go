@@ -331,8 +331,17 @@ func applyFolderRecord(ctx context.Context, q db.Querier, userID int64, token in
 	})
 }
 
-// applyBookmarkRecord honors the per-field modified tokens on title and
-// isDeleted; other fields are immutable after creation.
+// applyBookmarkRecord honors the per-field modified tokens on title, isDeleted,
+// the trim window and the tag set; podcast/episode/time/createdAt are immutable
+// after creation.
+//
+// Highlight semantics (ADR-0016): excerpt/end_time are machine-derived until a
+// trim stamp exists. Machine enrichment only ever fills an empty, untrimmed
+// window (first writer wins — devices compute equivalent excerpts, and a
+// deterministic fill-in avoids replay-order divergence). A record carrying
+// trim_modified applies excerpt/end_time/stamp together, LWW against another
+// trim stamp, and always beats machine-derived state. Tags replace as a whole
+// set, LWW by tags_modified; the set is only touched when the stamp is present.
 func applyBookmarkRecord(ctx context.Context, q db.Querier, userID int64, token int64, rec *pb.SyncUserBookmark) error {
 	if rec.BookmarkUuid == "" {
 		return nil
@@ -365,6 +374,14 @@ func applyBookmarkRecord(ctx context.Context, q db.Querier, userID int64, token 
 		IsDeleted:         existing.IsDeleted,
 		IsDeletedModified: existing.IsDeletedModified,
 		ModifiedAt:        token,
+		Excerpt:           existing.Excerpt,
+		EndTimeSecs:       existing.EndTimeSecs,
+		TrimModified:      existing.TrimModified,
+		Tags:              existing.Tags,
+		TagsModified:      existing.TagsModified,
+	}
+	if params.Tags == nil {
+		params.Tags = []string{}
 	}
 
 	if rec.Title != nil && modifiedAfter(rec.TitleModified, existing.TitleModified) {
@@ -374,6 +391,26 @@ func applyBookmarkRecord(ctx context.Context, q db.Querier, userID int64, token 
 	if rec.IsDeleted != nil && modifiedAfter(rec.IsDeletedModified, existing.IsDeletedModified) {
 		params.IsDeleted = rec.IsDeleted.Value
 		params.IsDeletedModified = rec.IsDeletedModified.Value
+	}
+
+	if rec.TrimModified != nil && modifiedAfter(rec.TrimModified, existing.TrimModified) {
+		// User trim: window + stamp apply together, beating whatever was stored.
+		params.Excerpt = rec.Excerpt.GetValue()
+		params.EndTimeSecs = rec.EndTime.GetValue()
+		params.TrimModified = rec.TrimModified.Value
+	} else if rec.TrimModified == nil && existing.TrimModified == 0 &&
+		existing.Excerpt == "" && rec.Excerpt.GetValue() != "" {
+		// Machine enrichment: fill-in only, never overwrite (first writer wins).
+		params.Excerpt = rec.Excerpt.GetValue()
+		params.EndTimeSecs = rec.EndTime.GetValue()
+	}
+
+	if rec.TagsModified != nil && modifiedAfter(rec.TagsModified, existing.TagsModified) {
+		params.Tags = rec.Tags
+		if params.Tags == nil {
+			params.Tags = []string{}
+		}
+		params.TagsModified = rec.TagsModified.Value
 	}
 
 	return q.UpsertBookmark(ctx, params)
