@@ -285,4 +285,16 @@ type Querier interface {
 	InsertMilestoneBackdated(ctx context.Context, arg InsertMilestoneBackdatedParams) (int64, error)
 	CountMilestonesForUser(ctx context.Context, userID int64) (int64, error)
 	ReverseEpisodeAliases(ctx context.Context, catalogUuid string) ([]string, error)
+	// Person index (Highlights B2, ADR-0017)
+	FindPersonByAlias(ctx context.Context, aliasFolded string) (Person, error)
+	CreatePerson(ctx context.Context, arg CreatePersonParams) (Person, error)
+	AddPersonAlias(ctx context.Context, arg AddPersonAliasParams) error
+	GetPerson(ctx context.Context, id int64) (Person, error)
+	SearchPersons(ctx context.Context, arg SearchPersonsParams) ([]Person, error)
+	UpsertPersonAppearance(ctx context.Context, arg UpsertPersonAppearanceParams) (int64, error)
+	GetPersonAppearances(ctx context.Context, arg GetPersonAppearancesParams) ([]PersonAppearance, error)
+	FollowPerson(ctx context.Context, arg FollowPersonParams) error
+	UnfollowPerson(ctx context.Context, arg UnfollowPersonParams) error
+	GetFollowedPersons(ctx context.Context, userID int64) ([]Person, error)
+	GetPersonFollowerIDs(ctx context.Context, personID int64) ([]int64, error)
 }

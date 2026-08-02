@@ -242,3 +242,47 @@ func (n *Notifier) NotifyDigest(ctx context.Context, targetUserID int64, title, 
 	}
 	return errors.Join(failures...)
 }
+
+// NotifyPersonAppearance fans out to followers of a person newly credited on
+// an ingested episode (Highlights B2, ADR-0017). Person follows are private
+// account state (no joined profile required), so this deliberately bypasses
+// the social-profile gate — the follow itself is the opt-in.
+func (n *Notifier) NotifyPersonAppearance(ctx context.Context, personID int64, personName, podcastUuid, episodeUuid string) {
+	followers, err := n.DB.GetPersonFollowerIDs(ctx, personID)
+	if err != nil || len(followers) == 0 {
+		return
+	}
+
+	podcast, err := n.DB.GetPodcastByUUID(ctx, podcastUuid)
+	if err != nil {
+		return
+	}
+	episode, err := n.DB.GetEpisodeByUUID(ctx, episodeUuid)
+	if err != nil {
+		return
+	}
+
+	notification := Notification{
+		Title:      personName,
+		Body:       "appears on " + podcast.Title + ": " + episode.Title,
+		Category:   "person_appearance",
+		CollapseID: "person-" + episodeUuid,
+		Data: map[string]string{
+			"person_id":    strconv.FormatInt(personID, 10),
+			"podcast_uuid": podcastUuid,
+			"episode_uuid": episodeUuid,
+		},
+	}
+
+	for _, userID := range followers {
+		targets, err := n.DB.GetPushTargetsForUser(ctx, userID)
+		if err != nil {
+			continue
+		}
+		for _, target := range targets {
+			if err := n.Sender.Send(ctx, target.PushToken, target.PushEnvironment, notification); err != nil {
+				slog.Warn("push: person appearance delivery failed", "person", personID, "error", err)
+			}
+		}
+	}
+}

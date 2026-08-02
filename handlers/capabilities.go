@@ -21,6 +21,7 @@ func (h Handlers) GetCapabilities(w http.ResponseWriter, r *http.Request) {
 			"avatar":            h.AvatarEnabled,
 			"folderSuggestions": foldersAvailable,
 			"corpus":            h.CorpusEnabled,
+			"person_follows":    true,
 		},
 	}
 	if keyID, ok := r.Context().Value(attestKeyIDCtx).(string); ok && keyID != "" {

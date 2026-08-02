@@ -1950,3 +1950,56 @@ LIMIT sqlc.arg('limit');
 
 -- name: ReverseEpisodeAliases :many
 SELECT device_uuid FROM episode_aliases WHERE catalog_uuid = $1 LIMIT 5;
+
+-- Person index (Highlights B2, ADR-0017): identity, aliases, appearances, follows.
+
+-- name: FindPersonByAlias :one
+SELECT p.* FROM persons p
+JOIN person_aliases a ON a.person_id = p.id
+WHERE a.alias_folded = $1
+ORDER BY p.id
+LIMIT 1;
+
+-- name: CreatePerson :one
+INSERT INTO persons (canonical_name, display_name) VALUES ($1, $2) RETURNING *;
+
+-- name: AddPersonAlias :exec
+INSERT INTO person_aliases (person_id, alias_folded, source) VALUES ($1, $2, $3)
+ON CONFLICT (alias_folded, person_id) DO NOTHING;
+
+-- name: GetPerson :one
+SELECT * FROM persons WHERE id = $1;
+
+-- name: SearchPersons :many
+SELECT DISTINCT p.* FROM persons p
+JOIN person_aliases a ON a.person_id = p.id
+WHERE a.alias_folded LIKE $1 || '%'
+ORDER BY p.display_name
+LIMIT $2;
+
+-- name: UpsertPersonAppearance :one
+INSERT INTO person_appearances (person_id, podcast_uuid, episode_uuid, role)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (person_id, episode_uuid) DO NOTHING
+RETURNING person_id;
+
+-- name: GetPersonAppearances :many
+SELECT * FROM person_appearances WHERE person_id = $1
+ORDER BY created_at DESC
+LIMIT $2;
+
+-- name: FollowPerson :exec
+INSERT INTO person_follows (user_id, person_id) VALUES ($1, $2)
+ON CONFLICT (user_id, person_id) DO NOTHING;
+
+-- name: UnfollowPerson :exec
+DELETE FROM person_follows WHERE user_id = $1 AND person_id = $2;
+
+-- name: GetFollowedPersons :many
+SELECT p.* FROM persons p
+JOIN person_follows f ON f.person_id = p.id
+WHERE f.user_id = $1
+ORDER BY p.display_name;
+
+-- name: GetPersonFollowerIDs :many
+SELECT user_id FROM person_follows WHERE person_id = $1;

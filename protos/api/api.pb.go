@@ -23080,6 +23080,358 @@ func (x *PodcastProofResponse) GetTotalCount() int32 {
 	return 0
 }
 
+type PersonSummary struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	DisplayName   string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PersonSummary) Reset() {
+	*x = PersonSummary{}
+	mi := &file_api_proto_msgTypes[276]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PersonSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PersonSummary) ProtoMessage() {}
+
+func (x *PersonSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[276]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PersonSummary.ProtoReflect.Descriptor instead.
+func (*PersonSummary) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{276}
+}
+
+func (x *PersonSummary) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *PersonSummary) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+type PersonAppearance struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PodcastUuid   string                 `protobuf:"bytes,1,opt,name=podcast_uuid,json=podcastUuid,proto3" json:"podcast_uuid,omitempty"`
+	EpisodeUuid   string                 `protobuf:"bytes,2,opt,name=episode_uuid,json=episodeUuid,proto3" json:"episode_uuid,omitempty"`
+	Role          string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PersonAppearance) Reset() {
+	*x = PersonAppearance{}
+	mi := &file_api_proto_msgTypes[277]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PersonAppearance) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PersonAppearance) ProtoMessage() {}
+
+func (x *PersonAppearance) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[277]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PersonAppearance.ProtoReflect.Descriptor instead.
+func (*PersonAppearance) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{277}
+}
+
+func (x *PersonAppearance) GetPodcastUuid() string {
+	if x != nil {
+		return x.PodcastUuid
+	}
+	return ""
+}
+
+func (x *PersonAppearance) GetEpisodeUuid() string {
+	if x != nil {
+		return x.EpisodeUuid
+	}
+	return ""
+}
+
+func (x *PersonAppearance) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+// POST person/get — the person page: appearances + the caller's follow state.
+type PersonGetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PersonGetRequest) Reset() {
+	*x = PersonGetRequest{}
+	mi := &file_api_proto_msgTypes[278]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PersonGetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PersonGetRequest) ProtoMessage() {}
+
+func (x *PersonGetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[278]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PersonGetRequest.ProtoReflect.Descriptor instead.
+func (*PersonGetRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{278}
+}
+
+func (x *PersonGetRequest) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+type PersonGetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Person        *PersonSummary         `protobuf:"bytes,1,opt,name=person,proto3" json:"person,omitempty"`
+	Appearances   []*PersonAppearance    `protobuf:"bytes,2,rep,name=appearances,proto3" json:"appearances,omitempty"`
+	Following     bool                   `protobuf:"varint,3,opt,name=following,proto3" json:"following,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PersonGetResponse) Reset() {
+	*x = PersonGetResponse{}
+	mi := &file_api_proto_msgTypes[279]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PersonGetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PersonGetResponse) ProtoMessage() {}
+
+func (x *PersonGetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[279]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PersonGetResponse.ProtoReflect.Descriptor instead.
+func (*PersonGetResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{279}
+}
+
+func (x *PersonGetResponse) GetPerson() *PersonSummary {
+	if x != nil {
+		return x.Person
+	}
+	return nil
+}
+
+func (x *PersonGetResponse) GetAppearances() []*PersonAppearance {
+	if x != nil {
+		return x.Appearances
+	}
+	return nil
+}
+
+func (x *PersonGetResponse) GetFollowing() bool {
+	if x != nil {
+		return x.Following
+	}
+	return false
+}
+
+// POST person/search — folded-alias prefix search.
+type PersonSearchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PersonSearchRequest) Reset() {
+	*x = PersonSearchRequest{}
+	mi := &file_api_proto_msgTypes[280]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PersonSearchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PersonSearchRequest) ProtoMessage() {}
+
+func (x *PersonSearchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[280]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PersonSearchRequest.ProtoReflect.Descriptor instead.
+func (*PersonSearchRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{280}
+}
+
+func (x *PersonSearchRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+type PersonListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Persons       []*PersonSummary       `protobuf:"bytes,1,rep,name=persons,proto3" json:"persons,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PersonListResponse) Reset() {
+	*x = PersonListResponse{}
+	mi := &file_api_proto_msgTypes[281]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PersonListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PersonListResponse) ProtoMessage() {}
+
+func (x *PersonListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[281]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PersonListResponse.ProtoReflect.Descriptor instead.
+func (*PersonListResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{281}
+}
+
+func (x *PersonListResponse) GetPersons() []*PersonSummary {
+	if x != nil {
+		return x.Persons
+	}
+	return nil
+}
+
+// POST person/follow and person/unfollow. Follows are private account state
+// (no joined profile required); the push is the follow's whole point.
+type PersonFollowRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PersonId      int64                  `protobuf:"varint,1,opt,name=person_id,json=personId,proto3" json:"person_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PersonFollowRequest) Reset() {
+	*x = PersonFollowRequest{}
+	mi := &file_api_proto_msgTypes[282]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PersonFollowRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PersonFollowRequest) ProtoMessage() {}
+
+func (x *PersonFollowRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[282]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PersonFollowRequest.ProtoReflect.Descriptor instead.
+func (*PersonFollowRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{282}
+}
+
+func (x *PersonFollowRequest) GetPersonId() int64 {
+	if x != nil {
+		return x.PersonId
+	}
+	return 0
+}
+
 type UpNextChanges_Change struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
 	Uuid          string                  `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
@@ -23096,7 +23448,7 @@ type UpNextChanges_Change struct {
 
 func (x *UpNextChanges_Change) Reset() {
 	*x = UpNextChanges_Change{}
-	mi := &file_api_proto_msgTypes[276]
+	mi := &file_api_proto_msgTypes[283]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23108,7 +23460,7 @@ func (x *UpNextChanges_Change) String() string {
 func (*UpNextChanges_Change) ProtoMessage() {}
 
 func (x *UpNextChanges_Change) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[276]
+	mi := &file_api_proto_msgTypes[283]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23193,7 +23545,7 @@ type UpNextResponse_EpisodeResponse struct {
 
 func (x *UpNextResponse_EpisodeResponse) Reset() {
 	*x = UpNextResponse_EpisodeResponse{}
-	mi := &file_api_proto_msgTypes[277]
+	mi := &file_api_proto_msgTypes[284]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23205,7 +23557,7 @@ func (x *UpNextResponse_EpisodeResponse) String() string {
 func (*UpNextResponse_EpisodeResponse) ProtoMessage() {}
 
 func (x *UpNextResponse_EpisodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[277]
+	mi := &file_api_proto_msgTypes[284]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23267,7 +23619,7 @@ type UpNextResponse_EpisodeSyncResponse struct {
 
 func (x *UpNextResponse_EpisodeSyncResponse) Reset() {
 	*x = UpNextResponse_EpisodeSyncResponse{}
-	mi := &file_api_proto_msgTypes[278]
+	mi := &file_api_proto_msgTypes[285]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23279,7 +23631,7 @@ func (x *UpNextResponse_EpisodeSyncResponse) String() string {
 func (*UpNextResponse_EpisodeSyncResponse) ProtoMessage() {}
 
 func (x *UpNextResponse_EpisodeSyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[278]
+	mi := &file_api_proto_msgTypes[285]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25388,7 +25740,26 @@ const file_api_proto_rawDesc = "" +
 	"\x14PodcastProofResponse\x12'\n" +
 	"\x0fvisible_handles\x18\x01 \x03(\tR\x0evisibleHandles\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount*\x98\x01\n" +
+	"totalCount\"B\n" +
+	"\rPersonSummary\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12!\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\"l\n" +
+	"\x10PersonAppearance\x12!\n" +
+	"\fpodcast_uuid\x18\x01 \x01(\tR\vpodcastUuid\x12!\n" +
+	"\fepisode_uuid\x18\x02 \x01(\tR\vepisodeUuid\x12\x12\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\"\"\n" +
+	"\x10PersonGetRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"\x96\x01\n" +
+	"\x11PersonGetResponse\x12*\n" +
+	"\x06person\x18\x01 \x01(\v2\x12.api.PersonSummaryR\x06person\x127\n" +
+	"\vappearances\x18\x02 \x03(\v2\x15.api.PersonAppearanceR\vappearances\x12\x1c\n" +
+	"\tfollowing\x18\x03 \x01(\bR\tfollowing\"+\n" +
+	"\x13PersonSearchRequest\x12\x14\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\"B\n" +
+	"\x12PersonListResponse\x12,\n" +
+	"\apersons\x18\x01 \x03(\v2\x12.api.PersonSummaryR\apersons\"2\n" +
+	"\x13PersonFollowRequest\x12\x1b\n" +
+	"\tperson_id\x18\x01 \x01(\x03R\bpersonId*\x98\x01\n" +
 	"\x10SocialVisibility\x12!\n" +
 	"\x1dSOCIAL_VISIBILITY_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19SOCIAL_VISIBILITY_PRIVATE\x10\x01\x12\x1c\n" +
@@ -25484,7 +25855,7 @@ func file_api_proto_rawDescGZIP() []byte {
 }
 
 var file_api_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
-var file_api_proto_msgTypes = make([]protoimpl.MessageInfo, 279)
+var file_api_proto_msgTypes = make([]protoimpl.MessageInfo, 286)
 var file_api_proto_goTypes = []any{
 	(SocialVisibility)(0),                         // 0: api.SocialVisibility
 	(HandleStatus)(0),                             // 1: api.HandleStatus
@@ -25774,21 +26145,28 @@ var file_api_proto_goTypes = []any{
 	(*SocialTrendingResponse)(nil),                // 285: api.SocialTrendingResponse
 	(*PodcastProofRequest)(nil),                   // 286: api.PodcastProofRequest
 	(*PodcastProofResponse)(nil),                  // 287: api.PodcastProofResponse
-	(*UpNextChanges_Change)(nil),                  // 288: api.UpNextChanges.Change
-	(*UpNextResponse_EpisodeResponse)(nil),        // 289: api.UpNextResponse.EpisodeResponse
-	(*UpNextResponse_EpisodeSyncResponse)(nil),    // 290: api.UpNextResponse.EpisodeSyncResponse
-	(*wrapperspb.BoolValue)(nil),                  // 291: google.protobuf.BoolValue
-	(*wrapperspb.Int32Value)(nil),                 // 292: google.protobuf.Int32Value
-	(*wrapperspb.StringValue)(nil),                // 293: google.protobuf.StringValue
-	(*timestamppb.Timestamp)(nil),                 // 294: google.protobuf.Timestamp
-	(*wrapperspb.Int64Value)(nil),                 // 295: google.protobuf.Int64Value
-	(*wrapperspb.DoubleValue)(nil),                // 296: google.protobuf.DoubleValue
+	(*PersonSummary)(nil),                         // 288: api.PersonSummary
+	(*PersonAppearance)(nil),                      // 289: api.PersonAppearance
+	(*PersonGetRequest)(nil),                      // 290: api.PersonGetRequest
+	(*PersonGetResponse)(nil),                     // 291: api.PersonGetResponse
+	(*PersonSearchRequest)(nil),                   // 292: api.PersonSearchRequest
+	(*PersonListResponse)(nil),                    // 293: api.PersonListResponse
+	(*PersonFollowRequest)(nil),                   // 294: api.PersonFollowRequest
+	(*UpNextChanges_Change)(nil),                  // 295: api.UpNextChanges.Change
+	(*UpNextResponse_EpisodeResponse)(nil),        // 296: api.UpNextResponse.EpisodeResponse
+	(*UpNextResponse_EpisodeSyncResponse)(nil),    // 297: api.UpNextResponse.EpisodeSyncResponse
+	(*wrapperspb.BoolValue)(nil),                  // 298: google.protobuf.BoolValue
+	(*wrapperspb.Int32Value)(nil),                 // 299: google.protobuf.Int32Value
+	(*wrapperspb.StringValue)(nil),                // 300: google.protobuf.StringValue
+	(*timestamppb.Timestamp)(nil),                 // 301: google.protobuf.Timestamp
+	(*wrapperspb.Int64Value)(nil),                 // 302: google.protobuf.Int64Value
+	(*wrapperspb.DoubleValue)(nil),                // 303: google.protobuf.DoubleValue
 }
 var file_api_proto_depIdxs = []int32{
-	291, // 0: api.RegisterResponse.success:type_name -> google.protobuf.BoolValue
-	291, // 1: api.UserChangeResponse.success:type_name -> google.protobuf.BoolValue
+	298, // 0: api.RegisterResponse.success:type_name -> google.protobuf.BoolValue
+	298, // 1: api.UserChangeResponse.success:type_name -> google.protobuf.BoolValue
 	29,  // 2: api.SyncUpdateRequest.records:type_name -> api.Record
-	292, // 3: api.SyncUpdateRequest.device_type:type_name -> google.protobuf.Int32Value
+	299, // 3: api.SyncUpdateRequest.device_type:type_name -> google.protobuf.Int32Value
 	29,  // 4: api.SyncUpdateResponse.records:type_name -> api.Record
 	30,  // 5: api.Record.podcast:type_name -> api.SyncUserPodcast
 	31,  // 6: api.Record.episode:type_name -> api.SyncUserEpisode
@@ -25796,75 +26174,75 @@ var file_api_proto_depIdxs = []int32{
 	34,  // 8: api.Record.device:type_name -> api.SyncUserDevice
 	33,  // 9: api.Record.folder:type_name -> api.SyncUserFolder
 	35,  // 10: api.Record.bookmark:type_name -> api.SyncUserBookmark
-	291, // 11: api.SyncUserPodcast.is_deleted:type_name -> google.protobuf.BoolValue
-	291, // 12: api.SyncUserPodcast.subscribed:type_name -> google.protobuf.BoolValue
-	292, // 13: api.SyncUserPodcast.auto_start_from:type_name -> google.protobuf.Int32Value
-	292, // 14: api.SyncUserPodcast.episodes_sort_order:type_name -> google.protobuf.Int32Value
-	292, // 15: api.SyncUserPodcast.auto_skip_last:type_name -> google.protobuf.Int32Value
-	293, // 16: api.SyncUserPodcast.folder_uuid:type_name -> google.protobuf.StringValue
-	292, // 17: api.SyncUserPodcast.sort_position:type_name -> google.protobuf.Int32Value
-	294, // 18: api.SyncUserPodcast.date_added:type_name -> google.protobuf.Timestamp
+	298, // 11: api.SyncUserPodcast.is_deleted:type_name -> google.protobuf.BoolValue
+	298, // 12: api.SyncUserPodcast.subscribed:type_name -> google.protobuf.BoolValue
+	299, // 13: api.SyncUserPodcast.auto_start_from:type_name -> google.protobuf.Int32Value
+	299, // 14: api.SyncUserPodcast.episodes_sort_order:type_name -> google.protobuf.Int32Value
+	299, // 15: api.SyncUserPodcast.auto_skip_last:type_name -> google.protobuf.Int32Value
+	300, // 16: api.SyncUserPodcast.folder_uuid:type_name -> google.protobuf.StringValue
+	299, // 17: api.SyncUserPodcast.sort_position:type_name -> google.protobuf.Int32Value
+	301, // 18: api.SyncUserPodcast.date_added:type_name -> google.protobuf.Timestamp
 	36,  // 19: api.SyncUserPodcast.settings:type_name -> api.PodcastSettings
-	293, // 20: api.SyncUserPodcast.feed_url:type_name -> google.protobuf.StringValue
-	293, // 21: api.SyncUserPodcast.title:type_name -> google.protobuf.StringValue
-	291, // 22: api.SyncUserEpisode.is_deleted:type_name -> google.protobuf.BoolValue
-	295, // 23: api.SyncUserEpisode.is_deleted_modified:type_name -> google.protobuf.Int64Value
-	295, // 24: api.SyncUserEpisode.duration:type_name -> google.protobuf.Int64Value
-	295, // 25: api.SyncUserEpisode.duration_modified:type_name -> google.protobuf.Int64Value
-	292, // 26: api.SyncUserEpisode.playing_status:type_name -> google.protobuf.Int32Value
-	295, // 27: api.SyncUserEpisode.playing_status_modified:type_name -> google.protobuf.Int64Value
-	295, // 28: api.SyncUserEpisode.played_up_to:type_name -> google.protobuf.Int64Value
-	295, // 29: api.SyncUserEpisode.played_up_to_modified:type_name -> google.protobuf.Int64Value
-	291, // 30: api.SyncUserEpisode.starred:type_name -> google.protobuf.BoolValue
-	295, // 31: api.SyncUserEpisode.starred_modified:type_name -> google.protobuf.Int64Value
-	295, // 32: api.SyncUserEpisode.deselected_chapters_modified:type_name -> google.protobuf.Int64Value
-	291, // 33: api.SyncUserPlaylist.is_deleted:type_name -> google.protobuf.BoolValue
-	293, // 34: api.SyncUserPlaylist.title:type_name -> google.protobuf.StringValue
-	291, // 35: api.SyncUserPlaylist.all_podcasts:type_name -> google.protobuf.BoolValue
-	293, // 36: api.SyncUserPlaylist.podcast_uuids:type_name -> google.protobuf.StringValue
-	293, // 37: api.SyncUserPlaylist.episode_uuids:type_name -> google.protobuf.StringValue
-	292, // 38: api.SyncUserPlaylist.audio_video:type_name -> google.protobuf.Int32Value
-	291, // 39: api.SyncUserPlaylist.not_downloaded:type_name -> google.protobuf.BoolValue
-	291, // 40: api.SyncUserPlaylist.downloaded:type_name -> google.protobuf.BoolValue
-	291, // 41: api.SyncUserPlaylist.downloading:type_name -> google.protobuf.BoolValue
-	291, // 42: api.SyncUserPlaylist.finished:type_name -> google.protobuf.BoolValue
-	291, // 43: api.SyncUserPlaylist.partially_played:type_name -> google.protobuf.BoolValue
-	291, // 44: api.SyncUserPlaylist.unplayed:type_name -> google.protobuf.BoolValue
-	291, // 45: api.SyncUserPlaylist.starred:type_name -> google.protobuf.BoolValue
-	291, // 46: api.SyncUserPlaylist.manual:type_name -> google.protobuf.BoolValue
-	292, // 47: api.SyncUserPlaylist.sort_position:type_name -> google.protobuf.Int32Value
-	292, // 48: api.SyncUserPlaylist.sort_type:type_name -> google.protobuf.Int32Value
-	292, // 49: api.SyncUserPlaylist.icon_id:type_name -> google.protobuf.Int32Value
-	292, // 50: api.SyncUserPlaylist.filter_hours:type_name -> google.protobuf.Int32Value
-	291, // 51: api.SyncUserPlaylist.filter_duration:type_name -> google.protobuf.BoolValue
-	292, // 52: api.SyncUserPlaylist.longer_than:type_name -> google.protobuf.Int32Value
-	292, // 53: api.SyncUserPlaylist.shorter_than:type_name -> google.protobuf.Int32Value
+	300, // 20: api.SyncUserPodcast.feed_url:type_name -> google.protobuf.StringValue
+	300, // 21: api.SyncUserPodcast.title:type_name -> google.protobuf.StringValue
+	298, // 22: api.SyncUserEpisode.is_deleted:type_name -> google.protobuf.BoolValue
+	302, // 23: api.SyncUserEpisode.is_deleted_modified:type_name -> google.protobuf.Int64Value
+	302, // 24: api.SyncUserEpisode.duration:type_name -> google.protobuf.Int64Value
+	302, // 25: api.SyncUserEpisode.duration_modified:type_name -> google.protobuf.Int64Value
+	299, // 26: api.SyncUserEpisode.playing_status:type_name -> google.protobuf.Int32Value
+	302, // 27: api.SyncUserEpisode.playing_status_modified:type_name -> google.protobuf.Int64Value
+	302, // 28: api.SyncUserEpisode.played_up_to:type_name -> google.protobuf.Int64Value
+	302, // 29: api.SyncUserEpisode.played_up_to_modified:type_name -> google.protobuf.Int64Value
+	298, // 30: api.SyncUserEpisode.starred:type_name -> google.protobuf.BoolValue
+	302, // 31: api.SyncUserEpisode.starred_modified:type_name -> google.protobuf.Int64Value
+	302, // 32: api.SyncUserEpisode.deselected_chapters_modified:type_name -> google.protobuf.Int64Value
+	298, // 33: api.SyncUserPlaylist.is_deleted:type_name -> google.protobuf.BoolValue
+	300, // 34: api.SyncUserPlaylist.title:type_name -> google.protobuf.StringValue
+	298, // 35: api.SyncUserPlaylist.all_podcasts:type_name -> google.protobuf.BoolValue
+	300, // 36: api.SyncUserPlaylist.podcast_uuids:type_name -> google.protobuf.StringValue
+	300, // 37: api.SyncUserPlaylist.episode_uuids:type_name -> google.protobuf.StringValue
+	299, // 38: api.SyncUserPlaylist.audio_video:type_name -> google.protobuf.Int32Value
+	298, // 39: api.SyncUserPlaylist.not_downloaded:type_name -> google.protobuf.BoolValue
+	298, // 40: api.SyncUserPlaylist.downloaded:type_name -> google.protobuf.BoolValue
+	298, // 41: api.SyncUserPlaylist.downloading:type_name -> google.protobuf.BoolValue
+	298, // 42: api.SyncUserPlaylist.finished:type_name -> google.protobuf.BoolValue
+	298, // 43: api.SyncUserPlaylist.partially_played:type_name -> google.protobuf.BoolValue
+	298, // 44: api.SyncUserPlaylist.unplayed:type_name -> google.protobuf.BoolValue
+	298, // 45: api.SyncUserPlaylist.starred:type_name -> google.protobuf.BoolValue
+	298, // 46: api.SyncUserPlaylist.manual:type_name -> google.protobuf.BoolValue
+	299, // 47: api.SyncUserPlaylist.sort_position:type_name -> google.protobuf.Int32Value
+	299, // 48: api.SyncUserPlaylist.sort_type:type_name -> google.protobuf.Int32Value
+	299, // 49: api.SyncUserPlaylist.icon_id:type_name -> google.protobuf.Int32Value
+	299, // 50: api.SyncUserPlaylist.filter_hours:type_name -> google.protobuf.Int32Value
+	298, // 51: api.SyncUserPlaylist.filter_duration:type_name -> google.protobuf.BoolValue
+	299, // 52: api.SyncUserPlaylist.longer_than:type_name -> google.protobuf.Int32Value
+	299, // 53: api.SyncUserPlaylist.shorter_than:type_name -> google.protobuf.Int32Value
 	41,  // 54: api.SyncUserPlaylist.episodes:type_name -> api.SyncPlaylistEpisode
-	291, // 55: api.SyncUserPlaylist.show_archived:type_name -> google.protobuf.BoolValue
-	293, // 56: api.SyncUserPlaylist.custom_query:type_name -> google.protobuf.StringValue
-	294, // 57: api.SyncUserFolder.date_added:type_name -> google.protobuf.Timestamp
-	293, // 58: api.SyncUserDevice.device_id:type_name -> google.protobuf.StringValue
-	292, // 59: api.SyncUserDevice.device_type:type_name -> google.protobuf.Int32Value
-	295, // 60: api.SyncUserDevice.times_started_at:type_name -> google.protobuf.Int64Value
-	295, // 61: api.SyncUserDevice.time_silence_removal:type_name -> google.protobuf.Int64Value
-	295, // 62: api.SyncUserDevice.time_variable_speed:type_name -> google.protobuf.Int64Value
-	295, // 63: api.SyncUserDevice.time_intro_skipping:type_name -> google.protobuf.Int64Value
-	295, // 64: api.SyncUserDevice.time_skipping:type_name -> google.protobuf.Int64Value
-	295, // 65: api.SyncUserDevice.time_listened:type_name -> google.protobuf.Int64Value
-	294, // 66: api.SyncUserBookmark.created_at:type_name -> google.protobuf.Timestamp
-	292, // 67: api.SyncUserBookmark.time:type_name -> google.protobuf.Int32Value
-	293, // 68: api.SyncUserBookmark.title:type_name -> google.protobuf.StringValue
-	295, // 69: api.SyncUserBookmark.title_modified:type_name -> google.protobuf.Int64Value
-	291, // 70: api.SyncUserBookmark.is_deleted:type_name -> google.protobuf.BoolValue
-	295, // 71: api.SyncUserBookmark.is_deleted_modified:type_name -> google.protobuf.Int64Value
-	293, // 72: api.SyncUserBookmark.ai_title:type_name -> google.protobuf.StringValue
-	295, // 73: api.SyncUserBookmark.ai_title_modified:type_name -> google.protobuf.Int64Value
-	293, // 74: api.SyncUserBookmark.ai_summary:type_name -> google.protobuf.StringValue
-	295, // 75: api.SyncUserBookmark.ai_summary_modified:type_name -> google.protobuf.Int64Value
-	293, // 76: api.SyncUserBookmark.excerpt:type_name -> google.protobuf.StringValue
-	296, // 77: api.SyncUserBookmark.end_time:type_name -> google.protobuf.DoubleValue
-	295, // 78: api.SyncUserBookmark.trim_modified:type_name -> google.protobuf.Int64Value
-	295, // 79: api.SyncUserBookmark.tags_modified:type_name -> google.protobuf.Int64Value
+	298, // 55: api.SyncUserPlaylist.show_archived:type_name -> google.protobuf.BoolValue
+	300, // 56: api.SyncUserPlaylist.custom_query:type_name -> google.protobuf.StringValue
+	301, // 57: api.SyncUserFolder.date_added:type_name -> google.protobuf.Timestamp
+	300, // 58: api.SyncUserDevice.device_id:type_name -> google.protobuf.StringValue
+	299, // 59: api.SyncUserDevice.device_type:type_name -> google.protobuf.Int32Value
+	302, // 60: api.SyncUserDevice.times_started_at:type_name -> google.protobuf.Int64Value
+	302, // 61: api.SyncUserDevice.time_silence_removal:type_name -> google.protobuf.Int64Value
+	302, // 62: api.SyncUserDevice.time_variable_speed:type_name -> google.protobuf.Int64Value
+	302, // 63: api.SyncUserDevice.time_intro_skipping:type_name -> google.protobuf.Int64Value
+	302, // 64: api.SyncUserDevice.time_skipping:type_name -> google.protobuf.Int64Value
+	302, // 65: api.SyncUserDevice.time_listened:type_name -> google.protobuf.Int64Value
+	301, // 66: api.SyncUserBookmark.created_at:type_name -> google.protobuf.Timestamp
+	299, // 67: api.SyncUserBookmark.time:type_name -> google.protobuf.Int32Value
+	300, // 68: api.SyncUserBookmark.title:type_name -> google.protobuf.StringValue
+	302, // 69: api.SyncUserBookmark.title_modified:type_name -> google.protobuf.Int64Value
+	298, // 70: api.SyncUserBookmark.is_deleted:type_name -> google.protobuf.BoolValue
+	302, // 71: api.SyncUserBookmark.is_deleted_modified:type_name -> google.protobuf.Int64Value
+	300, // 72: api.SyncUserBookmark.ai_title:type_name -> google.protobuf.StringValue
+	302, // 73: api.SyncUserBookmark.ai_title_modified:type_name -> google.protobuf.Int64Value
+	300, // 74: api.SyncUserBookmark.ai_summary:type_name -> google.protobuf.StringValue
+	302, // 75: api.SyncUserBookmark.ai_summary_modified:type_name -> google.protobuf.Int64Value
+	300, // 76: api.SyncUserBookmark.excerpt:type_name -> google.protobuf.StringValue
+	303, // 77: api.SyncUserBookmark.end_time:type_name -> google.protobuf.DoubleValue
+	302, // 78: api.SyncUserBookmark.trim_modified:type_name -> google.protobuf.Int64Value
+	302, // 79: api.SyncUserBookmark.tags_modified:type_name -> google.protobuf.Int64Value
 	37,  // 80: api.PodcastSettings.notification:type_name -> api.BoolSetting
 	37,  // 81: api.PodcastSettings.add_to_up_next:type_name -> api.BoolSetting
 	38,  // 82: api.PodcastSettings.add_to_up_next_position:type_name -> api.Int32Setting
@@ -25883,178 +26261,178 @@ var file_api_proto_depIdxs = []int32{
 	37,  // 95: api.PodcastSettings.show_archived:type_name -> api.BoolSetting
 	40,  // 96: api.PodcastSettings.skip_chapter_titles:type_name -> api.StringSetting
 	37,  // 97: api.PodcastSettings.disable_remote_transcription:type_name -> api.BoolSetting
-	291, // 98: api.BoolSetting.value:type_name -> google.protobuf.BoolValue
-	291, // 99: api.BoolSetting.changed:type_name -> google.protobuf.BoolValue
-	294, // 100: api.BoolSetting.modified_at:type_name -> google.protobuf.Timestamp
-	292, // 101: api.Int32Setting.value:type_name -> google.protobuf.Int32Value
-	291, // 102: api.Int32Setting.changed:type_name -> google.protobuf.BoolValue
-	294, // 103: api.Int32Setting.modified_at:type_name -> google.protobuf.Timestamp
-	296, // 104: api.DoubleSetting.value:type_name -> google.protobuf.DoubleValue
-	291, // 105: api.DoubleSetting.changed:type_name -> google.protobuf.BoolValue
-	294, // 106: api.DoubleSetting.modified_at:type_name -> google.protobuf.Timestamp
-	293, // 107: api.StringSetting.value:type_name -> google.protobuf.StringValue
-	291, // 108: api.StringSetting.changed:type_name -> google.protobuf.BoolValue
-	294, // 109: api.StringSetting.modified_at:type_name -> google.protobuf.Timestamp
-	295, // 110: api.SyncPlaylistEpisode.added:type_name -> google.protobuf.Int64Value
-	294, // 111: api.SyncPlaylistEpisode.published:type_name -> google.protobuf.Timestamp
-	293, // 112: api.SyncPlaylistEpisode.title:type_name -> google.protobuf.StringValue
-	293, // 113: api.SyncPlaylistEpisode.url:type_name -> google.protobuf.StringValue
-	293, // 114: api.SyncPlaylistEpisode.podcast_slug:type_name -> google.protobuf.StringValue
-	293, // 115: api.SyncPlaylistEpisode.episode_slug:type_name -> google.protobuf.StringValue
+	298, // 98: api.BoolSetting.value:type_name -> google.protobuf.BoolValue
+	298, // 99: api.BoolSetting.changed:type_name -> google.protobuf.BoolValue
+	301, // 100: api.BoolSetting.modified_at:type_name -> google.protobuf.Timestamp
+	299, // 101: api.Int32Setting.value:type_name -> google.protobuf.Int32Value
+	298, // 102: api.Int32Setting.changed:type_name -> google.protobuf.BoolValue
+	301, // 103: api.Int32Setting.modified_at:type_name -> google.protobuf.Timestamp
+	303, // 104: api.DoubleSetting.value:type_name -> google.protobuf.DoubleValue
+	298, // 105: api.DoubleSetting.changed:type_name -> google.protobuf.BoolValue
+	301, // 106: api.DoubleSetting.modified_at:type_name -> google.protobuf.Timestamp
+	300, // 107: api.StringSetting.value:type_name -> google.protobuf.StringValue
+	298, // 108: api.StringSetting.changed:type_name -> google.protobuf.BoolValue
+	301, // 109: api.StringSetting.modified_at:type_name -> google.protobuf.Timestamp
+	302, // 110: api.SyncPlaylistEpisode.added:type_name -> google.protobuf.Int64Value
+	301, // 111: api.SyncPlaylistEpisode.published:type_name -> google.protobuf.Timestamp
+	300, // 112: api.SyncPlaylistEpisode.title:type_name -> google.protobuf.StringValue
+	300, // 113: api.SyncPlaylistEpisode.url:type_name -> google.protobuf.StringValue
+	300, // 114: api.SyncPlaylistEpisode.podcast_slug:type_name -> google.protobuf.StringValue
+	300, // 115: api.SyncPlaylistEpisode.episode_slug:type_name -> google.protobuf.StringValue
 	44,  // 116: api.UserPodcastListResponse.podcasts:type_name -> api.UserPodcastResponse
 	45,  // 117: api.UserPodcastListResponse.folders:type_name -> api.PodcastFolder
-	294, // 118: api.UserPodcastResponse.last_episode_published:type_name -> google.protobuf.Timestamp
-	293, // 119: api.UserPodcastResponse.folder_uuid:type_name -> google.protobuf.StringValue
-	292, // 120: api.UserPodcastResponse.sort_position:type_name -> google.protobuf.Int32Value
-	294, // 121: api.UserPodcastResponse.date_added:type_name -> google.protobuf.Timestamp
+	301, // 118: api.UserPodcastResponse.last_episode_published:type_name -> google.protobuf.Timestamp
+	300, // 119: api.UserPodcastResponse.folder_uuid:type_name -> google.protobuf.StringValue
+	299, // 120: api.UserPodcastResponse.sort_position:type_name -> google.protobuf.Int32Value
+	301, // 121: api.UserPodcastResponse.date_added:type_name -> google.protobuf.Timestamp
 	36,  // 122: api.UserPodcastResponse.settings:type_name -> api.PodcastSettings
-	291, // 123: api.UserPodcastResponse.is_private:type_name -> google.protobuf.BoolValue
-	291, // 124: api.UserPodcastResponse.explicit:type_name -> google.protobuf.BoolValue
-	294, // 125: api.PodcastFolder.date_added:type_name -> google.protobuf.Timestamp
+	298, // 123: api.UserPodcastResponse.is_private:type_name -> google.protobuf.BoolValue
+	298, // 124: api.UserPodcastResponse.explicit:type_name -> google.protobuf.BoolValue
+	301, // 125: api.PodcastFolder.date_added:type_name -> google.protobuf.Timestamp
 	47,  // 126: api.SyncEpisodesResponse.episodes:type_name -> api.EpisodeSyncResponse
-	292, // 127: api.SyncEpisodesResponse.auto_start_from:type_name -> google.protobuf.Int32Value
-	292, // 128: api.SyncEpisodesResponse.episodes_sort_order:type_name -> google.protobuf.Int32Value
-	292, // 129: api.SyncEpisodesResponse.auto_skip_last:type_name -> google.protobuf.Int32Value
+	299, // 127: api.SyncEpisodesResponse.auto_start_from:type_name -> google.protobuf.Int32Value
+	299, // 128: api.SyncEpisodesResponse.episodes_sort_order:type_name -> google.protobuf.Int32Value
+	299, // 129: api.SyncEpisodesResponse.auto_skip_last:type_name -> google.protobuf.Int32Value
 	51,  // 130: api.EpisodeSyncResponse.bookmarks:type_name -> api.BookmarkResponse
-	292, // 131: api.BookmarkRequest.time:type_name -> google.protobuf.Int32Value
-	293, // 132: api.BookmarkRequest.title:type_name -> google.protobuf.StringValue
+	299, // 131: api.BookmarkRequest.time:type_name -> google.protobuf.Int32Value
+	300, // 132: api.BookmarkRequest.title:type_name -> google.protobuf.StringValue
 	51,  // 133: api.BookmarksResponse.bookmarks:type_name -> api.BookmarkResponse
-	294, // 134: api.BookmarkResponse.createdAt:type_name -> google.protobuf.Timestamp
+	301, // 134: api.BookmarkResponse.createdAt:type_name -> google.protobuf.Timestamp
 	53,  // 135: api.StarredEpisodesResponse.episodes:type_name -> api.StarredEpisode
 	56,  // 136: api.UserPlaylistListResponse.playlists:type_name -> api.PlaylistSyncResponse
-	291, // 137: api.PlaylistSyncResponse.is_deleted:type_name -> google.protobuf.BoolValue
-	292, // 138: api.PlaylistSyncResponse.audio_video:type_name -> google.protobuf.Int32Value
-	291, // 139: api.PlaylistSyncResponse.not_downloaded:type_name -> google.protobuf.BoolValue
-	291, // 140: api.PlaylistSyncResponse.downloaded:type_name -> google.protobuf.BoolValue
-	291, // 141: api.PlaylistSyncResponse.downloading:type_name -> google.protobuf.BoolValue
-	291, // 142: api.PlaylistSyncResponse.finished:type_name -> google.protobuf.BoolValue
-	291, // 143: api.PlaylistSyncResponse.partially_played:type_name -> google.protobuf.BoolValue
-	291, // 144: api.PlaylistSyncResponse.unplayed:type_name -> google.protobuf.BoolValue
-	291, // 145: api.PlaylistSyncResponse.starred:type_name -> google.protobuf.BoolValue
-	291, // 146: api.PlaylistSyncResponse.manual:type_name -> google.protobuf.BoolValue
-	292, // 147: api.PlaylistSyncResponse.sort_position:type_name -> google.protobuf.Int32Value
-	292, // 148: api.PlaylistSyncResponse.sort_type:type_name -> google.protobuf.Int32Value
-	292, // 149: api.PlaylistSyncResponse.icon_id:type_name -> google.protobuf.Int32Value
-	291, // 150: api.PlaylistSyncResponse.all_podcasts:type_name -> google.protobuf.BoolValue
-	292, // 151: api.PlaylistSyncResponse.filter_hours:type_name -> google.protobuf.Int32Value
-	291, // 152: api.PlaylistSyncResponse.filter_duration:type_name -> google.protobuf.BoolValue
-	292, // 153: api.PlaylistSyncResponse.longer_than:type_name -> google.protobuf.Int32Value
-	292, // 154: api.PlaylistSyncResponse.shorter_than:type_name -> google.protobuf.Int32Value
+	298, // 137: api.PlaylistSyncResponse.is_deleted:type_name -> google.protobuf.BoolValue
+	299, // 138: api.PlaylistSyncResponse.audio_video:type_name -> google.protobuf.Int32Value
+	298, // 139: api.PlaylistSyncResponse.not_downloaded:type_name -> google.protobuf.BoolValue
+	298, // 140: api.PlaylistSyncResponse.downloaded:type_name -> google.protobuf.BoolValue
+	298, // 141: api.PlaylistSyncResponse.downloading:type_name -> google.protobuf.BoolValue
+	298, // 142: api.PlaylistSyncResponse.finished:type_name -> google.protobuf.BoolValue
+	298, // 143: api.PlaylistSyncResponse.partially_played:type_name -> google.protobuf.BoolValue
+	298, // 144: api.PlaylistSyncResponse.unplayed:type_name -> google.protobuf.BoolValue
+	298, // 145: api.PlaylistSyncResponse.starred:type_name -> google.protobuf.BoolValue
+	298, // 146: api.PlaylistSyncResponse.manual:type_name -> google.protobuf.BoolValue
+	299, // 147: api.PlaylistSyncResponse.sort_position:type_name -> google.protobuf.Int32Value
+	299, // 148: api.PlaylistSyncResponse.sort_type:type_name -> google.protobuf.Int32Value
+	299, // 149: api.PlaylistSyncResponse.icon_id:type_name -> google.protobuf.Int32Value
+	298, // 150: api.PlaylistSyncResponse.all_podcasts:type_name -> google.protobuf.BoolValue
+	299, // 151: api.PlaylistSyncResponse.filter_hours:type_name -> google.protobuf.Int32Value
+	298, // 152: api.PlaylistSyncResponse.filter_duration:type_name -> google.protobuf.BoolValue
+	299, // 153: api.PlaylistSyncResponse.longer_than:type_name -> google.protobuf.Int32Value
+	299, // 154: api.PlaylistSyncResponse.shorter_than:type_name -> google.protobuf.Int32Value
 	41,  // 155: api.PlaylistSyncResponse.episodes:type_name -> api.SyncPlaylistEpisode
-	291, // 156: api.PlaylistSyncResponse.show_archived:type_name -> google.protobuf.BoolValue
-	293, // 157: api.PlaylistSyncResponse.custom_query:type_name -> google.protobuf.StringValue
+	298, // 156: api.PlaylistSyncResponse.show_archived:type_name -> google.protobuf.BoolValue
+	300, // 157: api.PlaylistSyncResponse.custom_query:type_name -> google.protobuf.StringValue
 	58,  // 158: api.UpNextSyncRequest.up_next:type_name -> api.UpNextChanges
-	288, // 159: api.UpNextChanges.changes:type_name -> api.UpNextChanges.Change
-	294, // 160: api.UpNextEpisodeRequest.published:type_name -> google.protobuf.Timestamp
-	289, // 161: api.UpNextResponse.episodes:type_name -> api.UpNextResponse.EpisodeResponse
-	290, // 162: api.UpNextResponse.episodeSync:type_name -> api.UpNextResponse.EpisodeSyncResponse
-	294, // 163: api.EpisodeResponse.published:type_name -> google.protobuf.Timestamp
+	295, // 159: api.UpNextChanges.changes:type_name -> api.UpNextChanges.Change
+	301, // 160: api.UpNextEpisodeRequest.published:type_name -> google.protobuf.Timestamp
+	296, // 161: api.UpNextResponse.episodes:type_name -> api.UpNextResponse.EpisodeResponse
+	297, // 162: api.UpNextResponse.episodeSync:type_name -> api.UpNextResponse.EpisodeSyncResponse
+	301, // 163: api.EpisodeResponse.published:type_name -> google.protobuf.Timestamp
 	51,  // 164: api.EpisodeResponse.bookmarks:type_name -> api.BookmarkResponse
 	95,  // 165: api.EpisodeResponse.transcripts:type_name -> api.TranscriptMetadata
 	63,  // 166: api.HistorySyncRequest.changes:type_name -> api.HistoryChange
-	294, // 167: api.HistoryChange.published:type_name -> google.protobuf.Timestamp
+	301, // 167: api.HistoryChange.published:type_name -> google.protobuf.Timestamp
 	63,  // 168: api.HistoryResponse.changes:type_name -> api.HistoryChange
-	292, // 169: api.UpdateEpisodeRequest.position:type_name -> google.protobuf.Int32Value
+	299, // 169: api.UpdateEpisodeRequest.position:type_name -> google.protobuf.Int32Value
 	70,  // 170: api.UpdateEpisodeRequest.stats:type_name -> api.StatsRequest
 	72,  // 171: api.NamedSettingsRequest.settings:type_name -> api.NamedSettings
 	73,  // 172: api.NamedSettingsRequest.changed_settings:type_name -> api.ChangeableSettings
-	292, // 173: api.NamedSettings.grid_layout:type_name -> google.protobuf.Int32Value
-	292, // 174: api.NamedSettings.grid_order:type_name -> google.protobuf.Int32Value
-	292, // 175: api.NamedSettings.show_played:type_name -> google.protobuf.Int32Value
-	292, // 176: api.NamedSettings.theme:type_name -> google.protobuf.Int32Value
-	292, // 177: api.NamedSettings.skip_forward:type_name -> google.protobuf.Int32Value
-	292, // 178: api.NamedSettings.skip_back:type_name -> google.protobuf.Int32Value
-	292, // 179: api.NamedSettings.web_version:type_name -> google.protobuf.Int32Value
-	293, // 180: api.NamedSettings.language:type_name -> google.protobuf.StringValue
-	291, // 181: api.NamedSettings.recommendations_on:type_name -> google.protobuf.BoolValue
-	291, // 182: api.NamedSettings.use_embedded_artwork:type_name -> google.protobuf.BoolValue
-	296, // 183: api.NamedSettings.playback_speed:type_name -> google.protobuf.DoubleValue
-	291, // 184: api.NamedSettings.volume_boost:type_name -> google.protobuf.BoolValue
-	292, // 185: api.NamedSettings.badges:type_name -> google.protobuf.Int32Value
-	291, // 186: api.NamedSettings.free_gift_acknowledgement:type_name -> google.protobuf.BoolValue
-	291, // 187: api.NamedSettings.marketing_opt_in:type_name -> google.protobuf.BoolValue
-	291, // 188: api.NamedSettings.auto_archive_played_episodes:type_name -> google.protobuf.BoolValue
-	291, // 189: api.NamedSettings.auto_archive_includes_starred:type_name -> google.protobuf.BoolValue
-	293, // 190: api.NamedSettings.region:type_name -> google.protobuf.StringValue
-	292, // 191: api.NamedSettings.row_action:type_name -> google.protobuf.Int32Value
-	292, // 192: api.NamedSettings.up_next_swipe:type_name -> google.protobuf.Int32Value
-	292, // 193: api.NamedSettings.episode_grouping:type_name -> google.protobuf.Int32Value
-	291, // 194: api.NamedSettings.show_archived:type_name -> google.protobuf.BoolValue
-	291, // 195: api.NamedSettings.open_links:type_name -> google.protobuf.BoolValue
-	291, // 196: api.NamedSettings.media_actions:type_name -> google.protobuf.BoolValue
-	293, // 197: api.NamedSettings.media_actions_order:type_name -> google.protobuf.StringValue
-	291, // 198: api.NamedSettings.keep_screen_awake:type_name -> google.protobuf.BoolValue
-	291, // 199: api.NamedSettings.open_player:type_name -> google.protobuf.BoolValue
-	291, // 200: api.NamedSettings.intelligent_resumption:type_name -> google.protobuf.BoolValue
-	291, // 201: api.NamedSettings.play_up_next_on_tap:type_name -> google.protobuf.BoolValue
-	291, // 202: api.NamedSettings.remote_skip_chapters:type_name -> google.protobuf.BoolValue
-	291, // 203: api.NamedSettings.playback_actions:type_name -> google.protobuf.BoolValue
-	291, // 204: api.NamedSettings.legacy_bluetooth:type_name -> google.protobuf.BoolValue
-	291, // 205: api.NamedSettings.multi_select_gesture:type_name -> google.protobuf.BoolValue
-	291, // 206: api.NamedSettings.chapter_titles:type_name -> google.protobuf.BoolValue
-	291, // 207: api.NamedSettings.notifications:type_name -> google.protobuf.BoolValue
-	293, // 208: api.NamedSettings.notification_actions:type_name -> google.protobuf.StringValue
-	292, // 209: api.NamedSettings.play_over_notifications:type_name -> google.protobuf.Int32Value
-	291, // 210: api.NamedSettings.hide_notification_on_pause:type_name -> google.protobuf.BoolValue
-	292, // 211: api.NamedSettings.app_badge:type_name -> google.protobuf.Int32Value
-	293, // 212: api.NamedSettings.app_badge_filter:type_name -> google.protobuf.StringValue
-	292, // 213: api.NamedSettings.auto_archive_played:type_name -> google.protobuf.Int32Value
-	292, // 214: api.NamedSettings.auto_archive_inactive:type_name -> google.protobuf.Int32Value
-	292, // 215: api.NamedSettings.auto_up_next_limit:type_name -> google.protobuf.Int32Value
-	292, // 216: api.NamedSettings.auto_up_next_limit_reached:type_name -> google.protobuf.Int32Value
-	291, // 217: api.NamedSettings.warn_data_usage:type_name -> google.protobuf.BoolValue
-	291, // 218: api.NamedSettings.files_auto_up_next:type_name -> google.protobuf.BoolValue
-	291, // 219: api.NamedSettings.files_after_playing_delete_local:type_name -> google.protobuf.BoolValue
-	291, // 220: api.NamedSettings.files_after_playing_delete_cloud:type_name -> google.protobuf.BoolValue
-	291, // 221: api.NamedSettings.privacy_analytics:type_name -> google.protobuf.BoolValue
-	291, // 222: api.NamedSettings.privacy_crash_reports:type_name -> google.protobuf.BoolValue
-	291, // 223: api.NamedSettings.privacy_link_account:type_name -> google.protobuf.BoolValue
-	293, // 224: api.NamedSettings.player_shelf:type_name -> google.protobuf.StringValue
-	291, // 225: api.NamedSettings.auto_subscribe_to_played:type_name -> google.protobuf.BoolValue
-	291, // 226: api.NamedSettings.auto_show_played:type_name -> google.protobuf.BoolValue
-	291, // 227: api.NamedSettings.auto_play_enabled:type_name -> google.protobuf.BoolValue
-	293, // 228: api.NamedSettings.auto_play_last_list_uuid:type_name -> google.protobuf.StringValue
-	292, // 229: api.NamedSettings.trim_silence:type_name -> google.protobuf.Int32Value
-	291, // 230: api.NamedSettings.show_artwork_on_lock_screen:type_name -> google.protobuf.BoolValue
-	292, // 231: api.NamedSettings.headphone_controls_next_action:type_name -> google.protobuf.Int32Value
-	292, // 232: api.NamedSettings.headphone_controls_previous_action:type_name -> google.protobuf.Int32Value
-	291, // 233: api.NamedSettings.headphone_controls_play_bookmark_confirmation_sound:type_name -> google.protobuf.BoolValue
-	292, // 234: api.NamedSettings.dark_theme_preference:type_name -> google.protobuf.Int32Value
-	292, // 235: api.NamedSettings.light_theme_preference:type_name -> google.protobuf.Int32Value
-	291, // 236: api.NamedSettings.use_system_theme:type_name -> google.protobuf.BoolValue
-	292, // 237: api.NamedSettings.episode_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
-	292, // 238: api.NamedSettings.player_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
-	292, // 239: api.NamedSettings.podcast_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
-	291, // 240: api.NamedSettings.use_dark_up_next_theme:type_name -> google.protobuf.BoolValue
-	291, // 241: api.NamedSettings.use_dynamic_colors_for_widget:type_name -> google.protobuf.BoolValue
-	292, // 242: api.NamedSettings.files_sort_order:type_name -> google.protobuf.Int32Value
-	291, // 243: api.NamedSettings.background_refresh:type_name -> google.protobuf.BoolValue
-	291, // 244: api.NamedSettings.auto_download_unmetered_only:type_name -> google.protobuf.BoolValue
-	291, // 245: api.NamedSettings.auto_download_only_when_charging:type_name -> google.protobuf.BoolValue
-	291, // 246: api.NamedSettings.auto_download_up_next:type_name -> google.protobuf.BoolValue
-	291, // 247: api.NamedSettings.cloud_auto_upload:type_name -> google.protobuf.BoolValue
-	291, // 248: api.NamedSettings.cloud_auto_download:type_name -> google.protobuf.BoolValue
-	291, // 249: api.NamedSettings.cloud_download_unmetered_only:type_name -> google.protobuf.BoolValue
-	291, // 250: api.NamedSettings.use_rss_artwork:type_name -> google.protobuf.BoolValue
-	292, // 251: api.NamedSettings.bookmarks_sort_order:type_name -> google.protobuf.Int32Value
-	291, // 252: api.NamedSettings.auto_archive_played_episodes_global:type_name -> google.protobuf.BoolValue
-	291, // 253: api.NamedSettings.auto_archive_includes_starred_global:type_name -> google.protobuf.BoolValue
-	291, // 254: api.NamedSettings.files_auto_up_next_global:type_name -> google.protobuf.BoolValue
-	291, // 255: api.NamedSettings.files_after_playing_delete_local_global:type_name -> google.protobuf.BoolValue
-	291, // 256: api.NamedSettings.files_after_playing_delete_cloud_global:type_name -> google.protobuf.BoolValue
-	293, // 257: api.NamedSettings.player_shelf_global:type_name -> google.protobuf.StringValue
-	292, // 258: api.NamedSettings.row_action_global:type_name -> google.protobuf.Int32Value
-	291, // 259: api.NamedSettings.use_embedded_artwork_global:type_name -> google.protobuf.BoolValue
-	291, // 260: api.NamedSettings.recommendations_on_global:type_name -> google.protobuf.BoolValue
-	292, // 261: api.NamedSettings.grid_layout_global:type_name -> google.protobuf.Int32Value
-	291, // 262: api.NamedSettings.volume_boost_global:type_name -> google.protobuf.BoolValue
-	292, // 263: api.NamedSettings.badges_global:type_name -> google.protobuf.Int32Value
-	292, // 264: api.NamedSettings.smart_folders_number_of_times_shown:type_name -> google.protobuf.Int32Value
-	293, // 265: api.NamedSettings.smart_folders_last_date_shown:type_name -> google.protobuf.StringValue
-	291, // 266: api.NamedSettings.save_up_next_on_playlists_play_all:type_name -> google.protobuf.BoolValue
-	291, // 267: api.NamedSettings.do_not_sell_or_share:type_name -> google.protobuf.BoolValue
-	293, // 268: api.NamedSettings.live_analytics_url:type_name -> google.protobuf.StringValue
-	291, // 269: api.NamedSettings.listening_time_stats:type_name -> google.protobuf.BoolValue
+	299, // 173: api.NamedSettings.grid_layout:type_name -> google.protobuf.Int32Value
+	299, // 174: api.NamedSettings.grid_order:type_name -> google.protobuf.Int32Value
+	299, // 175: api.NamedSettings.show_played:type_name -> google.protobuf.Int32Value
+	299, // 176: api.NamedSettings.theme:type_name -> google.protobuf.Int32Value
+	299, // 177: api.NamedSettings.skip_forward:type_name -> google.protobuf.Int32Value
+	299, // 178: api.NamedSettings.skip_back:type_name -> google.protobuf.Int32Value
+	299, // 179: api.NamedSettings.web_version:type_name -> google.protobuf.Int32Value
+	300, // 180: api.NamedSettings.language:type_name -> google.protobuf.StringValue
+	298, // 181: api.NamedSettings.recommendations_on:type_name -> google.protobuf.BoolValue
+	298, // 182: api.NamedSettings.use_embedded_artwork:type_name -> google.protobuf.BoolValue
+	303, // 183: api.NamedSettings.playback_speed:type_name -> google.protobuf.DoubleValue
+	298, // 184: api.NamedSettings.volume_boost:type_name -> google.protobuf.BoolValue
+	299, // 185: api.NamedSettings.badges:type_name -> google.protobuf.Int32Value
+	298, // 186: api.NamedSettings.free_gift_acknowledgement:type_name -> google.protobuf.BoolValue
+	298, // 187: api.NamedSettings.marketing_opt_in:type_name -> google.protobuf.BoolValue
+	298, // 188: api.NamedSettings.auto_archive_played_episodes:type_name -> google.protobuf.BoolValue
+	298, // 189: api.NamedSettings.auto_archive_includes_starred:type_name -> google.protobuf.BoolValue
+	300, // 190: api.NamedSettings.region:type_name -> google.protobuf.StringValue
+	299, // 191: api.NamedSettings.row_action:type_name -> google.protobuf.Int32Value
+	299, // 192: api.NamedSettings.up_next_swipe:type_name -> google.protobuf.Int32Value
+	299, // 193: api.NamedSettings.episode_grouping:type_name -> google.protobuf.Int32Value
+	298, // 194: api.NamedSettings.show_archived:type_name -> google.protobuf.BoolValue
+	298, // 195: api.NamedSettings.open_links:type_name -> google.protobuf.BoolValue
+	298, // 196: api.NamedSettings.media_actions:type_name -> google.protobuf.BoolValue
+	300, // 197: api.NamedSettings.media_actions_order:type_name -> google.protobuf.StringValue
+	298, // 198: api.NamedSettings.keep_screen_awake:type_name -> google.protobuf.BoolValue
+	298, // 199: api.NamedSettings.open_player:type_name -> google.protobuf.BoolValue
+	298, // 200: api.NamedSettings.intelligent_resumption:type_name -> google.protobuf.BoolValue
+	298, // 201: api.NamedSettings.play_up_next_on_tap:type_name -> google.protobuf.BoolValue
+	298, // 202: api.NamedSettings.remote_skip_chapters:type_name -> google.protobuf.BoolValue
+	298, // 203: api.NamedSettings.playback_actions:type_name -> google.protobuf.BoolValue
+	298, // 204: api.NamedSettings.legacy_bluetooth:type_name -> google.protobuf.BoolValue
+	298, // 205: api.NamedSettings.multi_select_gesture:type_name -> google.protobuf.BoolValue
+	298, // 206: api.NamedSettings.chapter_titles:type_name -> google.protobuf.BoolValue
+	298, // 207: api.NamedSettings.notifications:type_name -> google.protobuf.BoolValue
+	300, // 208: api.NamedSettings.notification_actions:type_name -> google.protobuf.StringValue
+	299, // 209: api.NamedSettings.play_over_notifications:type_name -> google.protobuf.Int32Value
+	298, // 210: api.NamedSettings.hide_notification_on_pause:type_name -> google.protobuf.BoolValue
+	299, // 211: api.NamedSettings.app_badge:type_name -> google.protobuf.Int32Value
+	300, // 212: api.NamedSettings.app_badge_filter:type_name -> google.protobuf.StringValue
+	299, // 213: api.NamedSettings.auto_archive_played:type_name -> google.protobuf.Int32Value
+	299, // 214: api.NamedSettings.auto_archive_inactive:type_name -> google.protobuf.Int32Value
+	299, // 215: api.NamedSettings.auto_up_next_limit:type_name -> google.protobuf.Int32Value
+	299, // 216: api.NamedSettings.auto_up_next_limit_reached:type_name -> google.protobuf.Int32Value
+	298, // 217: api.NamedSettings.warn_data_usage:type_name -> google.protobuf.BoolValue
+	298, // 218: api.NamedSettings.files_auto_up_next:type_name -> google.protobuf.BoolValue
+	298, // 219: api.NamedSettings.files_after_playing_delete_local:type_name -> google.protobuf.BoolValue
+	298, // 220: api.NamedSettings.files_after_playing_delete_cloud:type_name -> google.protobuf.BoolValue
+	298, // 221: api.NamedSettings.privacy_analytics:type_name -> google.protobuf.BoolValue
+	298, // 222: api.NamedSettings.privacy_crash_reports:type_name -> google.protobuf.BoolValue
+	298, // 223: api.NamedSettings.privacy_link_account:type_name -> google.protobuf.BoolValue
+	300, // 224: api.NamedSettings.player_shelf:type_name -> google.protobuf.StringValue
+	298, // 225: api.NamedSettings.auto_subscribe_to_played:type_name -> google.protobuf.BoolValue
+	298, // 226: api.NamedSettings.auto_show_played:type_name -> google.protobuf.BoolValue
+	298, // 227: api.NamedSettings.auto_play_enabled:type_name -> google.protobuf.BoolValue
+	300, // 228: api.NamedSettings.auto_play_last_list_uuid:type_name -> google.protobuf.StringValue
+	299, // 229: api.NamedSettings.trim_silence:type_name -> google.protobuf.Int32Value
+	298, // 230: api.NamedSettings.show_artwork_on_lock_screen:type_name -> google.protobuf.BoolValue
+	299, // 231: api.NamedSettings.headphone_controls_next_action:type_name -> google.protobuf.Int32Value
+	299, // 232: api.NamedSettings.headphone_controls_previous_action:type_name -> google.protobuf.Int32Value
+	298, // 233: api.NamedSettings.headphone_controls_play_bookmark_confirmation_sound:type_name -> google.protobuf.BoolValue
+	299, // 234: api.NamedSettings.dark_theme_preference:type_name -> google.protobuf.Int32Value
+	299, // 235: api.NamedSettings.light_theme_preference:type_name -> google.protobuf.Int32Value
+	298, // 236: api.NamedSettings.use_system_theme:type_name -> google.protobuf.BoolValue
+	299, // 237: api.NamedSettings.episode_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
+	299, // 238: api.NamedSettings.player_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
+	299, // 239: api.NamedSettings.podcast_bookmarks_sort_type:type_name -> google.protobuf.Int32Value
+	298, // 240: api.NamedSettings.use_dark_up_next_theme:type_name -> google.protobuf.BoolValue
+	298, // 241: api.NamedSettings.use_dynamic_colors_for_widget:type_name -> google.protobuf.BoolValue
+	299, // 242: api.NamedSettings.files_sort_order:type_name -> google.protobuf.Int32Value
+	298, // 243: api.NamedSettings.background_refresh:type_name -> google.protobuf.BoolValue
+	298, // 244: api.NamedSettings.auto_download_unmetered_only:type_name -> google.protobuf.BoolValue
+	298, // 245: api.NamedSettings.auto_download_only_when_charging:type_name -> google.protobuf.BoolValue
+	298, // 246: api.NamedSettings.auto_download_up_next:type_name -> google.protobuf.BoolValue
+	298, // 247: api.NamedSettings.cloud_auto_upload:type_name -> google.protobuf.BoolValue
+	298, // 248: api.NamedSettings.cloud_auto_download:type_name -> google.protobuf.BoolValue
+	298, // 249: api.NamedSettings.cloud_download_unmetered_only:type_name -> google.protobuf.BoolValue
+	298, // 250: api.NamedSettings.use_rss_artwork:type_name -> google.protobuf.BoolValue
+	299, // 251: api.NamedSettings.bookmarks_sort_order:type_name -> google.protobuf.Int32Value
+	298, // 252: api.NamedSettings.auto_archive_played_episodes_global:type_name -> google.protobuf.BoolValue
+	298, // 253: api.NamedSettings.auto_archive_includes_starred_global:type_name -> google.protobuf.BoolValue
+	298, // 254: api.NamedSettings.files_auto_up_next_global:type_name -> google.protobuf.BoolValue
+	298, // 255: api.NamedSettings.files_after_playing_delete_local_global:type_name -> google.protobuf.BoolValue
+	298, // 256: api.NamedSettings.files_after_playing_delete_cloud_global:type_name -> google.protobuf.BoolValue
+	300, // 257: api.NamedSettings.player_shelf_global:type_name -> google.protobuf.StringValue
+	299, // 258: api.NamedSettings.row_action_global:type_name -> google.protobuf.Int32Value
+	298, // 259: api.NamedSettings.use_embedded_artwork_global:type_name -> google.protobuf.BoolValue
+	298, // 260: api.NamedSettings.recommendations_on_global:type_name -> google.protobuf.BoolValue
+	299, // 261: api.NamedSettings.grid_layout_global:type_name -> google.protobuf.Int32Value
+	298, // 262: api.NamedSettings.volume_boost_global:type_name -> google.protobuf.BoolValue
+	299, // 263: api.NamedSettings.badges_global:type_name -> google.protobuf.Int32Value
+	299, // 264: api.NamedSettings.smart_folders_number_of_times_shown:type_name -> google.protobuf.Int32Value
+	300, // 265: api.NamedSettings.smart_folders_last_date_shown:type_name -> google.protobuf.StringValue
+	298, // 266: api.NamedSettings.save_up_next_on_playlists_play_all:type_name -> google.protobuf.BoolValue
+	298, // 267: api.NamedSettings.do_not_sell_or_share:type_name -> google.protobuf.BoolValue
+	300, // 268: api.NamedSettings.live_analytics_url:type_name -> google.protobuf.StringValue
+	298, // 269: api.NamedSettings.listening_time_stats:type_name -> google.protobuf.BoolValue
 	38,  // 270: api.ChangeableSettings.grid_layout:type_name -> api.Int32Setting
 	38,  // 271: api.ChangeableSettings.grid_order:type_name -> api.Int32Setting
 	38,  // 272: api.ChangeableSettings.show_played:type_name -> api.Int32Setting
@@ -26284,19 +26662,19 @@ var file_api_proto_depIdxs = []int32{
 	40,  // 496: api.NamedSettingsResponse.highlight_style_preset:type_name -> api.StringSetting
 	40,  // 497: api.NamedSettingsResponse.highlight_style_custom:type_name -> api.StringSetting
 	38,  // 498: api.NamedSettingsResponse.highlight_confirmation_style:type_name -> api.Int32Setting
-	294, // 499: api.TranscriptContributionRequest.created_at:type_name -> google.protobuf.Timestamp
-	294, // 500: api.PodcastRating.modified_at:type_name -> google.protobuf.Timestamp
+	301, // 499: api.TranscriptContributionRequest.created_at:type_name -> google.protobuf.Timestamp
+	301, // 500: api.PodcastRating.modified_at:type_name -> google.protobuf.Timestamp
 	81,  // 501: api.PodcastRatingsResponse.podcast_ratings:type_name -> api.PodcastRating
-	294, // 502: api.StatsResponse.times_started_at:type_name -> google.protobuf.Timestamp
+	301, // 502: api.StatsResponse.times_started_at:type_name -> google.protobuf.Timestamp
 	61,  // 503: api.EpisodesResponse.episodes:type_name -> api.EpisodeResponse
-	294, // 504: api.PodcastRatingResponse.modified_at:type_name -> google.protobuf.Timestamp
-	293, // 505: api.WebFeedCreateRequest.poll_uuid:type_name -> google.protobuf.StringValue
+	301, // 504: api.PodcastRatingResponse.modified_at:type_name -> google.protobuf.Timestamp
+	300, // 505: api.WebFeedCreateRequest.poll_uuid:type_name -> google.protobuf.StringValue
 	86,  // 506: api.WebFeedCreateResponse.podcast:type_name -> api.ApiPodcastResponse
-	293, // 507: api.TranscriptMetadata.language:type_name -> google.protobuf.StringValue
-	294, // 508: api.TranscriptionRecord.created_at:type_name -> google.protobuf.Timestamp
-	294, // 509: api.TranscriptionRecord.updated_at:type_name -> google.protobuf.Timestamp
-	296, // 510: api.TranscriptCue.end_time:type_name -> google.protobuf.DoubleValue
-	293, // 511: api.TranscriptCue.speaker:type_name -> google.protobuf.StringValue
+	300, // 507: api.TranscriptMetadata.language:type_name -> google.protobuf.StringValue
+	301, // 508: api.TranscriptionRecord.created_at:type_name -> google.protobuf.Timestamp
+	301, // 509: api.TranscriptionRecord.updated_at:type_name -> google.protobuf.Timestamp
+	303, // 510: api.TranscriptCue.end_time:type_name -> google.protobuf.DoubleValue
+	300, // 511: api.TranscriptCue.speaker:type_name -> google.protobuf.StringValue
 	97,  // 512: api.EpisodeTranscript.cues:type_name -> api.TranscriptCue
 	98,  // 513: api.TranscriptUploadRequest.transcript:type_name -> api.EpisodeTranscript
 	96,  // 514: api.TranscriptUploadRequest.provenance:type_name -> api.TranscriptionRecord
@@ -26305,141 +26683,141 @@ var file_api_proto_depIdxs = []int32{
 	147, // 517: api.CheckEligibleRequest.android:type_name -> api.SubscriptionsPurchaseAndroidRequest
 	148, // 518: api.CheckEligibleRequest.apple:type_name -> api.SubscriptionsPurchaseAppleRequest
 	149, // 519: api.CheckEligibleRequest.web:type_name -> api.SubscriptionsPurchaseWebRequest
-	293, // 520: api.LegacyRecord.uuid:type_name -> google.protobuf.StringValue
-	293, // 521: api.LegacyRecord.user_podcast_uuid:type_name -> google.protobuf.StringValue
-	293, // 522: api.LegacyRecord.episode_uuid:type_name -> google.protobuf.StringValue
-	293, // 523: api.LegacyRecord.podcast_uuid:type_name -> google.protobuf.StringValue
-	293, // 524: api.LegacyRecord.is_deleted:type_name -> google.protobuf.StringValue
-	295, // 525: api.LegacyRecord.is_deleted_modified:type_name -> google.protobuf.Int64Value
-	296, // 526: api.LegacyRecord.duration:type_name -> google.protobuf.DoubleValue
-	295, // 527: api.LegacyRecord.duration_modified:type_name -> google.protobuf.Int64Value
-	292, // 528: api.LegacyRecord.playing_status:type_name -> google.protobuf.Int32Value
-	295, // 529: api.LegacyRecord.playing_status_modified:type_name -> google.protobuf.Int64Value
-	296, // 530: api.LegacyRecord.played_up_to:type_name -> google.protobuf.DoubleValue
-	295, // 531: api.LegacyRecord.played_up_to_modified:type_name -> google.protobuf.Int64Value
-	293, // 532: api.LegacyRecord.starred:type_name -> google.protobuf.StringValue
-	295, // 533: api.LegacyRecord.starred_modified:type_name -> google.protobuf.Int64Value
-	296, // 534: api.LegacyRecord.times_started_at:type_name -> google.protobuf.DoubleValue
-	296, // 535: api.LegacyRecord.time_silence_removal:type_name -> google.protobuf.DoubleValue
-	296, // 536: api.LegacyRecord.time_variable_speed:type_name -> google.protobuf.DoubleValue
-	296, // 537: api.LegacyRecord.time_intro_skipping:type_name -> google.protobuf.DoubleValue
-	296, // 538: api.LegacyRecord.time_skipping:type_name -> google.protobuf.DoubleValue
-	296, // 539: api.LegacyRecord.time_listened:type_name -> google.protobuf.DoubleValue
-	292, // 540: api.LegacyRecord.auto_start_from:type_name -> google.protobuf.Int32Value
-	293, // 541: api.LegacyRecord.subscribed:type_name -> google.protobuf.StringValue
-	293, // 542: api.LegacyRecord.title:type_name -> google.protobuf.StringValue
-	293, // 543: api.LegacyRecord.all_podcasts:type_name -> google.protobuf.StringValue
-	293, // 544: api.LegacyRecord.podcast_uuids:type_name -> google.protobuf.StringValue
-	293, // 545: api.LegacyRecord.episode_uuids:type_name -> google.protobuf.StringValue
-	292, // 546: api.LegacyRecord.audio_video:type_name -> google.protobuf.Int32Value
-	293, // 547: api.LegacyRecord.not_downloaded:type_name -> google.protobuf.StringValue
-	293, // 548: api.LegacyRecord.downloaded:type_name -> google.protobuf.StringValue
-	293, // 549: api.LegacyRecord.downloading:type_name -> google.protobuf.StringValue
-	293, // 550: api.LegacyRecord.finished:type_name -> google.protobuf.StringValue
-	293, // 551: api.LegacyRecord.partially_played:type_name -> google.protobuf.StringValue
-	293, // 552: api.LegacyRecord.unplayed:type_name -> google.protobuf.StringValue
-	293, // 553: api.LegacyRecord.manual:type_name -> google.protobuf.StringValue
-	292, // 554: api.LegacyRecord.sort_position:type_name -> google.protobuf.Int32Value
-	292, // 555: api.LegacyRecord.sort_type:type_name -> google.protobuf.Int32Value
-	292, // 556: api.LegacyRecord.icon_id:type_name -> google.protobuf.Int32Value
-	292, // 557: api.LegacyRecord.filter_hours:type_name -> google.protobuf.Int32Value
-	292, // 558: api.LegacyRecord.auto_skip_last:type_name -> google.protobuf.Int32Value
-	291, // 559: api.LegacyRecord.filter_duration:type_name -> google.protobuf.BoolValue
-	292, // 560: api.LegacyRecord.longer_than:type_name -> google.protobuf.Int32Value
-	292, // 561: api.LegacyRecord.shorter_than:type_name -> google.protobuf.Int32Value
-	293, // 562: api.LegacyRecord.folder_uuid:type_name -> google.protobuf.StringValue
-	293, // 563: api.LegacyRecord.name:type_name -> google.protobuf.StringValue
-	292, // 564: api.LegacyRecord.color:type_name -> google.protobuf.Int32Value
-	292, // 565: api.LegacyRecord.podcasts_sort_type:type_name -> google.protobuf.Int32Value
-	294, // 566: api.LegacyRecord.date_added:type_name -> google.protobuf.Timestamp
-	293, // 567: api.LegacyRecord.bookmark_uuid:type_name -> google.protobuf.StringValue
-	292, // 568: api.LegacyRecord.time:type_name -> google.protobuf.Int32Value
-	295, // 569: api.LegacyRecord.title_modified:type_name -> google.protobuf.Int64Value
-	294, // 570: api.LegacyRecord.created_at:type_name -> google.protobuf.Timestamp
-	293, // 571: api.LegacyRecord.deselected_chapters:type_name -> google.protobuf.StringValue
-	295, // 572: api.LegacyRecord.deselected_chapters_modified:type_name -> google.protobuf.Int64Value
+	300, // 520: api.LegacyRecord.uuid:type_name -> google.protobuf.StringValue
+	300, // 521: api.LegacyRecord.user_podcast_uuid:type_name -> google.protobuf.StringValue
+	300, // 522: api.LegacyRecord.episode_uuid:type_name -> google.protobuf.StringValue
+	300, // 523: api.LegacyRecord.podcast_uuid:type_name -> google.protobuf.StringValue
+	300, // 524: api.LegacyRecord.is_deleted:type_name -> google.protobuf.StringValue
+	302, // 525: api.LegacyRecord.is_deleted_modified:type_name -> google.protobuf.Int64Value
+	303, // 526: api.LegacyRecord.duration:type_name -> google.protobuf.DoubleValue
+	302, // 527: api.LegacyRecord.duration_modified:type_name -> google.protobuf.Int64Value
+	299, // 528: api.LegacyRecord.playing_status:type_name -> google.protobuf.Int32Value
+	302, // 529: api.LegacyRecord.playing_status_modified:type_name -> google.protobuf.Int64Value
+	303, // 530: api.LegacyRecord.played_up_to:type_name -> google.protobuf.DoubleValue
+	302, // 531: api.LegacyRecord.played_up_to_modified:type_name -> google.protobuf.Int64Value
+	300, // 532: api.LegacyRecord.starred:type_name -> google.protobuf.StringValue
+	302, // 533: api.LegacyRecord.starred_modified:type_name -> google.protobuf.Int64Value
+	303, // 534: api.LegacyRecord.times_started_at:type_name -> google.protobuf.DoubleValue
+	303, // 535: api.LegacyRecord.time_silence_removal:type_name -> google.protobuf.DoubleValue
+	303, // 536: api.LegacyRecord.time_variable_speed:type_name -> google.protobuf.DoubleValue
+	303, // 537: api.LegacyRecord.time_intro_skipping:type_name -> google.protobuf.DoubleValue
+	303, // 538: api.LegacyRecord.time_skipping:type_name -> google.protobuf.DoubleValue
+	303, // 539: api.LegacyRecord.time_listened:type_name -> google.protobuf.DoubleValue
+	299, // 540: api.LegacyRecord.auto_start_from:type_name -> google.protobuf.Int32Value
+	300, // 541: api.LegacyRecord.subscribed:type_name -> google.protobuf.StringValue
+	300, // 542: api.LegacyRecord.title:type_name -> google.protobuf.StringValue
+	300, // 543: api.LegacyRecord.all_podcasts:type_name -> google.protobuf.StringValue
+	300, // 544: api.LegacyRecord.podcast_uuids:type_name -> google.protobuf.StringValue
+	300, // 545: api.LegacyRecord.episode_uuids:type_name -> google.protobuf.StringValue
+	299, // 546: api.LegacyRecord.audio_video:type_name -> google.protobuf.Int32Value
+	300, // 547: api.LegacyRecord.not_downloaded:type_name -> google.protobuf.StringValue
+	300, // 548: api.LegacyRecord.downloaded:type_name -> google.protobuf.StringValue
+	300, // 549: api.LegacyRecord.downloading:type_name -> google.protobuf.StringValue
+	300, // 550: api.LegacyRecord.finished:type_name -> google.protobuf.StringValue
+	300, // 551: api.LegacyRecord.partially_played:type_name -> google.protobuf.StringValue
+	300, // 552: api.LegacyRecord.unplayed:type_name -> google.protobuf.StringValue
+	300, // 553: api.LegacyRecord.manual:type_name -> google.protobuf.StringValue
+	299, // 554: api.LegacyRecord.sort_position:type_name -> google.protobuf.Int32Value
+	299, // 555: api.LegacyRecord.sort_type:type_name -> google.protobuf.Int32Value
+	299, // 556: api.LegacyRecord.icon_id:type_name -> google.protobuf.Int32Value
+	299, // 557: api.LegacyRecord.filter_hours:type_name -> google.protobuf.Int32Value
+	299, // 558: api.LegacyRecord.auto_skip_last:type_name -> google.protobuf.Int32Value
+	298, // 559: api.LegacyRecord.filter_duration:type_name -> google.protobuf.BoolValue
+	299, // 560: api.LegacyRecord.longer_than:type_name -> google.protobuf.Int32Value
+	299, // 561: api.LegacyRecord.shorter_than:type_name -> google.protobuf.Int32Value
+	300, // 562: api.LegacyRecord.folder_uuid:type_name -> google.protobuf.StringValue
+	300, // 563: api.LegacyRecord.name:type_name -> google.protobuf.StringValue
+	299, // 564: api.LegacyRecord.color:type_name -> google.protobuf.Int32Value
+	299, // 565: api.LegacyRecord.podcasts_sort_type:type_name -> google.protobuf.Int32Value
+	301, // 566: api.LegacyRecord.date_added:type_name -> google.protobuf.Timestamp
+	300, // 567: api.LegacyRecord.bookmark_uuid:type_name -> google.protobuf.StringValue
+	299, // 568: api.LegacyRecord.time:type_name -> google.protobuf.Int32Value
+	302, // 569: api.LegacyRecord.title_modified:type_name -> google.protobuf.Int64Value
+	301, // 570: api.LegacyRecord.created_at:type_name -> google.protobuf.Timestamp
+	300, // 571: api.LegacyRecord.deselected_chapters:type_name -> google.protobuf.StringValue
+	302, // 572: api.LegacyRecord.deselected_chapters_modified:type_name -> google.protobuf.Int64Value
 	41,  // 573: api.LegacyRecord.episodes:type_name -> api.SyncPlaylistEpisode
-	291, // 574: api.LegacyRecord.show_archived:type_name -> google.protobuf.BoolValue
-	293, // 575: api.LegacyResponseRecord.uuid:type_name -> google.protobuf.StringValue
-	293, // 576: api.LegacyResponseRecord.user_podcast_uuid:type_name -> google.protobuf.StringValue
-	293, // 577: api.LegacyResponseRecord.episode_uuid:type_name -> google.protobuf.StringValue
-	293, // 578: api.LegacyResponseRecord.podcast_uuid:type_name -> google.protobuf.StringValue
-	291, // 579: api.LegacyResponseRecord.is_deleted:type_name -> google.protobuf.BoolValue
-	295, // 580: api.LegacyResponseRecord.is_deleted_modified:type_name -> google.protobuf.Int64Value
-	296, // 581: api.LegacyResponseRecord.duration:type_name -> google.protobuf.DoubleValue
-	295, // 582: api.LegacyResponseRecord.duration_modified:type_name -> google.protobuf.Int64Value
-	292, // 583: api.LegacyResponseRecord.playing_status:type_name -> google.protobuf.Int32Value
-	295, // 584: api.LegacyResponseRecord.playing_status_modified:type_name -> google.protobuf.Int64Value
-	296, // 585: api.LegacyResponseRecord.played_up_to:type_name -> google.protobuf.DoubleValue
-	295, // 586: api.LegacyResponseRecord.played_up_to_modified:type_name -> google.protobuf.Int64Value
-	291, // 587: api.LegacyResponseRecord.starred:type_name -> google.protobuf.BoolValue
-	295, // 588: api.LegacyResponseRecord.starred_modified:type_name -> google.protobuf.Int64Value
-	295, // 589: api.LegacyResponseRecord.times_started_at:type_name -> google.protobuf.Int64Value
-	295, // 590: api.LegacyResponseRecord.time_silence_removal:type_name -> google.protobuf.Int64Value
-	295, // 591: api.LegacyResponseRecord.time_variable_speed:type_name -> google.protobuf.Int64Value
-	295, // 592: api.LegacyResponseRecord.time_intro_skipping:type_name -> google.protobuf.Int64Value
-	295, // 593: api.LegacyResponseRecord.time_skipping:type_name -> google.protobuf.Int64Value
-	295, // 594: api.LegacyResponseRecord.time_listened:type_name -> google.protobuf.Int64Value
-	292, // 595: api.LegacyResponseRecord.auto_start_from:type_name -> google.protobuf.Int32Value
-	291, // 596: api.LegacyResponseRecord.subscribed:type_name -> google.protobuf.BoolValue
-	293, // 597: api.LegacyResponseRecord.title:type_name -> google.protobuf.StringValue
-	291, // 598: api.LegacyResponseRecord.all_podcasts:type_name -> google.protobuf.BoolValue
-	293, // 599: api.LegacyResponseRecord.podcast_uuids:type_name -> google.protobuf.StringValue
-	293, // 600: api.LegacyResponseRecord.episode_uuids:type_name -> google.protobuf.StringValue
-	292, // 601: api.LegacyResponseRecord.audio_video:type_name -> google.protobuf.Int32Value
-	291, // 602: api.LegacyResponseRecord.not_downloaded:type_name -> google.protobuf.BoolValue
-	291, // 603: api.LegacyResponseRecord.downloaded:type_name -> google.protobuf.BoolValue
-	291, // 604: api.LegacyResponseRecord.downloading:type_name -> google.protobuf.BoolValue
-	291, // 605: api.LegacyResponseRecord.finished:type_name -> google.protobuf.BoolValue
-	291, // 606: api.LegacyResponseRecord.partially_played:type_name -> google.protobuf.BoolValue
-	291, // 607: api.LegacyResponseRecord.unplayed:type_name -> google.protobuf.BoolValue
-	291, // 608: api.LegacyResponseRecord.manual:type_name -> google.protobuf.BoolValue
-	292, // 609: api.LegacyResponseRecord.sort_position:type_name -> google.protobuf.Int32Value
-	292, // 610: api.LegacyResponseRecord.sort_type:type_name -> google.protobuf.Int32Value
-	292, // 611: api.LegacyResponseRecord.icon_id:type_name -> google.protobuf.Int32Value
-	292, // 612: api.LegacyResponseRecord.filter_hours:type_name -> google.protobuf.Int32Value
-	292, // 613: api.LegacyResponseRecord.auto_skip_last:type_name -> google.protobuf.Int32Value
-	291, // 614: api.LegacyResponseRecord.filter_duration:type_name -> google.protobuf.BoolValue
-	292, // 615: api.LegacyResponseRecord.longer_than:type_name -> google.protobuf.Int32Value
-	292, // 616: api.LegacyResponseRecord.shorter_than:type_name -> google.protobuf.Int32Value
-	293, // 617: api.LegacyResponseRecord.folder_uuid:type_name -> google.protobuf.StringValue
-	293, // 618: api.LegacyResponseRecord.name:type_name -> google.protobuf.StringValue
-	292, // 619: api.LegacyResponseRecord.color:type_name -> google.protobuf.Int32Value
-	292, // 620: api.LegacyResponseRecord.podcasts_sort_type:type_name -> google.protobuf.Int32Value
-	294, // 621: api.LegacyResponseRecord.date_added:type_name -> google.protobuf.Timestamp
-	293, // 622: api.LegacyResponseRecord.bookmark_uuid:type_name -> google.protobuf.StringValue
-	292, // 623: api.LegacyResponseRecord.time:type_name -> google.protobuf.Int32Value
-	295, // 624: api.LegacyResponseRecord.title_modified:type_name -> google.protobuf.Int64Value
-	294, // 625: api.LegacyResponseRecord.created_at:type_name -> google.protobuf.Timestamp
-	293, // 626: api.LegacyResponseRecord.deselected_chapters:type_name -> google.protobuf.StringValue
-	295, // 627: api.LegacyResponseRecord.deselected_chapters_modified:type_name -> google.protobuf.Int64Value
+	298, // 574: api.LegacyRecord.show_archived:type_name -> google.protobuf.BoolValue
+	300, // 575: api.LegacyResponseRecord.uuid:type_name -> google.protobuf.StringValue
+	300, // 576: api.LegacyResponseRecord.user_podcast_uuid:type_name -> google.protobuf.StringValue
+	300, // 577: api.LegacyResponseRecord.episode_uuid:type_name -> google.protobuf.StringValue
+	300, // 578: api.LegacyResponseRecord.podcast_uuid:type_name -> google.protobuf.StringValue
+	298, // 579: api.LegacyResponseRecord.is_deleted:type_name -> google.protobuf.BoolValue
+	302, // 580: api.LegacyResponseRecord.is_deleted_modified:type_name -> google.protobuf.Int64Value
+	303, // 581: api.LegacyResponseRecord.duration:type_name -> google.protobuf.DoubleValue
+	302, // 582: api.LegacyResponseRecord.duration_modified:type_name -> google.protobuf.Int64Value
+	299, // 583: api.LegacyResponseRecord.playing_status:type_name -> google.protobuf.Int32Value
+	302, // 584: api.LegacyResponseRecord.playing_status_modified:type_name -> google.protobuf.Int64Value
+	303, // 585: api.LegacyResponseRecord.played_up_to:type_name -> google.protobuf.DoubleValue
+	302, // 586: api.LegacyResponseRecord.played_up_to_modified:type_name -> google.protobuf.Int64Value
+	298, // 587: api.LegacyResponseRecord.starred:type_name -> google.protobuf.BoolValue
+	302, // 588: api.LegacyResponseRecord.starred_modified:type_name -> google.protobuf.Int64Value
+	302, // 589: api.LegacyResponseRecord.times_started_at:type_name -> google.protobuf.Int64Value
+	302, // 590: api.LegacyResponseRecord.time_silence_removal:type_name -> google.protobuf.Int64Value
+	302, // 591: api.LegacyResponseRecord.time_variable_speed:type_name -> google.protobuf.Int64Value
+	302, // 592: api.LegacyResponseRecord.time_intro_skipping:type_name -> google.protobuf.Int64Value
+	302, // 593: api.LegacyResponseRecord.time_skipping:type_name -> google.protobuf.Int64Value
+	302, // 594: api.LegacyResponseRecord.time_listened:type_name -> google.protobuf.Int64Value
+	299, // 595: api.LegacyResponseRecord.auto_start_from:type_name -> google.protobuf.Int32Value
+	298, // 596: api.LegacyResponseRecord.subscribed:type_name -> google.protobuf.BoolValue
+	300, // 597: api.LegacyResponseRecord.title:type_name -> google.protobuf.StringValue
+	298, // 598: api.LegacyResponseRecord.all_podcasts:type_name -> google.protobuf.BoolValue
+	300, // 599: api.LegacyResponseRecord.podcast_uuids:type_name -> google.protobuf.StringValue
+	300, // 600: api.LegacyResponseRecord.episode_uuids:type_name -> google.protobuf.StringValue
+	299, // 601: api.LegacyResponseRecord.audio_video:type_name -> google.protobuf.Int32Value
+	298, // 602: api.LegacyResponseRecord.not_downloaded:type_name -> google.protobuf.BoolValue
+	298, // 603: api.LegacyResponseRecord.downloaded:type_name -> google.protobuf.BoolValue
+	298, // 604: api.LegacyResponseRecord.downloading:type_name -> google.protobuf.BoolValue
+	298, // 605: api.LegacyResponseRecord.finished:type_name -> google.protobuf.BoolValue
+	298, // 606: api.LegacyResponseRecord.partially_played:type_name -> google.protobuf.BoolValue
+	298, // 607: api.LegacyResponseRecord.unplayed:type_name -> google.protobuf.BoolValue
+	298, // 608: api.LegacyResponseRecord.manual:type_name -> google.protobuf.BoolValue
+	299, // 609: api.LegacyResponseRecord.sort_position:type_name -> google.protobuf.Int32Value
+	299, // 610: api.LegacyResponseRecord.sort_type:type_name -> google.protobuf.Int32Value
+	299, // 611: api.LegacyResponseRecord.icon_id:type_name -> google.protobuf.Int32Value
+	299, // 612: api.LegacyResponseRecord.filter_hours:type_name -> google.protobuf.Int32Value
+	299, // 613: api.LegacyResponseRecord.auto_skip_last:type_name -> google.protobuf.Int32Value
+	298, // 614: api.LegacyResponseRecord.filter_duration:type_name -> google.protobuf.BoolValue
+	299, // 615: api.LegacyResponseRecord.longer_than:type_name -> google.protobuf.Int32Value
+	299, // 616: api.LegacyResponseRecord.shorter_than:type_name -> google.protobuf.Int32Value
+	300, // 617: api.LegacyResponseRecord.folder_uuid:type_name -> google.protobuf.StringValue
+	300, // 618: api.LegacyResponseRecord.name:type_name -> google.protobuf.StringValue
+	299, // 619: api.LegacyResponseRecord.color:type_name -> google.protobuf.Int32Value
+	299, // 620: api.LegacyResponseRecord.podcasts_sort_type:type_name -> google.protobuf.Int32Value
+	301, // 621: api.LegacyResponseRecord.date_added:type_name -> google.protobuf.Timestamp
+	300, // 622: api.LegacyResponseRecord.bookmark_uuid:type_name -> google.protobuf.StringValue
+	299, // 623: api.LegacyResponseRecord.time:type_name -> google.protobuf.Int32Value
+	302, // 624: api.LegacyResponseRecord.title_modified:type_name -> google.protobuf.Int64Value
+	301, // 625: api.LegacyResponseRecord.created_at:type_name -> google.protobuf.Timestamp
+	300, // 626: api.LegacyResponseRecord.deselected_chapters:type_name -> google.protobuf.StringValue
+	302, // 627: api.LegacyResponseRecord.deselected_chapters_modified:type_name -> google.protobuf.Int64Value
 	41,  // 628: api.LegacyResponseRecord.episodes:type_name -> api.SyncPlaylistEpisode
-	291, // 629: api.LegacyResponseRecord.show_archived:type_name -> google.protobuf.BoolValue
+	298, // 629: api.LegacyResponseRecord.show_archived:type_name -> google.protobuf.BoolValue
 	127, // 630: api.LegacySyncData.records:type_name -> api.LegacySyncRecord
 	121, // 631: api.LegacySyncRecord.fields:type_name -> api.LegacyRecord
 	129, // 632: api.LegacySyncResponse.changes:type_name -> api.LegacySyncResponseRecord
 	124, // 633: api.LegacySyncResponseRecord.fields:type_name -> api.LegacyResponseRecord
-	294, // 634: api.PaymentResponse.date:type_name -> google.protobuf.Timestamp
+	301, // 634: api.PaymentResponse.date:type_name -> google.protobuf.Timestamp
 	32,  // 635: api.PlaylistCreateRequest.playlist:type_name -> api.SyncUserPlaylist
 	45,  // 636: api.PodcastFolderRequest.folder:type_name -> api.PodcastFolder
 	135, // 637: api.PodcastFolderSortRequest.podcasts:type_name -> api.PodcastFolderSorting
 	135, // 638: api.PodcastFolderSortRequest.folders:type_name -> api.PodcastFolderSorting
-	294, // 639: api.SubscriptionResponse.expiry_date:type_name -> google.protobuf.Timestamp
+	301, // 639: api.SubscriptionResponse.expiry_date:type_name -> google.protobuf.Timestamp
 	152, // 640: api.SubscriptionResponse.web:type_name -> api.SubscriptionsWebStatusResponse
 	136, // 641: api.SubscriptionResponse.podcasts:type_name -> api.PodcastPair
 	130, // 642: api.SubscriptionResponse.next_payment:type_name -> api.PaymentResponse
-	294, // 643: api.SubscriptionsStatusResponse.expiry_date:type_name -> google.protobuf.Timestamp
+	301, // 643: api.SubscriptionsStatusResponse.expiry_date:type_name -> google.protobuf.Timestamp
 	152, // 644: api.SubscriptionsStatusResponse.web:type_name -> api.SubscriptionsWebStatusResponse
 	146, // 645: api.SubscriptionsStatusResponse.subscriptions:type_name -> api.SubscriptionResponse
 	116, // 646: api.SubscriptionsStatusResponse.features:type_name -> api.Features
-	294, // 647: api.SubscriptionsStatusResponse.created_at:type_name -> google.protobuf.Timestamp
+	301, // 647: api.SubscriptionsStatusResponse.created_at:type_name -> google.protobuf.Timestamp
 	151, // 648: api.SubscriptionsWebStatusResponse.plus:type_name -> api.SubscriptionsWebProduct
 	151, // 649: api.SubscriptionsWebStatusResponse.patron:type_name -> api.SubscriptionsWebProduct
 	153, // 650: api.SuggestedFoldersRequest.folders:type_name -> api.SuggestedFolder
 	59,  // 651: api.UpNextPlayRequest.episode:type_name -> api.UpNextEpisodeRequest
 	115, // 652: api.UpdateEpisodesArchiveRequest.episodes:type_name -> api.EpisodeWithPodcast
-	293, // 653: api.UserTokenResponse.refresh_token:type_name -> google.protobuf.StringValue
-	294, // 654: api.SocialProfile.created_at:type_name -> google.protobuf.Timestamp
+	300, // 653: api.UserTokenResponse.refresh_token:type_name -> google.protobuf.StringValue
+	301, // 654: api.SocialProfile.created_at:type_name -> google.protobuf.Timestamp
 	0,   // 655: api.SocialProfile.avatar_visibility:type_name -> api.SocialVisibility
 	0,   // 656: api.SocialProfile.bio_visibility:type_name -> api.SocialVisibility
 	0,   // 657: api.SocialProfile.followed_shows_visibility:type_name -> api.SocialVisibility
@@ -26457,7 +26835,7 @@ var file_api_proto_depIdxs = []int32{
 	0,   // 669: api.ProfileUpdateRequest.history_visibility:type_name -> api.SocialVisibility
 	0,   // 670: api.ProfileUpdateRequest.presence_visibility:type_name -> api.SocialVisibility
 	178, // 671: api.ProfileResponse.profile:type_name -> api.SocialProfile
-	294, // 672: api.PublicProfileResponse.created_at:type_name -> google.protobuf.Timestamp
+	301, // 672: api.PublicProfileResponse.created_at:type_name -> google.protobuf.Timestamp
 	188, // 673: api.PublicProfileResponse.followed_shows:type_name -> api.SocialProfilePodcast
 	188, // 674: api.PublicProfileResponse.top_podcasts:type_name -> api.SocialProfilePodcast
 	190, // 675: api.PublicProfileResponse.stats:type_name -> api.SocialProfileStats
@@ -26465,37 +26843,37 @@ var file_api_proto_depIdxs = []int32{
 	5,   // 677: api.PublicProfileResponse.your_follow_state:type_name -> api.FollowState
 	233, // 678: api.PublicProfileResponse.lists:type_name -> api.SharedList
 	270, // 679: api.PublicProfileResponse.milestones:type_name -> api.Milestone
-	294, // 680: api.SocialProfileEpisode.played_at:type_name -> google.protobuf.Timestamp
-	294, // 681: api.SocialProfileStats.listening_since:type_name -> google.protobuf.Timestamp
+	301, // 680: api.SocialProfileEpisode.played_at:type_name -> google.protobuf.Timestamp
+	301, // 681: api.SocialProfileStats.listening_since:type_name -> google.protobuf.Timestamp
 	3,   // 682: api.AvatarUploadResponse.status:type_name -> api.AvatarUploadStatus
 	2,   // 683: api.ReportRequest.reason:type_name -> api.ReportReason
-	294, // 684: api.PodcastReview.created_at:type_name -> google.protobuf.Timestamp
-	294, // 685: api.PodcastReview.updated_at:type_name -> google.protobuf.Timestamp
+	301, // 684: api.PodcastReview.created_at:type_name -> google.protobuf.Timestamp
+	301, // 685: api.PodcastReview.updated_at:type_name -> google.protobuf.Timestamp
 	198, // 686: api.PodcastReviewsResponse.reviews:type_name -> api.PodcastReview
 	198, // 687: api.PodcastReviewsResponse.your_review:type_name -> api.PodcastReview
 	4,   // 688: api.EpisodeReactionSetRequest.kind:type_name -> api.ReactionKind
 	4,   // 689: api.ReactionCount.kind:type_name -> api.ReactionKind
 	204, // 690: api.EpisodeReactionsResponse.counts:type_name -> api.ReactionCount
 	4,   // 691: api.EpisodeReactionsResponse.your_reaction:type_name -> api.ReactionKind
-	294, // 692: api.SharedItem.created_at:type_name -> google.protobuf.Timestamp
+	301, // 692: api.SharedItem.created_at:type_name -> google.protobuf.Timestamp
 	207, // 693: api.InboxResponse.items:type_name -> api.SharedItem
 	5,   // 694: api.FollowResponse.state:type_name -> api.FollowState
 	5,   // 695: api.FollowEntry.state:type_name -> api.FollowState
 	216, // 696: api.FollowListResponse.entries:type_name -> api.FollowEntry
 	6,   // 697: api.FeedItem.kind:type_name -> api.FeedItemKind
 	4,   // 698: api.FeedItem.reaction_kind:type_name -> api.ReactionKind
-	294, // 699: api.FeedItem.event_at:type_name -> google.protobuf.Timestamp
+	301, // 699: api.FeedItem.event_at:type_name -> google.protobuf.Timestamp
 	221, // 700: api.FeedResponse.items:type_name -> api.FeedItem
-	294, // 701: api.SocialComment.created_at:type_name -> google.protobuf.Timestamp
+	301, // 701: api.SocialComment.created_at:type_name -> google.protobuf.Timestamp
 	224, // 702: api.CommentsResponse.comments:type_name -> api.SocialComment
 	224, // 703: api.InboxRepliesResponse.replies:type_name -> api.SocialComment
 	7,   // 704: api.SharedListMember.role:type_name -> api.SharedListRole
 	0,   // 705: api.SharedList.visibility:type_name -> api.SocialVisibility
-	294, // 706: api.SharedList.created_at:type_name -> google.protobuf.Timestamp
-	294, // 707: api.SharedList.updated_at:type_name -> google.protobuf.Timestamp
+	301, // 706: api.SharedList.created_at:type_name -> google.protobuf.Timestamp
+	301, // 707: api.SharedList.updated_at:type_name -> google.protobuf.Timestamp
 	7,   // 708: api.SharedList.your_role:type_name -> api.SharedListRole
 	232, // 709: api.SharedList.members:type_name -> api.SharedListMember
-	294, // 710: api.SharedListEntry.added_at:type_name -> google.protobuf.Timestamp
+	301, // 710: api.SharedListEntry.added_at:type_name -> google.protobuf.Timestamp
 	0,   // 711: api.SharedListCreateRequest.visibility:type_name -> api.SocialVisibility
 	234, // 712: api.SharedListCreateRequest.entries:type_name -> api.SharedListEntry
 	0,   // 713: api.SharedListUpdateRequest.visibility:type_name -> api.SocialVisibility
@@ -26506,19 +26884,19 @@ var file_api_proto_depIdxs = []int32{
 	233, // 718: api.SharedListsResponse.invites:type_name -> api.SharedList
 	0,   // 719: api.SocialGroup.visibility:type_name -> api.SocialVisibility
 	10,  // 720: api.SocialGroup.your_role:type_name -> api.GroupRole
-	294, // 721: api.SocialGroup.created_at:type_name -> google.protobuf.Timestamp
+	301, // 721: api.SocialGroup.created_at:type_name -> google.protobuf.Timestamp
 	0,   // 722: api.GroupCreateRequest.visibility:type_name -> api.SocialVisibility
 	0,   // 723: api.GroupUpdateRequest.visibility:type_name -> api.SocialVisibility
 	246, // 724: api.GroupsResponse.groups:type_name -> api.SocialGroup
 	246, // 725: api.GroupsResponse.invites:type_name -> api.SocialGroup
 	246, // 726: api.GroupDiscoverResponse.groups:type_name -> api.SocialGroup
 	10,  // 727: api.GroupMember.role:type_name -> api.GroupRole
-	294, // 728: api.GroupMember.joined_at:type_name -> google.protobuf.Timestamp
+	301, // 728: api.GroupMember.joined_at:type_name -> google.protobuf.Timestamp
 	261, // 729: api.GroupMembersResponse.members:type_name -> api.GroupMember
-	294, // 730: api.GroupPost.created_at:type_name -> google.protobuf.Timestamp
+	301, // 730: api.GroupPost.created_at:type_name -> google.protobuf.Timestamp
 	265, // 731: api.GroupPostsResponse.posts:type_name -> api.GroupPost
 	246, // 732: api.GroupPostsResponse.group:type_name -> api.SocialGroup
-	294, // 733: api.Milestone.crossed_at:type_name -> google.protobuf.Timestamp
+	301, // 733: api.Milestone.crossed_at:type_name -> google.protobuf.Timestamp
 	273, // 734: api.CuratorsResponse.curators:type_name -> api.CuratorEntry
 	5,   // 735: api.ProfileSummary.your_follow_state:type_name -> api.FollowState
 	274, // 736: api.SocialSearchResponse.profiles:type_name -> api.ProfileSummary
@@ -26527,16 +26905,19 @@ var file_api_proto_depIdxs = []int32{
 	280, // 739: api.ContactsMatchRequest.hashes:type_name -> api.ContactHash
 	274, // 740: api.ContactsMatchResponse.profiles:type_name -> api.ProfileSummary
 	284, // 741: api.SocialTrendingResponse.podcasts:type_name -> api.TrendingPodcast
-	59,  // 742: api.UpNextChanges.Change.episodes:type_name -> api.UpNextEpisodeRequest
-	294, // 743: api.UpNextChanges.Change.published:type_name -> google.protobuf.Timestamp
-	294, // 744: api.UpNextResponse.EpisodeResponse.published:type_name -> google.protobuf.Timestamp
-	292, // 745: api.UpNextResponse.EpisodeSyncResponse.played_up_to:type_name -> google.protobuf.Int32Value
-	292, // 746: api.UpNextResponse.EpisodeSyncResponse.duration:type_name -> google.protobuf.Int32Value
-	747, // [747:747] is the sub-list for method output_type
-	747, // [747:747] is the sub-list for method input_type
-	747, // [747:747] is the sub-list for extension type_name
-	747, // [747:747] is the sub-list for extension extendee
-	0,   // [0:747] is the sub-list for field type_name
+	288, // 742: api.PersonGetResponse.person:type_name -> api.PersonSummary
+	289, // 743: api.PersonGetResponse.appearances:type_name -> api.PersonAppearance
+	288, // 744: api.PersonListResponse.persons:type_name -> api.PersonSummary
+	59,  // 745: api.UpNextChanges.Change.episodes:type_name -> api.UpNextEpisodeRequest
+	301, // 746: api.UpNextChanges.Change.published:type_name -> google.protobuf.Timestamp
+	301, // 747: api.UpNextResponse.EpisodeResponse.published:type_name -> google.protobuf.Timestamp
+	299, // 748: api.UpNextResponse.EpisodeSyncResponse.played_up_to:type_name -> google.protobuf.Int32Value
+	299, // 749: api.UpNextResponse.EpisodeSyncResponse.duration:type_name -> google.protobuf.Int32Value
+	750, // [750:750] is the sub-list for method output_type
+	750, // [750:750] is the sub-list for method input_type
+	750, // [750:750] is the sub-list for extension type_name
+	750, // [750:750] is the sub-list for extension extendee
+	0,   // [0:750] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_init() }
@@ -26572,7 +26953,7 @@ func file_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_rawDesc), len(file_api_proto_rawDesc)),
 			NumEnums:      12,
-			NumMessages:   279,
+			NumMessages:   286,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

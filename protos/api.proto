@@ -2635,3 +2635,47 @@ message PodcastProofResponse {
   repeated string visible_handles = 1; // named-when-visible, capped
   int32 total_count = 2;               // all followees following the show
 }
+
+// ---------------------------------------------------------------------------
+// Person index (Highlights B2, ADR-0017). Fork-owned messages: numbering
+// starts at 1 (the >= 1001 rule applies only to fields added to upstream
+// messages). Identity is the numeric person id; display names render, ids
+// reference.
+// ---------------------------------------------------------------------------
+
+message PersonSummary {
+  int64 id = 1;
+  string display_name = 2;
+}
+
+message PersonAppearance {
+  string podcast_uuid = 1;
+  string episode_uuid = 2;
+  string role = 3;
+}
+
+// POST person/get — the person page: appearances + the caller's follow state.
+message PersonGetRequest {
+  int64 id = 1;
+}
+
+message PersonGetResponse {
+  PersonSummary person = 1;
+  repeated PersonAppearance appearances = 2;
+  bool following = 3;
+}
+
+// POST person/search — folded-alias prefix search.
+message PersonSearchRequest {
+  string query = 1;
+}
+
+message PersonListResponse {
+  repeated PersonSummary persons = 1;
+}
+
+// POST person/follow and person/unfollow. Follows are private account state
+// (no joined profile required); the push is the follow's whole point.
+message PersonFollowRequest {
+  int64 person_id = 1;
+}

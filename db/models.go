@@ -250,6 +250,39 @@ type PasswordResetCode struct {
 	CreatedAt  time.Time
 }
 
+type Person struct {
+	ID            int64
+	CanonicalName string
+	DisplayName   string
+	CreatedAt     time.Time
+}
+
+type PersonAlias struct {
+	PersonID    int64
+	AliasFolded string
+	Source      string
+}
+
+type PersonAppearance struct {
+	PersonID    int64
+	PodcastUuid string
+	EpisodeUuid string
+	Role        string
+	CreatedAt   time.Time
+}
+
+type PersonExternalRef struct {
+	PersonID int64
+	Scheme   string
+	Value    string
+}
+
+type PersonFollow struct {
+	UserID    int64
+	PersonID  int64
+	CreatedAt time.Time
+}
+
 type Playlist struct {
 	UserID          int64
 	Uuid            string
