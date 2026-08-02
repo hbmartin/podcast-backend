@@ -1432,11 +1432,10 @@ func (x *UserChangePasswordRequest) GetScope() string {
 }
 
 type UserChangeResponse struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Success *wrapperspb.BoolValue  `protobuf:"bytes,1,opt,name=success,proto3" json:"success,omitempty"`
-	Message string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	// JSON name is camelCase in the client's nameMap (upstream quirk).
-	MessageId     string `protobuf:"bytes,3,opt,name=messageId,proto3" json:"messageId,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       *wrapperspb.BoolValue  `protobuf:"bytes,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	MessageId     string                 `protobuf:"bytes,3,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -15608,10 +15607,14 @@ type UserResetPasswordRequest struct {
 	ResetPasswordToken string                 `protobuf:"bytes,1,opt,name=reset_password_token,json=resetPasswordToken,proto3" json:"reset_password_token,omitempty"`
 	Password           string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
 	Scope              string                 `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`
-	Email              string                 `protobuf:"bytes,4,opt,name=email,proto3" json:"email,omitempty"`
-	Device             string                 `protobuf:"bytes,1001,opt,name=device,proto3" json:"device,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Fork-added fields use tags >= 1001 so upstream can never collide with them.
+	Device string `protobuf:"bytes,1001,opt,name=device,proto3" json:"device,omitempty"`
+	// Email is an established upstream field; changing its tag breaks the wire
+	// contract with deployed servers even though the generated property name is
+	// unchanged.
+	Email         string `protobuf:"bytes,4,opt,name=email,proto3" json:"email,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UserResetPasswordRequest) Reset() {
@@ -15665,16 +15668,16 @@ func (x *UserResetPasswordRequest) GetScope() string {
 	return ""
 }
 
-func (x *UserResetPasswordRequest) GetEmail() string {
+func (x *UserResetPasswordRequest) GetDevice() string {
 	if x != nil {
-		return x.Email
+		return x.Device
 	}
 	return ""
 }
 
-func (x *UserResetPasswordRequest) GetDevice() string {
+func (x *UserResetPasswordRequest) GetEmail() string {
 	if x != nil {
-		return x.Device
+		return x.Email
 	}
 	return ""
 }
@@ -23380,11 +23383,12 @@ const file_api_proto_rawDesc = "" +
 	"\x19UserChangePasswordRequest\x12!\n" +
 	"\fold_password\x18\x01 \x01(\tR\voldPassword\x12!\n" +
 	"\fnew_password\x18\x02 \x01(\tR\vnewPassword\x12\x14\n" +
-	"\x05scope\x18\x04 \x01(\tR\x05scope\"\x82\x01\n" +
+	"\x05scope\x18\x04 \x01(\tR\x05scope\"\x83\x01\n" +
 	"\x12UserChangeResponse\x124\n" +
 	"\asuccess\x18\x01 \x01(\v2\x1a.google.protobuf.BoolValueR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1c\n" +
-	"\tmessageId\x18\x03 \x01(\tR\tmessageId\"*\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x03 \x01(\tR\tmessageId\"*\n" +
 	"\fBasicRequest\x12\f\n" +
 	"\x01v\x18\x01 \x01(\tR\x01v\x12\f\n" +
 	"\x01m\x18\x02 \x01(\tR\x01m\"\x0e\n" +
@@ -24823,9 +24827,9 @@ const file_api_proto_rawDesc = "" +
 	"\x18UserResetPasswordRequest\x120\n" +
 	"\x14reset_password_token\x18\x01 \x01(\tR\x12resetPasswordToken\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x14\n" +
-	"\x05scope\x18\x03 \x01(\tR\x05scope\x12\x14\n" +
-	"\x05email\x18\x04 \x01(\tR\x05email\x12\x17\n" +
-	"\x06device\x18\xe9\a \x01(\tR\x06device\"8\n" +
+	"\x05scope\x18\x03 \x01(\tR\x05scope\x12\x17\n" +
+	"\x06device\x18\xe9\a \x01(\tR\x06device\x12\x14\n" +
+	"\x05email\x18\x04 \x01(\tR\x05email\"8\n" +
 	"\x11UserRevokeRequest\x12#\n" +
 	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"M\n" +
 	"\x1dUserSubscriptionSurveyRequest\x12\x16\n" +
