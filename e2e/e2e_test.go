@@ -386,6 +386,66 @@ func TestAccountAndSyncConvergence(t *testing.T) {
 	assert.GreaterOrEqual(t, lastSync.LastSyncAtMs, sync.LastModified)
 }
 
+// ADR-0016 (backend milestone B1): a trimmed, tagged highlight created on one
+// device round-trips through incremental sync and the bookmark list.
+func TestBookmarkHighlightSyncRoundTrip(t *testing.T) {
+	email := fmt.Sprintf("highlight-%d@e2e.test", time.Now().UnixNano())
+	tokenA, _ := registerUser(t, email)
+
+	now := time.Now().UnixMilli()
+	sync := &pb.SyncUpdateResponse{}
+	status := postProto(t, "/user/sync/update", tokenA, &pb.SyncUpdateRequest{
+		DeviceUtcTimeMs: now,
+		Records: []*pb.Record{
+			{Record: &pb.Record_Bookmark{Bookmark: &pb.SyncUserBookmark{
+				BookmarkUuid:  "0c9c0c8e-6f66-4b58-9a3f-2b5f6f2a1c01",
+				PodcastUuid:   "6a09813e-84ba-4f4c-b70c-620ae7dcbfc9",
+				EpisodeUuid:   "5b1fdc19-e2e6-4b34-a3f1-72b0d5b83b41",
+				CreatedAt:     timestamppb.Now(),
+				Time:          wrapperspb.Int32(90),
+				Title:         wrapperspb.String("Key insight"),
+				TitleModified: wrapperspb.Int64(now),
+				Excerpt:       wrapperspb.String("the exact words worth keeping"),
+				EndTime:       wrapperspb.Double(104.5),
+				TrimModified:  wrapperspb.Int64(now),
+				Tags:          []string{"ai", "investing"},
+				TagsModified:  wrapperspb.Int64(now),
+			}}},
+		},
+	}, sync)
+	require.Equal(t, http.StatusOK, status)
+
+	// A second device's incremental sync carries the highlight fields.
+	tokenB := login(t, email)
+	syncB := &pb.SyncUpdateResponse{}
+	status = postProto(t, "/user/sync/update", tokenB, &pb.SyncUpdateRequest{LastModified: 0}, syncB)
+	require.Equal(t, http.StatusOK, status)
+
+	var synced *pb.SyncUserBookmark
+	for _, record := range syncB.Records {
+		if b := record.GetBookmark(); b != nil && b.BookmarkUuid == "0c9c0c8e-6f66-4b58-9a3f-2b5f6f2a1c01" {
+			synced = b
+		}
+	}
+	require.NotNil(t, synced, "device B sees the bookmark")
+	assert.Equal(t, "the exact words worth keeping", synced.Excerpt.GetValue())
+	assert.Equal(t, 104.5, synced.EndTime.GetValue())
+	assert.Equal(t, now, synced.TrimModified.GetValue())
+	assert.Equal(t, []string{"ai", "investing"}, synced.Tags)
+	assert.Equal(t, now, synced.TagsModified.GetValue())
+
+	// Full-sync restore path: bookmark/list carries the same fields.
+	list := &pb.BookmarksResponse{}
+	status = postProto(t, "/user/bookmark/list", tokenB, &pb.BookmarkRequest{}, list)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, list.Bookmarks, 1)
+	assert.Equal(t, "the exact words worth keeping", list.Bookmarks[0].Excerpt)
+	assert.Equal(t, 104.5, list.Bookmarks[0].EndTime)
+	assert.Equal(t, now, list.Bookmarks[0].TrimModified)
+	assert.Equal(t, []string{"ai", "investing"}, list.Bookmarks[0].Tags)
+	assert.Equal(t, now, list.Bookmarks[0].TagsModified)
+}
+
 func TestUpNextAndHistory(t *testing.T) {
 	email := fmt.Sprintf("upnext-%d@e2e.test", time.Now().UnixNano())
 	token, _ := registerUser(t, email)
