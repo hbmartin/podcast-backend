@@ -37,6 +37,11 @@ type Bookmark struct {
 	IsDeleted         bool
 	IsDeletedModified int64
 	ModifiedAt        int64
+	Excerpt           string
+	EndTimeSecs       float64
+	TrimModified      int64
+	Tags              []string
+	TagsModified      int64
 }
 
 type CorpusArtifact struct {
@@ -243,6 +248,39 @@ type PasswordResetCode struct {
 	ExpiresAt  time.Time
 	ConsumedAt *time.Time
 	CreatedAt  time.Time
+}
+
+type Person struct {
+	ID            int64
+	CanonicalName string
+	DisplayName   string
+	CreatedAt     time.Time
+}
+
+type PersonAlias struct {
+	PersonID    int64
+	AliasFolded string
+	Source      string
+}
+
+type PersonAppearance struct {
+	PersonID    int64
+	PodcastUuid string
+	EpisodeUuid string
+	Role        string
+	CreatedAt   time.Time
+}
+
+type PersonExternalRef struct {
+	PersonID int64
+	Scheme   string
+	Value    string
+}
+
+type PersonFollow struct {
+	UserID    int64
+	PersonID  int64
+	CreatedAt time.Time
 }
 
 type Playlist struct {

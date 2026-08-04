@@ -41,6 +41,10 @@ type Crawler struct {
 	// episodes published after the podcast's previous latest (newest first).
 	// The first crawl of a feed never fires it (everything would be "new").
 	OnNewEpisodes func(podcastUuid string, episodeUuids []string)
+
+	// OnNewPersonAppearance fires once per person newly credited on a FRESH
+	// episode (Highlights B2): the person-follow push fan-out hook.
+	OnNewPersonAppearance func(personID int64, personName, podcastUuid, episodeUuid string)
 }
 
 // EnsurePodcast makes sure a feed URL exists in the catalog and returns its
@@ -162,9 +166,28 @@ func (c *Crawler) Crawl(ctx context.Context, podcast db.Podcast) error {
 			latestUuid = &uuid
 		}
 
-		if podcast.LatestEpisodePublished != nil && episode.PublishedAt != nil &&
-			episode.PublishedAt.After(*podcast.LatestEpisodePublished) {
+		isFresh := podcast.LatestEpisodePublished != nil && episode.PublishedAt != nil &&
+			episode.PublishedAt.After(*podcast.LatestEpisodePublished)
+		if isFresh {
 			fresh = append(fresh, episode)
+		}
+
+		// Person index (Highlights B2): resolve credited persons on every
+		// ingested item; push fan-out only for genuinely fresh episodes.
+		if credited := itemPersons(item); len(credited) > 0 {
+			newPersonIDs, personErr := IngestPersons(ctx, c.DB, podcast.Uuid, episode.Uuid, credited)
+			if personErr != nil {
+				return errs.E(op, errs.Database, personErr)
+			}
+			if isFresh && c.OnNewPersonAppearance != nil {
+				for _, personID := range newPersonIDs {
+					person, personErr := c.DB.GetPerson(ctx, personID)
+					if personErr != nil {
+						continue
+					}
+					c.OnNewPersonAppearance(personID, person.DisplayName, podcast.Uuid, episode.Uuid)
+				}
+			}
 		}
 	}
 

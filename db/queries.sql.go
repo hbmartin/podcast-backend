@@ -12,6 +12,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addPersonAlias = `-- name: AddPersonAlias :exec
+INSERT INTO person_aliases (person_id, alias_folded, source) VALUES ($1, $2, $3)
+ON CONFLICT (alias_folded, person_id) DO NOTHING
+`
+
+type AddPersonAliasParams struct {
+	PersonID    int64
+	AliasFolded string
+	Source      string
+}
+
+func (q *Queries) AddPersonAlias(ctx context.Context, arg AddPersonAliasParams) error {
+	_, err := q.db.Exec(ctx, addPersonAlias, arg.PersonID, arg.AliasFolded, arg.Source)
+	return err
+}
+
 const advanceAttestCounter = `-- name: AdvanceAttestCounter :execrows
 UPDATE attest_keys
 SET counter = $2, last_used_at = now()
@@ -617,6 +633,27 @@ func (q *Queries) CreatePasswordResetCode(ctx context.Context, arg CreatePasswor
 		&i.CodeHash,
 		&i.ExpiresAt,
 		&i.ConsumedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createPerson = `-- name: CreatePerson :one
+INSERT INTO persons (canonical_name, display_name) VALUES ($1, $2) RETURNING id, canonical_name, display_name, created_at
+`
+
+type CreatePersonParams struct {
+	CanonicalName string
+	DisplayName   string
+}
+
+func (q *Queries) CreatePerson(ctx context.Context, arg CreatePersonParams) (Person, error) {
+	row := q.db.QueryRow(ctx, createPerson, arg.CanonicalName, arg.DisplayName)
+	var i Person
+	err := row.Scan(
+		&i.ID,
+		&i.CanonicalName,
+		&i.DisplayName,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -1400,6 +1437,43 @@ func (q *Queries) FindGroupSuccessor(ctx context.Context, arg FindGroupSuccessor
 	return user_id, err
 }
 
+const findPersonByAlias = `-- name: FindPersonByAlias :one
+
+SELECT p.id, p.canonical_name, p.display_name, p.created_at FROM persons p
+JOIN person_aliases a ON a.person_id = p.id
+WHERE a.alias_folded = $1
+ORDER BY p.id
+LIMIT 1
+`
+
+// Person index (Highlights B2, ADR-0017): identity, aliases, appearances, follows.
+func (q *Queries) FindPersonByAlias(ctx context.Context, aliasFolded string) (Person, error) {
+	row := q.db.QueryRow(ctx, findPersonByAlias, aliasFolded)
+	var i Person
+	err := row.Scan(
+		&i.ID,
+		&i.CanonicalName,
+		&i.DisplayName,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const followPerson = `-- name: FollowPerson :exec
+INSERT INTO person_follows (user_id, person_id) VALUES ($1, $2)
+ON CONFLICT (user_id, person_id) DO NOTHING
+`
+
+type FollowPersonParams struct {
+	UserID   int64
+	PersonID int64
+}
+
+func (q *Queries) FollowPerson(ctx context.Context, arg FollowPersonParams) error {
+	_, err := q.db.Exec(ctx, followPerson, arg.UserID, arg.PersonID)
+	return err
+}
+
 const getAttestKey = `-- name: GetAttestKey :one
 SELECT key_id, public_key, counter, receipt, environment, status, created_at, last_used_at FROM attest_keys WHERE key_id = $1
 `
@@ -1421,7 +1495,7 @@ func (q *Queries) GetAttestKey(ctx context.Context, keyID string) (AttestKey, er
 }
 
 const getBookmark = `-- name: GetBookmark :one
-SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks WHERE user_id = $1 AND bookmark_uuid = $2
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at, excerpt, end_time_secs, trim_modified, tags, tags_modified FROM bookmarks WHERE user_id = $1 AND bookmark_uuid = $2
 `
 
 type GetBookmarkParams struct {
@@ -1444,12 +1518,17 @@ func (q *Queries) GetBookmark(ctx context.Context, arg GetBookmarkParams) (Bookm
 		&i.IsDeleted,
 		&i.IsDeletedModified,
 		&i.ModifiedAt,
+		&i.Excerpt,
+		&i.EndTimeSecs,
+		&i.TrimModified,
+		&i.Tags,
+		&i.TagsModified,
 	)
 	return i, err
 }
 
 const getBookmarks = `-- name: GetBookmarks :many
-SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at, excerpt, end_time_secs, trim_modified, tags, tags_modified FROM bookmarks
 WHERE user_id = $1 AND NOT is_deleted
 `
 
@@ -1474,6 +1553,11 @@ func (q *Queries) GetBookmarks(ctx context.Context, userID int64) ([]Bookmark, e
 			&i.IsDeleted,
 			&i.IsDeletedModified,
 			&i.ModifiedAt,
+			&i.Excerpt,
+			&i.EndTimeSecs,
+			&i.TrimModified,
+			&i.Tags,
+			&i.TagsModified,
 		); err != nil {
 			return nil, err
 		}
@@ -1486,7 +1570,7 @@ func (q *Queries) GetBookmarks(ctx context.Context, userID int64) ([]Bookmark, e
 }
 
 const getBookmarksForEpisodes = `-- name: GetBookmarksForEpisodes :many
-SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at, excerpt, end_time_secs, trim_modified, tags, tags_modified FROM bookmarks
 WHERE user_id = $1 AND episode_uuid = ANY($2::uuid[]) AND NOT is_deleted
 `
 
@@ -1516,6 +1600,11 @@ func (q *Queries) GetBookmarksForEpisodes(ctx context.Context, arg GetBookmarksF
 			&i.IsDeleted,
 			&i.IsDeletedModified,
 			&i.ModifiedAt,
+			&i.Excerpt,
+			&i.EndTimeSecs,
+			&i.TrimModified,
+			&i.Tags,
+			&i.TagsModified,
 		); err != nil {
 			return nil, err
 		}
@@ -1528,7 +1617,7 @@ func (q *Queries) GetBookmarksForEpisodes(ctx context.Context, arg GetBookmarksF
 }
 
 const getBookmarksModifiedSince = `-- name: GetBookmarksModifiedSince :many
-SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at FROM bookmarks
+SELECT user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title, title_modified, created_at, is_deleted, is_deleted_modified, modified_at, excerpt, end_time_secs, trim_modified, tags, tags_modified FROM bookmarks
 WHERE user_id = $1 AND modified_at > $2 AND modified_at <= $3
 `
 
@@ -1559,6 +1648,11 @@ func (q *Queries) GetBookmarksModifiedSince(ctx context.Context, arg GetBookmark
 			&i.IsDeleted,
 			&i.IsDeletedModified,
 			&i.ModifiedAt,
+			&i.Excerpt,
+			&i.EndTimeSecs,
+			&i.TrimModified,
+			&i.Tags,
+			&i.TagsModified,
 		); err != nil {
 			return nil, err
 		}
@@ -2563,6 +2657,38 @@ func (q *Queries) GetFollowState(ctx context.Context, arg GetFollowStateParams) 
 	return status, err
 }
 
+const getFollowedPersons = `-- name: GetFollowedPersons :many
+SELECT p.id, p.canonical_name, p.display_name, p.created_at FROM persons p
+JOIN person_follows f ON f.person_id = p.id
+WHERE f.user_id = $1
+ORDER BY p.display_name
+`
+
+func (q *Queries) GetFollowedPersons(ctx context.Context, userID int64) ([]Person, error) {
+	rows, err := q.db.Query(ctx, getFollowedPersons, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Person
+	for rows.Next() {
+		var i Person
+		if err := rows.Scan(
+			&i.ID,
+			&i.CanonicalName,
+			&i.DisplayName,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getFollowers = `-- name: GetFollowers :many
 SELECT u.uuid AS user_uuid, sp.handle, sp.display_name, sf.status
 FROM social_follows sf
@@ -3440,6 +3566,83 @@ func (q *Queries) GetPendingFollowRequests(ctx context.Context, arg GetPendingFo
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPerson = `-- name: GetPerson :one
+SELECT id, canonical_name, display_name, created_at FROM persons WHERE id = $1
+`
+
+func (q *Queries) GetPerson(ctx context.Context, id int64) (Person, error) {
+	row := q.db.QueryRow(ctx, getPerson, id)
+	var i Person
+	err := row.Scan(
+		&i.ID,
+		&i.CanonicalName,
+		&i.DisplayName,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getPersonAppearances = `-- name: GetPersonAppearances :many
+SELECT person_id, podcast_uuid, episode_uuid, role, created_at FROM person_appearances WHERE person_id = $1
+ORDER BY created_at DESC
+LIMIT $2
+`
+
+type GetPersonAppearancesParams struct {
+	PersonID int64
+	Limit    int32
+}
+
+func (q *Queries) GetPersonAppearances(ctx context.Context, arg GetPersonAppearancesParams) ([]PersonAppearance, error) {
+	rows, err := q.db.Query(ctx, getPersonAppearances, arg.PersonID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PersonAppearance
+	for rows.Next() {
+		var i PersonAppearance
+		if err := rows.Scan(
+			&i.PersonID,
+			&i.PodcastUuid,
+			&i.EpisodeUuid,
+			&i.Role,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPersonFollowerIDs = `-- name: GetPersonFollowerIDs :many
+SELECT user_id FROM person_follows WHERE person_id = $1
+`
+
+func (q *Queries) GetPersonFollowerIDs(ctx context.Context, personID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, getPersonFollowerIDs, personID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var user_id int64
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -6293,6 +6496,44 @@ func (q *Queries) SearchEpisodesInPodcast(ctx context.Context, arg SearchEpisode
 	return items, nil
 }
 
+const searchPersons = `-- name: SearchPersons :many
+SELECT DISTINCT p.id, p.canonical_name, p.display_name, p.created_at FROM persons p
+JOIN person_aliases a ON a.person_id = p.id
+WHERE a.alias_folded LIKE $1 || '%'
+ORDER BY p.display_name
+LIMIT $2
+`
+
+type SearchPersonsParams struct {
+	Column1 *string
+	Limit   int32
+}
+
+func (q *Queries) SearchPersons(ctx context.Context, arg SearchPersonsParams) ([]Person, error) {
+	rows, err := q.db.Query(ctx, searchPersons, arg.Column1, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Person
+	for rows.Next() {
+		var i Person
+		if err := rows.Scan(
+			&i.ID,
+			&i.CanonicalName,
+			&i.DisplayName,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchPodcasts = `-- name: SearchPodcasts :many
 SELECT id, uuid, feed_url, title, author, description, image_url, website_url, category, language, media_type, show_type, is_explicit, refresh_status, refresh_error, feed_etag, feed_last_modified, last_refresh_at, next_refresh_at, latest_episode_uuid, latest_episode_published, content_modified_ms, created_at, updated_at, background_color, tint_for_light_bg, tint_for_dark_bg, colors_source_image_url FROM podcasts
 WHERE refresh_status = 'ok'
@@ -6814,6 +7055,20 @@ func (q *Queries) TrimHistory(ctx context.Context, arg TrimHistoryParams) error 
 	return err
 }
 
+const unfollowPerson = `-- name: UnfollowPerson :exec
+DELETE FROM person_follows WHERE user_id = $1 AND person_id = $2
+`
+
+type UnfollowPersonParams struct {
+	UserID   int64
+	PersonID int64
+}
+
+func (q *Queries) UnfollowPerson(ctx context.Context, arg UnfollowPersonParams) error {
+	_, err := q.db.Exec(ctx, unfollowPerson, arg.UserID, arg.PersonID)
+	return err
+}
+
 const updatePodcastColors = `-- name: UpdatePodcastColors :exec
 UPDATE podcasts SET
     background_color = $2,
@@ -7147,8 +7402,9 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 const upsertBookmark = `-- name: UpsertBookmark :exec
 INSERT INTO bookmarks (
     user_id, bookmark_uuid, podcast_uuid, episode_uuid, time_secs, title,
-    title_modified, created_at, is_deleted, is_deleted_modified, modified_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    title_modified, created_at, is_deleted, is_deleted_modified, modified_at,
+    excerpt, end_time_secs, trim_modified, tags, tags_modified
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (user_id, bookmark_uuid) DO UPDATE SET
     podcast_uuid = EXCLUDED.podcast_uuid,
     episode_uuid = EXCLUDED.episode_uuid,
@@ -7158,7 +7414,12 @@ ON CONFLICT (user_id, bookmark_uuid) DO UPDATE SET
     created_at = EXCLUDED.created_at,
     is_deleted = EXCLUDED.is_deleted,
     is_deleted_modified = EXCLUDED.is_deleted_modified,
-    modified_at = EXCLUDED.modified_at
+    modified_at = EXCLUDED.modified_at,
+    excerpt = EXCLUDED.excerpt,
+    end_time_secs = EXCLUDED.end_time_secs,
+    trim_modified = EXCLUDED.trim_modified,
+    tags = EXCLUDED.tags,
+    tags_modified = EXCLUDED.tags_modified
 `
 
 type UpsertBookmarkParams struct {
@@ -7173,6 +7434,11 @@ type UpsertBookmarkParams struct {
 	IsDeleted         bool
 	IsDeletedModified int64
 	ModifiedAt        int64
+	Excerpt           string
+	EndTimeSecs       float64
+	TrimModified      int64
+	Tags              []string
+	TagsModified      int64
 }
 
 func (q *Queries) UpsertBookmark(ctx context.Context, arg UpsertBookmarkParams) error {
@@ -7188,6 +7454,11 @@ func (q *Queries) UpsertBookmark(ctx context.Context, arg UpsertBookmarkParams) 
 		arg.IsDeleted,
 		arg.IsDeletedModified,
 		arg.ModifiedAt,
+		arg.Excerpt,
+		arg.EndTimeSecs,
+		arg.TrimModified,
+		arg.Tags,
+		arg.TagsModified,
 	)
 	return err
 }
@@ -7495,6 +7766,32 @@ func (q *Queries) UpsertHistoryItem(ctx context.Context, arg UpsertHistoryItemPa
 		arg.ModifiedAt,
 	)
 	return err
+}
+
+const upsertPersonAppearance = `-- name: UpsertPersonAppearance :one
+INSERT INTO person_appearances (person_id, podcast_uuid, episode_uuid, role)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (person_id, episode_uuid) DO NOTHING
+RETURNING person_id
+`
+
+type UpsertPersonAppearanceParams struct {
+	PersonID    int64
+	PodcastUuid string
+	EpisodeUuid string
+	Role        string
+}
+
+func (q *Queries) UpsertPersonAppearance(ctx context.Context, arg UpsertPersonAppearanceParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsertPersonAppearance,
+		arg.PersonID,
+		arg.PodcastUuid,
+		arg.EpisodeUuid,
+		arg.Role,
+	)
+	var person_id int64
+	err := row.Scan(&person_id)
+	return person_id, err
 }
 
 const upsertPlaylist = `-- name: UpsertPlaylist :exec

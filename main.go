@@ -350,6 +350,14 @@ func setupRouter(db db.Store, queueClient *tasks.QueueClient, redisClient *redis
 	router.Handle("POST /social/inbox/delete", authChain(controllers.PostInboxDelete))
 
 	// api host role: follow graph + activity feed (protobuf; Slice 5, ADR-0009).
+	// Person index + follows (Highlights B2, ADR-0017): account-scoped,
+	// no joined profile required.
+	router.Handle("POST /person/get", authChain(controllers.PostPersonGet))
+	router.Handle("POST /person/search", authChain(controllers.PostPersonSearch))
+	router.Handle("POST /person/follow", authChain(controllers.PostPersonFollow))
+	router.Handle("POST /person/unfollow", authChain(controllers.PostPersonUnfollow))
+	router.Handle("POST /person/follows", authChain(controllers.PostPersonFollows))
+
 	router.Handle("POST /social/follow", authChain(controllers.PostFollow))
 	router.Handle("POST /social/unfollow", authChain(controllers.PostUnfollow))
 	router.Handle("POST /social/follows", authChain(controllers.PostFollowList))
@@ -973,6 +981,13 @@ func main() {
 			if err := queueClient.EnqueueNotifyNewEpisodes(context.Background(), podcastUuid, episodeUuids); err != nil {
 				slog.Warn("Unable to enqueue push delivery", "podcast", podcastUuid, "error", err)
 			}
+		}
+		// Person follows (Highlights B2): direct best-effort fan-out — the
+		// follower set is tiny compared to podcast push targets, and a lost
+		// notification on restart is acceptable for this personally-scoped alert.
+		personNotifier := notifier
+		feedCrawler.OnNewPersonAppearance = func(personID int64, personName, podcastUuid, episodeUuid string) {
+			go personNotifier.NotifyPersonAppearance(context.Background(), personID, personName, podcastUuid, episodeUuid)
 		}
 	}
 
