@@ -266,7 +266,10 @@ func (n *Notifier) NotifyPersonAppearance(ctx context.Context, personID int64, p
 		Title:      personName,
 		Body:       "appears on " + podcast.Title + ": " + episode.Title,
 		Category:   "person_appearance",
-		CollapseID: "person-" + episodeUuid,
+		// Per-person so two followed credits on one episode don't replace each
+		// other. Fits the APNs 64-byte collapse-id cap with nothing to spare
+		// (7 + up-to-19-digit id + 1 + 36-char uuid = 63) — don't extend it.
+		CollapseID: "person-" + strconv.FormatInt(personID, 10) + "-" + episodeUuid,
 		Data: map[string]string{
 			"person_id":    strconv.FormatInt(personID, 10),
 			"podcast_uuid": podcastUuid,

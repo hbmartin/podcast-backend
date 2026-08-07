@@ -367,6 +367,24 @@ func TestBookmarkHighlightMergeSemantics(t *testing.T) {
 	assert.Nil(t, fresh.TrimModified)
 	assert.Nil(t, fresh.TagsModified)
 	assert.Empty(t, fresh.Tags)
+
+	// A user clear (empty window under a newer stamp) must round-trip WITH
+	// field presence — other devices need the explicit empty values to drop
+	// their stale excerpt rather than reading the stamp as a no-op.
+	clearTrim := base()
+	clearTrim.Excerpt = wrapperspb.String("")
+	clearTrim.EndTime = wrapperspb.Double(0)
+	clearTrim.TrimModified = wrapperspb.Int64(5000)
+	apply(clearTrim)
+	assert.Equal(t, "", store.bookmarks["bm-1"].Excerpt)
+	assert.Equal(t, int64(5000), store.bookmarks["bm-1"].TrimModified)
+
+	cleared := bookmarkToProto(store.bookmarks["bm-1"])
+	assert.NotNil(t, cleared.Excerpt, "clear must carry field presence")
+	assert.Equal(t, "", cleared.Excerpt.GetValue())
+	assert.NotNil(t, cleared.EndTime)
+	assert.Equal(t, float64(0), cleared.EndTime.GetValue())
+	assert.Equal(t, int64(5000), cleared.TrimModified.GetValue())
 }
 
 func upNextChange(action int32, uuid string, modified int64) *pb.UpNextChanges_Change {

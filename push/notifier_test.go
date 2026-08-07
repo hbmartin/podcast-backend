@@ -12,10 +12,20 @@ import (
 
 type storeMock struct {
 	db.Store
-	targets  []db.GetPushTargetsForPodcastRow
-	podcast  db.Podcast
-	episodes map[string]db.Episode
-	cleared  []string
+	targets     []db.GetPushTargetsForPodcastRow
+	podcast     db.Podcast
+	episodes    map[string]db.Episode
+	cleared     []string
+	followers   []int64
+	userTargets map[int64][]db.GetPushTargetsForUserRow
+}
+
+func (m *storeMock) GetPersonFollowerIDs(ctx context.Context, personID int64) ([]int64, error) {
+	return m.followers, nil
+}
+
+func (m *storeMock) GetPushTargetsForUser(ctx context.Context, userID int64) ([]db.GetPushTargetsForUserRow, error) {
+	return m.userTargets[userID], nil
 }
 
 func (m *storeMock) GetPushTargetsForPodcast(ctx context.Context, podcastUuid string) ([]db.GetPushTargetsForPodcastRow, error) {
@@ -86,6 +96,25 @@ func TestNotifierFansOut(t *testing.T) {
 	assert.Equal(t, "Two", sender.sent[2].n.Body)
 	assert.Equal(t, "episode-ep-2", sender.sent[2].n.CollapseID)
 	assert.Empty(t, store.cleared)
+}
+
+func TestPersonAppearanceCollapseIDIsPersonSpecific(t *testing.T) {
+	store := newStoreMock()
+	store.followers = []int64{1}
+	store.userTargets = map[int64][]db.GetPushTargetsForUserRow{
+		1: {{UserID: 1, DeviceID: "d1", PushToken: "TOKEN1", PushEnvironment: "sandbox"}},
+	}
+	sender := &senderMock{}
+	n := &Notifier{DB: store, Sender: sender}
+
+	// Two followed persons credited on the same episode must not collapse
+	// into one notification.
+	n.NotifyPersonAppearance(context.Background(), 7, "Ada Lovelace", "pod-1", "ep-1")
+	n.NotifyPersonAppearance(context.Background(), 8, "Grace Hopper", "pod-1", "ep-1")
+
+	assert.Len(t, sender.sent, 2)
+	assert.Equal(t, "person-7-ep-1", sender.sent[0].n.CollapseID)
+	assert.Equal(t, "person-8-ep-1", sender.sent[1].n.CollapseID)
 }
 
 func TestNotifierCapsEpisodes(t *testing.T) {

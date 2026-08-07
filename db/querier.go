@@ -289,6 +289,7 @@ type Querier interface {
 	FindPersonByAlias(ctx context.Context, aliasFolded string) (Person, error)
 	CreatePerson(ctx context.Context, arg CreatePersonParams) (Person, error)
 	AddPersonAlias(ctx context.Context, arg AddPersonAliasParams) error
+	AddPersonExternalRef(ctx context.Context, arg AddPersonExternalRefParams) error
 	GetPerson(ctx context.Context, id int64) (Person, error)
 	SearchPersons(ctx context.Context, arg SearchPersonsParams) ([]Person, error)
 	UpsertPersonAppearance(ctx context.Context, arg UpsertPersonAppearanceParams) (int64, error)
