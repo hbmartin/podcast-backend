@@ -205,9 +205,11 @@ func bookmarkToProto(row db.Bookmark) *pb.SyncUserBookmark {
 		IsDeleted:         wrapperspb.Bool(row.IsDeleted),
 		IsDeletedModified: wrapperspb.Int64(row.IsDeletedModified),
 	}
-	// Highlight fields (ADR-0016): only emitted when set, so pre-highlight
-	// clients and rows never see spurious presence.
-	if row.Excerpt != "" {
+	// Highlight fields (ADR-0016): emitted when set OR when a user trim stamp
+	// exists — a clear is empty values under a nonzero TrimModified, and other
+	// devices need the field presence to drop their stale excerpt. Rows that
+	// never had highlight data (no excerpt, no stamp) still emit nothing.
+	if row.Excerpt != "" || row.TrimModified != 0 {
 		rec.Excerpt = wrapperspb.String(row.Excerpt)
 		rec.EndTime = wrapperspb.Double(row.EndTimeSecs)
 	}

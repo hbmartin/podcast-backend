@@ -1970,10 +1970,19 @@ ON CONFLICT (alias_folded, person_id) DO NOTHING;
 -- name: GetPerson :one
 SELECT * FROM persons WHERE id = $1;
 
+-- name: AddPersonExternalRef :exec
+-- (scheme, value) is globally unique: the first person credited with a ref
+-- keeps it. Refs are preserved for later identity correction (ADR-0017);
+-- ingest does not resolve identity through them yet.
+INSERT INTO person_external_refs (person_id, scheme, value) VALUES ($1, $2, $3)
+ON CONFLICT (scheme, value) DO NOTHING;
+
 -- name: SearchPersons :many
+-- Callers must escape %, _ and \ in the prefix (handlers escape after
+-- folding) so user input matches literally.
 SELECT DISTINCT p.* FROM persons p
 JOIN person_aliases a ON a.person_id = p.id
-WHERE a.alias_folded LIKE $1 || '%'
+WHERE a.alias_folded LIKE $1 || '%' ESCAPE '\'
 ORDER BY p.display_name
 LIMIT $2;
 

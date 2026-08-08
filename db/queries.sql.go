@@ -28,6 +28,25 @@ func (q *Queries) AddPersonAlias(ctx context.Context, arg AddPersonAliasParams) 
 	return err
 }
 
+const addPersonExternalRef = `-- name: AddPersonExternalRef :exec
+INSERT INTO person_external_refs (person_id, scheme, value) VALUES ($1, $2, $3)
+ON CONFLICT (scheme, value) DO NOTHING
+`
+
+type AddPersonExternalRefParams struct {
+	PersonID int64
+	Scheme   string
+	Value    string
+}
+
+// (scheme, value) is globally unique: the first person credited with a ref
+// keeps it. Refs are preserved for later identity correction (ADR-0017);
+// ingest does not resolve identity through them yet.
+func (q *Queries) AddPersonExternalRef(ctx context.Context, arg AddPersonExternalRefParams) error {
+	_, err := q.db.Exec(ctx, addPersonExternalRef, arg.PersonID, arg.Scheme, arg.Value)
+	return err
+}
+
 const advanceAttestCounter = `-- name: AdvanceAttestCounter :execrows
 UPDATE attest_keys
 SET counter = $2, last_used_at = now()
@@ -6499,7 +6518,7 @@ func (q *Queries) SearchEpisodesInPodcast(ctx context.Context, arg SearchEpisode
 const searchPersons = `-- name: SearchPersons :many
 SELECT DISTINCT p.id, p.canonical_name, p.display_name, p.created_at FROM persons p
 JOIN person_aliases a ON a.person_id = p.id
-WHERE a.alias_folded LIKE $1 || '%'
+WHERE a.alias_folded LIKE $1 || '%' ESCAPE '\'
 ORDER BY p.display_name
 LIMIT $2
 `
@@ -6509,6 +6528,8 @@ type SearchPersonsParams struct {
 	Limit   int32
 }
 
+// Callers must escape %, _ and \ in the prefix (handlers escape after
+// folding) so user input matches literally.
 func (q *Queries) SearchPersons(ctx context.Context, arg SearchPersonsParams) ([]Person, error) {
 	rows, err := q.db.Query(ctx, searchPersons, arg.Column1, arg.Limit)
 	if err != nil {

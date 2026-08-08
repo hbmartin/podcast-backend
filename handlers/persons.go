@@ -21,6 +21,10 @@ import (
 const maxPersonSearchResults = 25
 const maxPersonAppearances = 100
 
+// likePrefixEscaper neutralizes LIKE wildcards in search input; SearchPersons
+// pairs it with an ESCAPE '\' predicate.
+var likePrefixEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
 func personSummary(p db.Person) *pb.PersonSummary {
 	return &pb.PersonSummary{Id: p.ID, DisplayName: p.DisplayName}
 }
@@ -91,7 +95,9 @@ func (h Handlers) PostPersonSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := crawler.FoldPersonName(req.Query)
+	// Fold first (matching the stored aliases), then escape LIKE
+	// metacharacters folding preserves so the prefix matches literally.
+	query := likePrefixEscaper.Replace(crawler.FoldPersonName(req.Query))
 	if strings.TrimSpace(query) == "" {
 		writeProto(w, http.StatusOK, &pb.PersonListResponse{})
 		return
