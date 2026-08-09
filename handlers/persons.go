@@ -59,17 +59,12 @@ func (h Handlers) PostPersonGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	followed, err := h.Queries.GetFollowedPersons(r.Context(), user.ID)
+	following, err := h.Queries.IsFollowingPerson(r.Context(), db.IsFollowingPersonParams{
+		UserID: user.ID, PersonID: person.ID,
+	})
 	if err != nil {
 		writeError(w, r, err)
 		return
-	}
-	following := false
-	for _, f := range followed {
-		if f.ID == person.ID {
-			following = true
-			break
-		}
 	}
 
 	response := &pb.PersonGetResponse{Person: personSummary(person), Following: following}

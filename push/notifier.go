@@ -263,9 +263,9 @@ func (n *Notifier) NotifyPersonAppearance(ctx context.Context, personID int64, p
 	}
 
 	notification := Notification{
-		Title:      personName,
-		Body:       "appears on " + podcast.Title + ": " + episode.Title,
-		Category:   "person_appearance",
+		Title:    personName,
+		Body:     "appears on " + podcast.Title + ": " + episode.Title,
+		Category: "person_appearance",
 		// Per-person so two followed credits on one episode don't replace each
 		// other. Fits the APNs 64-byte collapse-id cap with nothing to spare
 		// (7 + up-to-19-digit id + 1 + 36-char uuid = 63) — don't extend it.
@@ -284,6 +284,12 @@ func (n *Notifier) NotifyPersonAppearance(ctx context.Context, personID int64, p
 		}
 		for _, target := range targets {
 			if err := n.Sender.Send(ctx, target.PushToken, target.PushEnvironment, notification); err != nil {
+				if errors.Is(err, ErrUnregistered) {
+					if clearErr := n.DB.ClearPushToken(ctx, target.PushToken); clearErr != nil {
+						slog.Warn("push: failed to clear unregistered token", "person", personID, "error", clearErr)
+					}
+					continue
+				}
 				slog.Warn("push: person appearance delivery failed", "person", personID, "error", err)
 			}
 		}
