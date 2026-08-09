@@ -58,12 +58,19 @@ func itemPersons(item *gofeed.Item) []CreditedPerson {
 // values; a href is an identifier, not content, so oversize ones are dropped.
 const maxPersonHrefLen = 2048
 
+// NewPersonAppearance contains the identity data needed to notify followers
+// after an appearance row is inserted for the first time.
+type NewPersonAppearance struct {
+	PersonID    int64
+	DisplayName string
+}
+
 // IngestPersons resolves each credited person to an identity (creating one on
 // first sight, v1 heuristic: one person per folded alias) and records the
-// appearance. Returns the person ids whose appearance on this episode is NEW —
+// appearance. Returns identities whose appearance on this episode is NEW —
 // the push fan-out set for fresh episodes.
-func IngestPersons(ctx context.Context, store db.Store, podcastUuid, episodeUuid string, persons []CreditedPerson) ([]int64, error) {
-	var newAppearances []int64
+func IngestPersons(ctx context.Context, store db.Store, podcastUuid, episodeUuid string, persons []CreditedPerson) ([]NewPersonAppearance, error) {
+	var newAppearances []NewPersonAppearance
 	for _, credited := range persons {
 		folded := FoldPersonName(credited.Name)
 		if folded == "" {
@@ -97,7 +104,9 @@ func IngestPersons(ctx context.Context, store db.Store, podcastUuid, episodeUuid
 		case err != nil:
 			return newAppearances, err
 		default:
-			newAppearances = append(newAppearances, person.ID)
+			newAppearances = append(newAppearances, NewPersonAppearance{
+				PersonID: person.ID, DisplayName: person.DisplayName,
+			})
 		}
 	}
 	return newAppearances, nil

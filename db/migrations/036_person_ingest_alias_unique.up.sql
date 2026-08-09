@@ -48,7 +48,26 @@ WITH shadowed AS (
     GROUP BY a.person_id
     HAVING a.person_id > MIN(b.person_id)
 )
+INSERT INTO person_external_refs (person_id, scheme, value)
+SELECT s.winner_id, per.scheme, per.value
+FROM person_external_refs per
+JOIN shadowed s ON s.loser_id = per.person_id
+ON CONFLICT (scheme, value) DO NOTHING;
+
+WITH shadowed AS (
+    SELECT a.person_id AS loser_id, MIN(b.person_id) AS winner_id
+    FROM person_aliases a
+    JOIN person_aliases b
+      ON b.alias_folded = a.alias_folded AND b.source = 'ingest'
+    WHERE a.source = 'ingest'
+    GROUP BY a.person_id
+    HAVING a.person_id > MIN(b.person_id)
+)
 DELETE FROM persons WHERE id IN (SELECT loser_id FROM shadowed);
 
+-- Keep this index non-concurrent: golang-migrate's Postgres driver sends this
+-- multi-statement file in one Exec, which Postgres treats as an implicit
+-- transaction. The dedupe and constraint must remain atomic so an ingest
+-- cannot recreate a duplicate between them.
 CREATE UNIQUE INDEX person_aliases_ingest_alias_unique
     ON person_aliases (alias_folded) WHERE source = 'ingest';
