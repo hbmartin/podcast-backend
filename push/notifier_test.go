@@ -117,6 +117,21 @@ func TestPersonAppearanceCollapseIDIsPersonSpecific(t *testing.T) {
 	assert.Equal(t, "person-8-ep-1", sender.sent[1].n.CollapseID)
 }
 
+func TestPersonAppearanceClearsUnregisteredToken(t *testing.T) {
+	store := newStoreMock()
+	store.followers = []int64{1}
+	store.userTargets = map[int64][]db.GetPushTargetsForUserRow{
+		1: {{UserID: 1, DeviceID: "d1", PushToken: "TOKEN1", PushEnvironment: "sandbox"}},
+	}
+	sender := &senderMock{fail: map[string]error{"TOKEN1": ErrUnregistered}}
+	n := &Notifier{DB: store, Sender: sender}
+
+	n.NotifyPersonAppearance(context.Background(), 7, "Ada Lovelace", "pod-1", "ep-1")
+
+	assert.Equal(t, []string{"TOKEN1"}, store.cleared)
+	assert.Empty(t, sender.sent)
+}
+
 func TestNotifierCapsEpisodes(t *testing.T) {
 	store := newStoreMock()
 	store.targets = store.targets[:1]

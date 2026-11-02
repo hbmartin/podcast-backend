@@ -1994,7 +1994,7 @@ RETURNING person_id;
 
 -- name: GetPersonAppearances :many
 SELECT * FROM person_appearances WHERE person_id = $1
-ORDER BY created_at DESC
+ORDER BY created_at DESC, episode_uuid DESC
 LIMIT $2;
 
 -- name: FollowPerson :exec
@@ -2009,6 +2009,12 @@ SELECT p.* FROM persons p
 JOIN person_follows f ON f.person_id = p.id
 WHERE f.user_id = $1
 ORDER BY p.display_name;
+
+-- name: IsFollowingPerson :one
+SELECT EXISTS (
+    SELECT 1 FROM person_follows
+    WHERE user_id = $1 AND person_id = $2
+);
 
 -- name: GetPersonFollowerIDs :many
 SELECT user_id FROM person_follows WHERE person_id = $1;

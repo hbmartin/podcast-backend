@@ -978,7 +978,7 @@ func main() {
 
 	if notifier != nil {
 		feedCrawler.OnNewEpisodes = func(podcastUuid string, episodeUuids []string) {
-			if err := queueClient.EnqueueNotifyNewEpisodes(context.Background(), podcastUuid, episodeUuids); err != nil {
+			if err := queueClient.EnqueueNotifyNewEpisodes(ctx, podcastUuid, episodeUuids); err != nil {
 				slog.Warn("Unable to enqueue push delivery", "podcast", podcastUuid, "error", err)
 			}
 		}
@@ -987,7 +987,7 @@ func main() {
 		// notification on restart is acceptable for this personally-scoped alert.
 		personNotifier := notifier
 		feedCrawler.OnNewPersonAppearance = func(personID int64, personName, podcastUuid, episodeUuid string) {
-			go personNotifier.NotifyPersonAppearance(context.Background(), personID, personName, podcastUuid, episodeUuid)
+			go personNotifier.NotifyPersonAppearance(ctx, personID, personName, podcastUuid, episodeUuid)
 		}
 	}
 
@@ -999,7 +999,7 @@ func main() {
 				TargetUserID: targetUserID, PushType: pushType,
 				ActorHandle: actorHandle, ActorDisplayName: actorDisplayName, Data: data,
 			}
-			if err := queueClient.EnqueueSocialPush(context.Background(), payload); err != nil {
+			if err := queueClient.EnqueueSocialPush(ctx, payload); err != nil {
 				slog.Warn("social push enqueue failed", "err", err)
 			}
 		}

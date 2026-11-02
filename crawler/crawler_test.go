@@ -21,10 +21,11 @@ import (
 type catalogFake struct {
 	db.Store
 
-	nextID      int64
-	podcasts    map[string]*db.Podcast // by uuid
-	episodes    map[string]db.UpsertEpisodeParams
-	subscribers map[string]bool
+	nextID        int64
+	podcasts      map[string]*db.Podcast // by uuid
+	episodes      map[string]db.UpsertEpisodeParams
+	subscribers   map[string]bool
+	findPersonErr error
 }
 
 func newCatalogFake() *catalogFake {
@@ -72,6 +73,13 @@ func (f *catalogFake) UpsertEpisodeAlias(ctx context.Context, arg db.UpsertEpiso
 func (f *catalogFake) UpsertEpisode(ctx context.Context, arg db.UpsertEpisodeParams) error {
 	f.episodes[arg.Uuid] = arg
 	return nil
+}
+
+func (f *catalogFake) FindPersonByAlias(ctx context.Context, aliasFolded string) (db.Person, error) {
+	if f.findPersonErr != nil {
+		return db.Person{}, f.findPersonErr
+	}
+	return db.Person{}, pgx.ErrNoRows
 }
 
 func (f *catalogFake) UpdatePodcastCrawlSuccess(ctx context.Context, arg db.UpdatePodcastCrawlSuccessParams) error {
@@ -337,6 +345,33 @@ func TestCrawlNotifiesNewEpisodes(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NoError(t, c.Crawl(context.Background(), podcast))
 	assert.Equal(t, 1, calls)
+}
+
+func TestCrawlPersonIngestFailureStillAdvancesSchedule(t *testing.T) {
+	store := newCatalogFake()
+	store.findPersonErr = errors.New("person index unavailable")
+	feedURL := "https://example.com/people.xml"
+	podcast := db.Podcast{ID: 1, Uuid: PodcastUUID(feedURL), FeedUrl: feedURL, RefreshStatus: "ok"}
+	store.podcasts[podcast.Uuid] = &podcast
+
+	body := io.NopCloser(bytes.NewBufferString(`<?xml version="1.0"?>
+<rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+  <channel><title>People Show</title>
+    <item><title>Episode</title><guid>person-ep</guid>
+      <pubDate>Mon, 01 Jan 2024 10:00:00 GMT</pubDate>
+      <enclosure url="https://cdn.example.com/person.mp3" type="audio/mpeg" length="1"/>
+      <podcast:person role="host">Ada Lovelace</podcast:person>
+    </item>
+  </channel>
+</rss>`))
+	c := &Crawler{DB: store, Fetcher: &fixedBodyFetcher{body: body}}
+
+	err := c.Crawl(context.Background(), podcast)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "ok", store.podcasts[podcast.Uuid].RefreshStatus)
+	assert.True(t, store.podcasts[podcast.Uuid].NextRefreshAt.After(time.Now()))
+	assert.Len(t, store.episodes, 1, "episode ingestion still succeeds")
 }
 
 func TestCrawlParsesTranscriptsAndChapters(t *testing.T) {

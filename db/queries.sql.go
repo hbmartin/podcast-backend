@@ -3610,7 +3610,7 @@ func (q *Queries) GetPerson(ctx context.Context, id int64) (Person, error) {
 
 const getPersonAppearances = `-- name: GetPersonAppearances :many
 SELECT person_id, podcast_uuid, episode_uuid, role, created_at FROM person_appearances WHERE person_id = $1
-ORDER BY created_at DESC
+ORDER BY created_at DESC, episode_uuid DESC
 LIMIT $2
 `
 
@@ -6061,6 +6061,25 @@ func (q *Queries) IsBlockedEither(ctx context.Context, arg IsBlockedEitherParams
 	var blocked bool
 	err := row.Scan(&blocked)
 	return blocked, err
+}
+
+const isFollowingPerson = `-- name: IsFollowingPerson :one
+SELECT EXISTS (
+    SELECT 1 FROM person_follows
+    WHERE user_id = $1 AND person_id = $2
+)
+`
+
+type IsFollowingPersonParams struct {
+	UserID   int64
+	PersonID int64
+}
+
+func (q *Queries) IsFollowingPerson(ctx context.Context, arg IsFollowingPersonParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isFollowingPerson, arg.UserID, arg.PersonID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const lockRateLimitBucket = `-- name: LockRateLimitBucket :exec

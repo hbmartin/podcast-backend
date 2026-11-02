@@ -297,5 +297,6 @@ type Querier interface {
 	FollowPerson(ctx context.Context, arg FollowPersonParams) error
 	UnfollowPerson(ctx context.Context, arg UnfollowPersonParams) error
 	GetFollowedPersons(ctx context.Context, userID int64) ([]Person, error)
+	IsFollowingPerson(ctx context.Context, arg IsFollowingPersonParams) (bool, error)
 	GetPersonFollowerIDs(ctx context.Context, personID int64) ([]int64, error)
 }

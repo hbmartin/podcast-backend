@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -175,17 +176,17 @@ func (c *Crawler) Crawl(ctx context.Context, podcast db.Podcast) error {
 		// Person index (Highlights B2): resolve credited persons on every
 		// ingested item; push fan-out only for genuinely fresh episodes.
 		if credited := itemPersons(item); len(credited) > 0 {
-			newPersonIDs, personErr := IngestPersons(ctx, c.DB, podcast.Uuid, episode.Uuid, credited)
+			newAppearances, personErr := IngestPersons(ctx, c.DB, podcast.Uuid, episode.Uuid, credited)
 			if personErr != nil {
-				return errs.E(op, errs.Database, personErr)
+				// Person search and follow notifications are auxiliary catalog
+				// features. Do not leave the podcast perpetually due after its
+				// episode data has already been stored successfully.
+				slog.WarnContext(ctx, "person ingest failed",
+					"podcast", podcast.Uuid, "episode", episode.Uuid, "error", personErr)
 			}
 			if isFresh && c.OnNewPersonAppearance != nil {
-				for _, personID := range newPersonIDs {
-					person, personErr := c.DB.GetPerson(ctx, personID)
-					if personErr != nil {
-						continue
-					}
-					c.OnNewPersonAppearance(personID, person.DisplayName, podcast.Uuid, episode.Uuid)
+				for _, appearance := range newAppearances {
+					c.OnNewPersonAppearance(appearance.PersonID, appearance.DisplayName, podcast.Uuid, episode.Uuid)
 				}
 			}
 		}

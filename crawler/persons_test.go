@@ -149,17 +149,20 @@ func TestIngestPersonsCreatesIdentityWithExternalRef(t *testing.T) {
 	ctx := context.Background()
 
 	credited := []CreditedPerson{{Name: "Ada Lovelace", Role: "host", Href: "https://wikidata.org/wiki/Q7259"}}
-	newIDs, err := IngestPersons(ctx, store, "pod-1", "ep-1", credited)
+	newAppearances, err := IngestPersons(ctx, store, "pod-1", "ep-1", credited)
 	if err != nil {
 		t.Fatalf("ingest: %v", err)
 	}
-	if len(newIDs) != 1 {
-		t.Fatalf("want 1 new appearance, got %v", newIDs)
+	if len(newAppearances) != 1 {
+		t.Fatalf("want 1 new appearance, got %v", newAppearances)
 	}
 
-	person := store.persons[newIDs[0]]
+	person := store.persons[newAppearances[0].PersonID]
 	if person.CanonicalName != "ada lovelace" || person.DisplayName != "Ada Lovelace" {
 		t.Errorf("person mis-created: %+v", person)
+	}
+	if newAppearances[0].DisplayName != person.DisplayName {
+		t.Errorf("new appearance omitted display name: %+v", newAppearances[0])
 	}
 	if store.aliasOwner["ada lovelace"] != person.ID {
 		t.Errorf("alias not owned by created person")
@@ -169,12 +172,12 @@ func TestIngestPersonsCreatesIdentityWithExternalRef(t *testing.T) {
 	}
 
 	// Repeat ingest of the same episode: same identity, no new appearance.
-	newIDs, err = IngestPersons(ctx, store, "pod-1", "ep-1", credited)
+	newAppearances, err = IngestPersons(ctx, store, "pod-1", "ep-1", credited)
 	if err != nil {
 		t.Fatalf("repeat ingest: %v", err)
 	}
-	if len(newIDs) != 0 {
-		t.Errorf("repeat appearance reported as new: %v", newIDs)
+	if len(newAppearances) != 0 {
+		t.Errorf("repeat appearance reported as new: %v", newAppearances)
 	}
 	if len(store.persons) != 1 {
 		t.Errorf("duplicate person created: %+v", store.persons)
@@ -191,12 +194,12 @@ func TestIngestPersonsRaceLoserAdoptsWinner(t *testing.T) {
 	store.aliasOwner["ada lovelace"] = winner.ID
 	store.findMisses = 1
 
-	newIDs, err := IngestPersons(ctx, store, "pod-1", "ep-1", []CreditedPerson{{Name: "Ada Lovelace"}})
+	newAppearances, err := IngestPersons(ctx, store, "pod-1", "ep-1", []CreditedPerson{{Name: "Ada Lovelace"}})
 	if err != nil {
 		t.Fatalf("ingest: %v", err)
 	}
-	if len(newIDs) != 1 || newIDs[0] != winner.ID {
-		t.Fatalf("appearance not attributed to race winner: %v", newIDs)
+	if len(newAppearances) != 1 || newAppearances[0].PersonID != winner.ID {
+		t.Fatalf("appearance not attributed to race winner: %v", newAppearances)
 	}
 	if len(store.persons) != 1 {
 		t.Errorf("loser's person row not rolled back: %+v", store.persons)
@@ -214,5 +217,27 @@ func TestIngestPersonsSkipsOversizeHref(t *testing.T) {
 	}
 	if len(store.refs) != 0 {
 		t.Errorf("oversize href persisted: %+v", store.refs)
+	}
+
+	exact := "https://e/" + strings.Repeat("x", maxPersonHrefLen-len("https://e/"))
+	if _, err := IngestPersons(context.Background(), store, "pod-1", "ep-2",
+		[]CreditedPerson{{Name: "Ada Lovelace", Href: exact}}); err != nil {
+		t.Fatalf("exact-length ingest: %v", err)
+	}
+	if len(store.refs) != 1 {
+		t.Errorf("href of exactly maxPersonHrefLen was dropped: %+v", store.refs)
+	}
+}
+
+func TestIngestPersonsSkipsEmptyFold(t *testing.T) {
+	store := newPersonStoreFake()
+
+	newAppearances, err := IngestPersons(context.Background(), store, "pod-1", "ep-1",
+		[]CreditedPerson{{Name: "   "}})
+	if err != nil || len(newAppearances) != 0 {
+		t.Errorf("blank credit not skipped: appearances=%v err=%v", newAppearances, err)
+	}
+	if len(store.persons) != 0 || len(store.appearances) != 0 {
+		t.Errorf("blank credit was persisted: persons=%v appearances=%v", store.persons, store.appearances)
 	}
 }
